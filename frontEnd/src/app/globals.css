@@ -1,0 +1,344 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===== Theme tokens — dark is default, .light overrides ===== */
+:root {
+  --base: #071e33;
+  --hero: #06263F;
+  --hero-text: #F2F7FC;
+  --hero-text-mute: #8FB3CC;
+  --card: #0b3153;
+  --card2: #0e3a61;
+  --edge: rgba(111, 189, 245, 0.25);
+  --ink: #f2f7fc;
+  --mute: #8fb3cc;
+  --soft: rgba(111, 189, 245, 0.08);
+}
+html.light {
+  --base: #f4f9fd;
+  --hero: #ffffff;
+  --hero-text: #0c2e4e;
+  --hero-text-mute: #5e86a5;
+  --card: #ffffff;
+  --card2: #f9fcfe;
+  --edge: #d6e7f5;
+  --ink: #0c2e4e;
+  --mute: #5e86a5;
+  --soft: #eff7fd;
+}
+
+html,
+body {
+  height: 100%;
+}
+body {
+  background: var(--base);
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+}
+
+/* ===== Reusable pieces ===== */
+@layer components {
+  .card {
+    @apply bg-card border border-edge rounded-xl;
+  }
+  .inp {
+    @apply w-full bg-card2 border border-edge rounded-lg px-3 py-2 text-sm text-ink outline-none placeholder:text-mute opacity-70 focus:border-sky;
+  }
+  .lbl {
+    @apply block text-[11px] font-medium text-mute mb-1 tracking-wide;
+  }
+  .btn-teal {
+    @apply inline-flex items-center justify-center gap-2 bg-teal text-navy text-sm font-medium rounded-lg px-4 py-2 cursor-pointer select-none hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 bg-soft border border-edge text-ink text-sm font-medium rounded-lg px-4 py-2 cursor-pointer select-none hover:border-sky;
+  }
+  .btn-blue {
+    @apply inline-flex items-center justify-center gap-2 bg-blue text-white text-sm font-medium rounded-lg px-4 py-2 cursor-pointer select-none hover:brightness-110 disabled:opacity-50;
+  }
+  .pill {
+    @apply inline-flex items-center text-[10px] font-medium rounded-full px-2.5 py-0.5;
+  }
+}
+
+/* ===== 3D + motion (all wrapped for reduced motion) ===== */
+.preserve-3d {
+  transform-style: preserve-3d;
+}
+.cube-face {
+  position: absolute;
+  inset: 0;
+  background: rgba(59, 157, 232, 0.06);
+  border: 1px solid rgba(120, 196, 250, 0.42);
+  border-radius: 12%;
+}
+.orbit {
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(111, 189, 245, 0.55);
+  border-radius: 50%;
+}
+.orbit2 {
+  inset: 5px;
+  border-color: rgba(79, 195, 184, 0.45);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .spin-3d {
+    animation: spin3d 8s linear infinite;
+  }
+  .spin-slow {
+    animation: spin3d 10s linear infinite;
+  }
+  .bob {
+    animation: bob 4.5s ease-in-out infinite;
+  }
+  .float-plus {
+    animation: floatplus 6s ease-in-out infinite;
+  }
+  .grow-bar {
+    animation: growbar 0.9s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+  }
+  .orbit-a {
+    animation: orbita 6s linear infinite;
+  }
+  .orbit-b {
+    animation: orbitb 4.5s linear infinite;
+  }
+  .fade-up {
+    animation: fadeup 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+  }
+  /* Splash choreography: spin in place ~1s, shrink, fly to top-left */
+  .splash-play .sp-cube-wrap {
+    animation: spfly 2.4s cubic-bezier(0.6, 0.05, 0.25, 1) forwards;
+  }
+  .splash-play .sp-cube {
+    animation: spspin 2.4s cubic-bezier(0.45, 0.1, 0.3, 0.95) forwards;
+  }
+  .splash-play .sp-text {
+    animation: spfadeout 0.5s ease 1.15s forwards;
+  }
+  .splash-play.sp-overlay {
+    animation: spoverlay 0.8s ease 1.6s forwards;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rm-show {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+@keyframes spin3d {
+  from {
+    transform: rotateX(-16deg) rotateY(0deg);
+  }
+  to {
+    transform: rotateX(-16deg) rotateY(360deg);
+  }
+}
+@keyframes bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+@keyframes floatplus {
+  0%,
+  100% {
+    opacity: 0.15;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 0.6;
+    transform: translateY(-14px);
+  }
+}
+@keyframes growbar {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+@keyframes orbita {
+  from {
+    transform: rotateX(62deg) rotateZ(0);
+  }
+  to {
+    transform: rotateX(62deg) rotateZ(360deg);
+  }
+}
+@keyframes orbitb {
+  from {
+    transform: rotateY(58deg) rotateZ(0);
+  }
+  to {
+    transform: rotateY(58deg) rotateZ(360deg);
+  }
+}
+@keyframes fadeup {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes spspin {
+  0% {
+    transform: rotateX(-18deg) rotateY(0);
+  }
+  45% {
+    transform: rotateX(-18deg) rotateY(360deg);
+  }
+  100% {
+    transform: rotateX(-14deg) rotateY(575deg);
+  }
+}
+@keyframes spfly {
+  0%,
+  45% {
+    top: 50%;
+    left: 50%;
+    margin: -55px 0 0 -55px;
+    transform: scale(1);
+  }
+  62% {
+    transform: scale(0.55);
+  }
+  100% {
+    top: 14px;
+    left: 18px;
+    margin: 0;
+    transform: scale(0.22);
+  }
+}
+@keyframes spfadeout {
+  to {
+    opacity: 0;
+    transform: translate(-50%, 90px);
+  }
+}
+@keyframes spoverlay {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+@keyframes letterrise {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.letter {
+  display: inline-block;
+  opacity: 0;
+  transform: translateY(16px);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .letter {
+    animation: letterrise 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+  }
+}
+
+/* Flip inline icons in RTL layouts (e.g. arrows point the right way) */
+[dir="rtl"] .rtl-flip {
+  transform: scaleX(-1);
+}
+
+/* ===== Digital clock 3D flip animation ===== */
+@keyframes clock-flip-out {
+  0% {
+    transform: rotateX(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: rotateX(-90deg);
+    opacity: 0;
+  }
+}
+@keyframes clock-flip-in {
+  0% {
+    transform: rotateX(90deg);
+    opacity: 0;
+  }
+  100% {
+    transform: rotateX(0deg);
+    opacity: 1;
+  }
+}
+.clock-flip-out {
+  animation: clock-flip-out 0.4s cubic-bezier(0.4, 0.0, 0.2, 1) forwards;
+  transform-origin: bottom;
+  backface-visibility: hidden;
+}
+.clock-flip-in {
+  animation: clock-flip-in 0.4s cubic-bezier(0.4, 0.0, 0.2, 1) forwards;
+  transform-origin: top;
+  backface-visibility: hidden;
+}
+.clock-digit {
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.15), 0 1px 2px rgba(111, 189, 245, 0.1);
+}
+
+/* ===== Star twinkle for contact section ===== */
+@keyframes star-twinkle {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.4); }
+}
+.star-twinkle {
+  animation: star-twinkle 3s ease-in-out infinite;
+  box-shadow: 0 0 6px currentColor;
+}
+
+/* ===== Contact card hover polish ===== */
+.contact-card {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.3s ease,
+              box-shadow 0.4s ease;
+}
+
+/* ===== Toast slide-in animation ===== */
+@keyframes toast-in {
+  0% { transform: translateY(20px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+.toast-in {
+  animation: toast-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* ===== Confirm modal shake animation for destructive ===== */
+@keyframes shake-warn {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-4px); }
+  40%, 80% { transform: translateX(4px); }
+}
+.shake-warn {
+  animation: shake-warn 0.4s ease-in-out;
+}
+
+/* ===== Skeleton shimmer ===== */
+@keyframes skeleton-shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg,
+    var(--soft) 0%,
+    rgba(111, 189, 245, 0.15) 50%,
+    var(--soft) 100%);
+  background-size: 200px 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  border-radius: 0.5rem;
+}
