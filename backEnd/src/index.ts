@@ -18,6 +18,7 @@ import publicRoutes from "./routes/publicRoutes";
 import adminRoutes from "./routes/adminRoutes";
 
 const app = express();
+app.set("trust proxy", 1);
 
 const frontendUrl = process.env.FRONTEND_URL;
 app.use(
