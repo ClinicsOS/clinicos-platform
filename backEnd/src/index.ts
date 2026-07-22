@@ -15,6 +15,7 @@ import dashboardRoutes from "./routes/dashboardRoutes";
 import subscriptionRoutes from "./routes/subscriptionRoutes";
 import reportsRoutes from "./routes/reportsRoutes";
 import publicRoutes from "./routes/publicRoutes";
+import adminRoutes from "../src/backend-files/routes/adminRoutes";
 
 const app = express();
 
@@ -40,6 +41,7 @@ app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/subscription", subscriptionRoutes);
 app.use("/api/reports", reportsRoutes);
 app.use("/api/public", publicRoutes);
+app.use("/api/admin", adminRoutes);
 
 app.use(errorHandler);
 
