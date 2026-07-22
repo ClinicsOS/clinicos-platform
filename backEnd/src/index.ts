@@ -15,7 +15,7 @@ import dashboardRoutes from "./routes/dashboardRoutes";
 import subscriptionRoutes from "./routes/subscriptionRoutes";
 import reportsRoutes from "./routes/reportsRoutes";
 import publicRoutes from "./routes/publicRoutes";
-import adminRoutes from "../src/backend-files/routes/adminRoutes";
+import adminRoutes from "./routes/adminRoutes";
 
 const app = express();
 

@@ -30,8 +30,12 @@ export const adminLogin = asyncHandler(async (req: Request, res: Response) => {
   const adminSecret = process.env.ADMIN_JWT_SECRET || "";
 
   if (!adminEmail || !adminHash || !adminSecret) {
-    console.error("[adminLogin] ADMIN_EMAIL / ADMIN_PASSWORD_HASH / ADMIN_JWT_SECRET not fully configured");
-    return res.status(500).json({ message: "Admin auth not configured on server" });
+    console.error(
+      "[adminLogin] ADMIN_EMAIL / ADMIN_PASSWORD_HASH / ADMIN_JWT_SECRET not fully configured",
+    );
+    return res
+      .status(500)
+      .json({ message: "Admin auth not configured on server" });
   }
 
   // Use bcrypt.compare unconditionally to avoid timing-based email enumeration —
@@ -50,11 +54,9 @@ export const adminLogin = asyncHandler(async (req: Request, res: Response) => {
     return res.status(401).json({ message: "Invalid email or password" });
   }
 
-  const token = jwt.sign(
-    { sub: "admin", email: adminEmail },
-    adminSecret,
-    { expiresIn: "12h" }
-  );
+  const token = jwt.sign({ sub: "admin", email: adminEmail }, adminSecret, {
+    expiresIn: "12h",
+  });
 
   await logActivity({
     action: "admin.login_success",

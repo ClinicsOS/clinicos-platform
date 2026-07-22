@@ -20,7 +20,9 @@ export async function logActivity(args: LogArgs): Promise<void> {
       action: args.action,
       actorEmail: args.actorEmail,
       targetType: args.targetType,
-      targetId: args.targetId ? new Types.ObjectId(args.targetId.toString()) : undefined,
+      targetId: args.targetId
+        ? new Types.ObjectId(args.targetId.toString())
+        : undefined,
       targetLabel: args.targetLabel,
       details: args.details,
     });
