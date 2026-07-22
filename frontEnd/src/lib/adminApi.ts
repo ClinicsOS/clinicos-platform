@@ -40,7 +40,7 @@ adminApi.interceptors.response.use(
       }
     }
     return Promise.reject(error);
-  }
+  },
 );
 
 export const adminErrMsg = (e: unknown, fallback: string): string => {
