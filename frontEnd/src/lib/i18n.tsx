@@ -1,5 +1,11 @@
 "use client";
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  ReactNode,
+} from "react";
 
 type Lang = "en" | "ar";
 type Dict = Record<string, string>;
@@ -13,7 +19,8 @@ const en: Dict = {
   "hero.title.a": "Run your clinic",
   "hero.title.b": "on autopilot",
   "hero.title.c": ", not on paper",
-  "hero.sub": "Appointments, patient records, and invoices in one smart system — with a booking page your patients will love.",
+  "hero.sub":
+    "Appointments, patient records, and invoices in one smart system — with a booking page your patients will love.",
   "hero.cta": "Start free trial",
   "nav.track": "Track booking",
 
@@ -21,17 +28,20 @@ const en: Dict = {
   "auth.forgotPassword": "Forgot password?",
   "auth.sessionExpired": "Your session has expired. Please sign in again.",
   "fp.title": "Reset your password",
-  "fp.subtitle": "Enter the email you signed up with — we'll send you a reset link.",
+  "fp.subtitle":
+    "Enter the email you signed up with — we'll send you a reset link.",
   "fp.sendLink": "Send reset link",
   "fp.backToSignin": "Back to sign in",
   "fp.sent.title": "Check your email",
-  "fp.sent.body": "If an account exists for {email}, a reset link is on its way. The link expires in one hour.",
+  "fp.sent.body":
+    "If an account exists for {email}, a reset link is on its way. The link expires in one hour.",
   "fp.didntGet": "Didn't get the email?",
   "fp.resend": "Resend",
 
   // ===== Reset password =====
   "rp.title": "Choose a new password",
-  "rp.subtitle": "Pick something you'll remember — at least 8 characters with a number.",
+  "rp.subtitle":
+    "Pick something you'll remember — at least 8 characters with a number.",
   "rp.newPassword": "New password",
   "rp.confirmPassword": "Confirm new password",
   "rp.reqLength": "At least 8 characters",
@@ -48,14 +58,16 @@ const en: Dict = {
   "ve.successTitle": "Email verified!",
   "ve.successBody": "Thanks — your account is all set up.",
   "ve.errorTitle": "Verification failed",
-  "ve.errorGeneric": "This link is invalid or has expired. Please request a new one from Settings → Security.",
+  "ve.errorGeneric":
+    "This link is invalid or has expired. Please request a new one from Settings → Security.",
   "ve.noToken": "This link is missing its token.",
   "ve.goToDashboard": "Go to dashboard",
 
   // ===== Security tab =====
   "sec.tabTitle": "Security",
   "sec.changePwTitle": "Change password",
-  "sec.changePwSub": "Choose a strong new password. You'll stay signed in on this device.",
+  "sec.changePwSub":
+    "Choose a strong new password. You'll stay signed in on this device.",
   "sec.currentPw": "Current password",
   "sec.newPw": "New password",
   "sec.confirmPw": "Confirm new password",
@@ -64,7 +76,8 @@ const en: Dict = {
   "sec.pwChanged": "Password updated",
   "sec.pwChangedSub": "Use the new password next time you sign in.",
   "sec.emailVerifyTitle": "Email verification",
-  "sec.emailVerifySub": "Your email isn't verified yet. Verifying helps us reach you for important updates.",
+  "sec.emailVerifySub":
+    "Your email isn't verified yet. Verifying helps us reach you for important updates.",
   "sec.verified": "Email verified",
   "sec.resendVerify": "Send verification email",
   "sec.iVerified": "I've verified",
@@ -72,16 +85,19 @@ const en: Dict = {
   "sec.verifySentSub": "Check your inbox — the link expires in 24 hours.",
   "sec.verifyOk": "Email successfully verified.",
   "sec.exportTitle": "Export your data",
-  "sec.exportSub": "Download a JSON file containing every clinic, patient, appointment and invoice record.",
+  "sec.exportSub":
+    "Download a JSON file containing every clinic, patient, appointment and invoice record.",
   "sec.exportBtn": "Download data (JSON)",
   "sec.exportOk": "Export ready",
   "sec.exportOkSub": "Your file has been downloaded.",
   "sec.dangerTitle": "Danger zone",
-  "sec.dangerSub": "Deleting your clinic is permanent. Patients, appointments, invoices and staff will all be removed and cannot be recovered.",
+  "sec.dangerSub":
+    "Deleting your clinic is permanent. Patients, appointments, invoices and staff will all be removed and cannot be recovered.",
   "sec.dangerType": "Type DELETE to enable the button",
   "sec.deleteBtn": "Permanently delete my clinic",
   "sec.deleteConfirmTitle": "Delete clinic permanently?",
-  "sec.deleteConfirmBody": "This will remove every record forever. There is no undo. Are you absolutely sure?",
+  "sec.deleteConfirmBody":
+    "This will remove every record forever. There is no undo. Are you absolutely sure?",
   "sec.deleteConfirmBtn": "Yes, delete forever",
   "sec.deleteOk": "Clinic deleted. Goodbye!",
 
@@ -94,21 +110,28 @@ const en: Dict = {
   "cf.deleteConfirmBody": "This action cannot be undone.",
   "cf.deleteBtn": "Delete",
   "cf.cancelAppt": "Cancel this appointment?",
-  "cf.cancelApptBody": "The time slot will be freed up and the patient will need to be notified.",
+  "cf.cancelApptBody":
+    "The time slot will be freed up and the patient will need to be notified.",
   "cf.cancelInvoice": "Delete this invoice?",
-  "cf.cancelInvoiceBody": "The invoice and its payment history will be permanently removed.",
+  "cf.cancelInvoiceBody":
+    "The invoice and its payment history will be permanently removed.",
   "cf.deletePatient": "Delete this patient?",
-  "cf.deletePatientBody": "This patient's file, appointments and invoices will be permanently removed.",
+  "cf.deletePatientBody":
+    "This patient's file, appointments and invoices will be permanently removed.",
   "cf.deactivateStaff": "Deactivate this staff member?",
-  "cf.deactivateStaffBody": "They won't be able to sign in until you reactivate them.",
+  "cf.deactivateStaffBody":
+    "They won't be able to sign in until you reactivate them.",
 
   // ===== Empty states =====
   "empty.noPatients.title": "No patients yet",
-  "empty.noPatients.body": "Add your first patient or share your booking link so patients can register themselves.",
+  "empty.noPatients.body":
+    "Add your first patient or share your booking link so patients can register themselves.",
   "empty.noAppointments.title": "No appointments today",
-  "empty.noAppointments.body": "A quiet day. Enjoy the calm or add a new appointment manually.",
+  "empty.noAppointments.body":
+    "A quiet day. Enjoy the calm or add a new appointment manually.",
   "empty.noInvoices.title": "No invoices yet",
-  "empty.noInvoices.body": "Create your first invoice to start tracking clinic revenue.",
+  "empty.noInvoices.body":
+    "Create your first invoice to start tracking clinic revenue.",
 
   // ===== Toast/success generic =====
   "tst.savedTitle": "Saved",
@@ -118,27 +141,32 @@ const en: Dict = {
   "tst.copiedTitle": "Copied",
   "tst.copiedBody": "Copied to clipboard.",
 
-
   // ===== Contact section =====
   "contact.badge": "Get in touch",
   "contact.title": "Let's talk",
-  "contact.subtitle": "Reach out through any channel — we're here for you and your clinic.",
+  "contact.subtitle":
+    "Reach out through any channel — we're here for you and your clinic.",
   "contact.instagram.sub": "Follow us for updates",
   "contact.email.sub": "We reply within 24 hours",
   "contact.whatsapp.sub": "Fastest way to reach us",
   "contact.thanks.title": "Thank you for choosing ClinicOS",
-  "contact.thanks.body": "You've taken a big step toward running your clinic on autopilot. We're honoured to be part of your journey.",
+  "contact.thanks.body":
+    "You've taken a big step toward running your clinic on autopilot. We're honoured to be part of your journey.",
   "contact.footer.location": "Made in Jordan",
   "hero.demo": "Watch demo",
   "hero.talk": "Talk to us",
   "feat.title": "Everything your clinic needs",
-  "feat.sub": "Three roles, one system — built for owners, doctors, and front desk.",
+  "feat.sub":
+    "Three roles, one system — built for owners, doctors, and front desk.",
   "feat.1.t": "Smart scheduling",
-  "feat.1.d": "Conflict-free calendar with day and week views. Double-booking is impossible.",
+  "feat.1.d":
+    "Conflict-free calendar with day and week views. Double-booking is impossible.",
   "feat.2.t": "Online booking page",
-  "feat.2.d": "Your own branded link. Patients book in under a minute — no account needed.",
+  "feat.2.d":
+    "Your own branded link. Patients book in under a minute — no account needed.",
   "feat.3.t": "Records and invoices",
-  "feat.3.d": "Full patient history and clean invoicing with daily income reports.",
+  "feat.3.d":
+    "Full patient history and clean invoicing with daily income reports.",
   "stats.1": "Average booking time",
   "stats.2": "Double bookings",
   "stats.3": "Patients can book",
@@ -296,7 +324,8 @@ const en: Dict = {
   "bk.none": "No available times on this day.",
   "bk.received": "Booking received!",
   "bk.ref": "Ref",
-  "bk.confirmNote": "The clinic will confirm your booking shortly on your number.",
+  "bk.confirmNote":
+    "The clinic will confirm your booking shortly on your number.",
   "bk.another": "Book another appointment",
   "bk.powered": "Powered by",
   "bk.notfound": "Clinic not found.",
@@ -328,7 +357,8 @@ const en: Dict = {
   "sub.per": "/ month",
   "sub.perTrial": "/ 7 days",
   "sub.chooseYourPlan": "Choose your plan",
-  "sub.chooseSub": "Move up when you're ready to run your whole clinic on ClinicOS.",
+  "sub.chooseSub":
+    "Move up when you're ready to run your whole clinic on ClinicOS.",
   "sub.current": "Current",
   "sub.selectPlan": "Select plan",
   "sub.mostPopular": "Most popular",
@@ -344,9 +374,11 @@ const en: Dict = {
   "sub.notes": "Notes (optional)",
   "sub.submitRequest": "Submit request",
   "sub.submitted": "Request submitted. We'll activate your plan within 1 hour.",
-  "sub.pendingMsg": "Your upgrade to {plan} is being processed. It'll be activated within 1 hour.",
+  "sub.pendingMsg":
+    "Your upgrade to {plan} is being processed. It'll be activated within 1 hour.",
   "sub.expiredScreen.title": "Your subscription has expired",
-  "sub.expiredScreen.sub": "Renew now to keep managing your clinic without losing any data.",
+  "sub.expiredScreen.sub":
+    "Renew now to keep managing your clinic without losing any data.",
   "sub.feat.doctors": "doctors",
   "sub.feat.doctorsUnlim": "Unlimited doctors",
   "sub.feat.oneDoctor": "1 doctor",
@@ -420,10 +452,13 @@ const en: Dict = {
 
   // Pending review screen
   "sub.pending.title": "Your request is being reviewed",
-  "sub.pending.sub": "We're processing your upgrade to {plan}. Activation happens within 1 hour maximum.",
+  "sub.pending.sub":
+    "We're processing your upgrade to {plan}. Activation happens within 1 hour maximum.",
   "sub.pending.remaining": "APPROXIMATE TIME REMAINING",
-  "sub.pending.maxTime": "This is the maximum expected time — usually much faster",
-  "sub.pending.stillProcessing": "Still processing — please be patient. Contact us if this persists.",
+  "sub.pending.maxTime":
+    "This is the maximum expected time — usually much faster",
+  "sub.pending.stillProcessing":
+    "Still processing — please be patient. Contact us if this persists.",
   "sub.pending.willGet": "AFTER ACTIVATION YOU'LL GET",
   "sub.pending.back": "Back to dashboard",
   "sub.pending.b1": "5 doctors + 2 receptionists",
@@ -451,13 +486,16 @@ const en: Dict = {
   "reports.exportExcel": "Export Excel",
   "reports.exportPdf": "Export PDF",
   "reports.lockedTitle": "Reports are a Pro feature",
-  "reports.lockedSub": "Upgrade to Pro to unlock monthly analytics, revenue tracking, top-doctor rankings, and Excel/PDF exports.",
+  "reports.lockedSub":
+    "Upgrade to Pro to unlock monthly analytics, revenue tracking, top-doctor rankings, and Excel/PDF exports.",
 
   // Brand colour
   "st.brandColor": "Brand colour",
-  "st.brandColorHint": "This colour appears on your public booking page's buttons",
+  "st.brandColorHint":
+    "This colour appears on your public booking page's buttons",
   "st.brandColorPreview": "Preview",
-  "st.brandColorLocked": "Custom brand colour is a Pro feature. Upgrade to unlock.",
+  "st.brandColorLocked":
+    "Custom brand colour is a Pro feature. Upgrade to unlock.",
 
   // New: staff edit + calendar
   "st.editStaff": "Edit staff member",
@@ -470,7 +508,8 @@ const en: Dict = {
   "ap.noDoctors": "No doctors yet",
   "ap.noDoctorsSub": "Add a doctor from Settings → Staff to start scheduling.",
   "ap.pendingCount": "awaiting confirmation",
-  "ap.pendingNote": "New booking from the public page — please review and confirm",
+  "ap.pendingNote":
+    "New booking from the public page — please review and confirm",
   "ap.dayClosed": "The clinic is closed on this day",
   "ap.dayClosedSub": "Change the schedule in Settings if this looks wrong.",
   "ap.min": "min",
@@ -494,7 +533,18 @@ const en: Dict = {
   "bk.legend.past": "Past",
   "bk.slotBooked": "This time is already booked",
   "bk.slotPast": "This time has already passed",
-  "bk.noDoctorsYet": "This clinic has no doctors available yet. Please try again later.",
+  "bk.noDoctorsYet":
+    "This clinic has no doctors available yet. Please try again later.",
+  // ===== Save-code warning (after booking) =====
+  "bk.saveCodeTitle": "Important: Save this code",
+  "bk.saveCodeDesc":
+    "You'll need this code to track or cancel your appointment. Take a screenshot now.",
+  // ===== Quick booking guide =====
+  "bk.guideTitle": "How to book",
+  "bk.guideStep1": "Choose a doctor",
+  "bk.guideStep2": "Pick date & time",
+  "bk.guideStep3": "Enter your details",
+  "bk.guideStep4": "Save the code you receive",
 };
 
 const ar: Dict = {
@@ -506,7 +556,8 @@ const ar: Dict = {
   "hero.title.a": "أدر عيادتك",
   "hero.title.b": "بشكل تلقائي",
   "hero.title.c": "، لا على الورق",
-  "hero.sub": "المواعيد وملفات المرضى والفواتير في نظام ذكي واحد — مع صفحة حجز سيحبها مرضاك.",
+  "hero.sub":
+    "المواعيد وملفات المرضى والفواتير في نظام ذكي واحد — مع صفحة حجز سيحبها مرضاك.",
   "hero.cta": "ابدأ التجربة المجانية",
   "nav.track": "تتبع الحجز",
 
@@ -514,11 +565,13 @@ const ar: Dict = {
   "auth.forgotPassword": "نسيت كلمة المرور؟",
   "auth.sessionExpired": "انتهت جلستك. الرجاء تسجيل الدخول مجدداً.",
   "fp.title": "استعادة كلمة المرور",
-  "fp.subtitle": "أدخل البريد الإلكتروني الذي سجلت به — سنرسل لك رابط إعادة التعيين.",
+  "fp.subtitle":
+    "أدخل البريد الإلكتروني الذي سجلت به — سنرسل لك رابط إعادة التعيين.",
   "fp.sendLink": "إرسال رابط الاستعادة",
   "fp.backToSignin": "العودة لتسجيل الدخول",
   "fp.sent.title": "تفقد بريدك الإلكتروني",
-  "fp.sent.body": "إذا كان هناك حساب على {email}، فرابط الاستعادة في طريقه إليك. صلاحية الرابط ساعة واحدة.",
+  "fp.sent.body":
+    "إذا كان هناك حساب على {email}، فرابط الاستعادة في طريقه إليك. صلاحية الرابط ساعة واحدة.",
   "fp.didntGet": "لم يصلك البريد؟",
   "fp.resend": "إعادة الإرسال",
 
@@ -541,14 +594,16 @@ const ar: Dict = {
   "ve.successTitle": "تم تفعيل البريد!",
   "ve.successBody": "شكراً — حسابك جاهز الآن.",
   "ve.errorTitle": "فشل التفعيل",
-  "ve.errorGeneric": "هذا الرابط غير صالح أو منتهي الصلاحية. الرجاء طلب رابط جديد من الإعدادات ← الأمان.",
+  "ve.errorGeneric":
+    "هذا الرابط غير صالح أو منتهي الصلاحية. الرجاء طلب رابط جديد من الإعدادات ← الأمان.",
   "ve.noToken": "هذا الرابط ينقصه الرمز.",
   "ve.goToDashboard": "الذهاب إلى لوحة التحكم",
 
   // ===== تبويب الأمان =====
   "sec.tabTitle": "الأمان",
   "sec.changePwTitle": "تغيير كلمة المرور",
-  "sec.changePwSub": "اختر كلمة مرور قوية جديدة. ستبقى مسجل الدخول على هذا الجهاز.",
+  "sec.changePwSub":
+    "اختر كلمة مرور قوية جديدة. ستبقى مسجل الدخول على هذا الجهاز.",
   "sec.currentPw": "كلمة المرور الحالية",
   "sec.newPw": "كلمة المرور الجديدة",
   "sec.confirmPw": "تأكيد كلمة المرور الجديدة",
@@ -557,7 +612,8 @@ const ar: Dict = {
   "sec.pwChanged": "تم تحديث كلمة المرور",
   "sec.pwChangedSub": "استخدم كلمة المرور الجديدة في المرة القادمة.",
   "sec.emailVerifyTitle": "تفعيل البريد الإلكتروني",
-  "sec.emailVerifySub": "بريدك غير مفعّل بعد. التفعيل يساعدنا في الوصول إليك للتحديثات المهمة.",
+  "sec.emailVerifySub":
+    "بريدك غير مفعّل بعد. التفعيل يساعدنا في الوصول إليك للتحديثات المهمة.",
   "sec.verified": "البريد مفعّل",
   "sec.resendVerify": "إرسال بريد التفعيل",
   "sec.iVerified": "لقد فعّلت",
@@ -565,16 +621,19 @@ const ar: Dict = {
   "sec.verifySentSub": "تفقد بريدك — الرابط صالح لمدة 24 ساعة.",
   "sec.verifyOk": "تم تفعيل البريد بنجاح.",
   "sec.exportTitle": "تصدير بياناتك",
-  "sec.exportSub": "حمّل ملف JSON يحوي كل سجلات العيادة، المرضى، المواعيد والفواتير.",
+  "sec.exportSub":
+    "حمّل ملف JSON يحوي كل سجلات العيادة، المرضى، المواعيد والفواتير.",
   "sec.exportBtn": "تحميل البيانات (JSON)",
   "sec.exportOk": "الملف جاهز",
   "sec.exportOkSub": "تم تحميل الملف.",
   "sec.dangerTitle": "منطقة الخطر",
-  "sec.dangerSub": "حذف العيادة نهائي. سيتم إزالة المرضى والمواعيد والفواتير والموظفين ولا يمكن استعادتهم.",
+  "sec.dangerSub":
+    "حذف العيادة نهائي. سيتم إزالة المرضى والمواعيد والفواتير والموظفين ولا يمكن استعادتهم.",
   "sec.dangerType": "اكتب DELETE لتفعيل الزر",
   "sec.deleteBtn": "حذف عيادتي نهائياً",
   "sec.deleteConfirmTitle": "حذف العيادة نهائياً؟",
-  "sec.deleteConfirmBody": "سيتم حذف كل السجلات للأبد. لا يوجد تراجع. هل أنت متأكد تماماً؟",
+  "sec.deleteConfirmBody":
+    "سيتم حذف كل السجلات للأبد. لا يوجد تراجع. هل أنت متأكد تماماً؟",
   "sec.deleteConfirmBtn": "نعم، احذف للأبد",
   "sec.deleteOk": "تم حذف العيادة. وداعاً!",
 
@@ -597,9 +656,11 @@ const ar: Dict = {
 
   // ===== الحالات الفارغة =====
   "empty.noPatients.title": "لا يوجد مرضى بعد",
-  "empty.noPatients.body": "أضف مريضك الأول أو شارك رابط الحجز ليسجل المرضى بأنفسهم.",
+  "empty.noPatients.body":
+    "أضف مريضك الأول أو شارك رابط الحجز ليسجل المرضى بأنفسهم.",
   "empty.noAppointments.title": "لا مواعيد اليوم",
-  "empty.noAppointments.body": "يوم هادئ. استمتع بالهدوء أو أضف موعداً جديداً يدوياً.",
+  "empty.noAppointments.body":
+    "يوم هادئ. استمتع بالهدوء أو أضف موعداً جديداً يدوياً.",
   "empty.noInvoices.title": "لا فواتير بعد",
   "empty.noInvoices.body": "أنشئ فاتورتك الأولى لتبدأ بتتبع دخل العيادة.",
 
@@ -611,16 +672,17 @@ const ar: Dict = {
   "tst.copiedTitle": "تم النسخ",
   "tst.copiedBody": "تم النسخ إلى الحافظة.",
 
-
   // ===== Contact section =====
   "contact.badge": "تواصل معنا",
   "contact.title": "خلينا نحكي",
-  "contact.subtitle": "تواصل معنا بأي طريقة تناسبك — نحن هنا لخدمتك ولخدمة عيادتك.",
+  "contact.subtitle":
+    "تواصل معنا بأي طريقة تناسبك — نحن هنا لخدمتك ولخدمة عيادتك.",
   "contact.instagram.sub": "تابعنا للتحديثات",
   "contact.email.sub": "نرد خلال 24 ساعة",
   "contact.whatsapp.sub": "أسرع طريقة للوصول إلينا",
   "contact.thanks.title": "شكراً لاستخدامك ClinicOS",
-  "contact.thanks.body": "لقد اتخذت خطوة كبيرة نحو إدارة عيادتك تلقائياً. يشرفنا أن نكون جزءاً من رحلتك.",
+  "contact.thanks.body":
+    "لقد اتخذت خطوة كبيرة نحو إدارة عيادتك تلقائياً. يشرفنا أن نكون جزءاً من رحلتك.",
   "contact.footer.location": "صُنع في الأردن",
   "hero.demo": "شاهد العرض",
   "hero.talk": "تواصل معنا",
@@ -821,7 +883,8 @@ const ar: Dict = {
   "sub.per": "/ شهرياً",
   "sub.perTrial": "/ 7 أيام",
   "sub.chooseYourPlan": "اختر خطتك",
-  "sub.chooseSub": "ارتقِ عندما تكون جاهزاً لإدارة عيادتك بالكامل على ClinicOS.",
+  "sub.chooseSub":
+    "ارتقِ عندما تكون جاهزاً لإدارة عيادتك بالكامل على ClinicOS.",
   "sub.current": "الحالية",
   "sub.selectPlan": "اختر هذه الخطة",
   "sub.mostPopular": "الأكثر شيوعاً",
@@ -837,9 +900,11 @@ const ar: Dict = {
   "sub.notes": "ملاحظات (اختياري)",
   "sub.submitRequest": "إرسال الطلب",
   "sub.submitted": "تم استلام الطلب. سنفعّل خطتك خلال ساعة واحدة.",
-  "sub.pendingMsg": "طلب الترقية إلى {plan} قيد المعالجة، وسيتم تفعيله خلال ساعة واحدة.",
+  "sub.pendingMsg":
+    "طلب الترقية إلى {plan} قيد المعالجة، وسيتم تفعيله خلال ساعة واحدة.",
   "sub.expiredScreen.title": "انتهى اشتراكك",
-  "sub.expiredScreen.sub": "جدد الآن للمتابعة بإدارة عيادتك دون فقدان أي بيانات.",
+  "sub.expiredScreen.sub":
+    "جدد الآن للمتابعة بإدارة عيادتك دون فقدان أي بيانات.",
   "sub.feat.doctors": "أطباء",
   "sub.feat.doctorsUnlim": "أطباء بلا حدود",
   "sub.feat.oneDoctor": "طبيب واحد",
@@ -913,10 +978,12 @@ const ar: Dict = {
 
   // Pending review screen
   "sub.pending.title": "طلبك قيد المراجعة",
-  "sub.pending.sub": "نعالج طلب ترقيتك إلى {plan}. يتم التفعيل خلال ساعة كحد أقصى.",
+  "sub.pending.sub":
+    "نعالج طلب ترقيتك إلى {plan}. يتم التفعيل خلال ساعة كحد أقصى.",
   "sub.pending.remaining": "الوقت المتبقي التقريبي",
   "sub.pending.maxTime": "هذا الحد الأقصى المتوقع — عادةً أسرع بكثير",
-  "sub.pending.stillProcessing": "لا يزال قيد المعالجة — الرجاء الانتظار. تواصل معنا إذا استمر الأمر.",
+  "sub.pending.stillProcessing":
+    "لا يزال قيد المعالجة — الرجاء الانتظار. تواصل معنا إذا استمر الأمر.",
   "sub.pending.willGet": "بعد التفعيل ستحصل على",
   "sub.pending.back": "العودة للوحة التحكم",
   "sub.pending.b1": "5 أطباء + 2 موظفي استقبال",
@@ -944,7 +1011,8 @@ const ar: Dict = {
   "reports.exportExcel": "تصدير Excel",
   "reports.exportPdf": "تصدير PDF",
   "reports.lockedTitle": "التقارير ميزة Pro",
-  "reports.lockedSub": "رقّي إلى Pro لفتح التحليلات الشهرية، تتبع الدخل، ترتيب الأطباء، والتصدير إلى Excel و PDF.",
+  "reports.lockedSub":
+    "رقّي إلى Pro لفتح التحليلات الشهرية، تتبع الدخل، ترتيب الأطباء، والتصدير إلى Excel و PDF.",
 
   // Brand colour
   "st.brandColor": "لون هوية العيادة",
@@ -988,6 +1056,17 @@ const ar: Dict = {
   "bk.slotBooked": "هذا الوقت محجوز مسبقاً",
   "bk.slotPast": "هذا الوقت قد مضى",
   "bk.noDoctorsYet": "لا يوجد أطباء متاحون في هذه العيادة حالياً. حاول لاحقاً.",
+  // ===== Save-code warning (after booking) =====
+  "bk.saveCodeTitle": "مهم: احفظ هذا الرقم",
+  "bk.saveCodeDesc":
+    "ستحتاج هذا الرقم لمتابعة موعدك أو إلغائه. التقط صورة للشاشة الآن.",
+
+  // ===== Quick booking guide =====
+  "bk.guideTitle": "كيف تحجز موعدك",
+  "bk.guideStep1": "اختر الطبيب",
+  "bk.guideStep2": "اختر التاريخ والوقت",
+  "bk.guideStep3": "أدخل بياناتك",
+  "bk.guideStep4": "احتفظ برقم الحجز",
 };
 
 const dicts: Record<Lang, Dict> = { en, ar };
@@ -997,7 +1076,11 @@ interface I18nCtx {
   setLang: (l: Lang) => void;
   t: (key: string) => string;
 }
-const Ctx = createContext<I18nCtx>({ lang: "en", setLang: () => {}, t: (k) => k });
+const Ctx = createContext<I18nCtx>({
+  lang: "en",
+  setLang: () => {},
+  t: (k) => k,
+});
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>("en");
