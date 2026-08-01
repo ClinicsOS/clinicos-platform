@@ -355,6 +355,9 @@ export default function LandingPage() {
           <a href="#pricing" className="hover:text-sky">
             {t("nav.pricing")}
           </a>
+          <Link href="/about" className="hover:text-sky">
+            {t("nav.about")}
+          </Link>
           <a href="#contact" className="hover:text-sky">
             {t("contact.badge")}
           </a>
@@ -642,7 +645,9 @@ export default function LandingPage() {
 
             {/* Email */}
             <a
-              href="clinicos.system@gmail.com"
+              href="mailto:clinicos.system@gmail.com"
+              target="_blank"
+              rel="noopener noreferrer"
               className="contact-card group relative flex flex-col items-center overflow-hidden rounded-2xl border border-sky/20 bg-white/5 p-6 text-center backdrop-blur-sm transition-all hover:-translate-y-1 hover:border-sky/60 hover:shadow-[0_20px_50px_-20px_rgba(111,189,245,0.5)]"
             >
               <div
@@ -735,9 +740,17 @@ export default function LandingPage() {
             © {new Date().getFullYear()} ClinicOS ·{" "}
             {t("contact.footer.location")}
           </div>
-          <div className="flex items-center gap-3 text-[10px] text-[color:var(--hero-text-mute)]">
+          <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10px] text-[color:var(--hero-text-mute)]">
             <Link href="/track" className="hover:text-sky">
               {t("nav.track")}
+            </Link>
+            <span>·</span>
+            <Link href="/privacy" className="hover:text-sky">
+              {t("footer.privacy")}
+            </Link>
+            <span>·</span>
+            <Link href="/terms" className="hover:text-sky">
+              {t("footer.terms")}
             </Link>
             <span>·</span>
             <Link href="/signin" className="hover:text-sky">

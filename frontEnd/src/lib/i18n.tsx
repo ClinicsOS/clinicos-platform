@@ -545,6 +545,96 @@ const en: Dict = {
   "bk.guideStep2": "Pick date & time",
   "bk.guideStep3": "Enter your details",
   "bk.guideStep4": "Save the code you receive",
+
+  // ===== Common =====
+  "common.back": "Back to home",
+
+  // ===== Nav additions =====
+  "nav.about": "About",
+
+  // ===== Footer additions =====
+  "footer.privacy": "Privacy",
+  "footer.terms": "Terms",
+
+  // ===== About Us page =====
+  "about.title": "About ClinicOS",
+  "about.subtitle":
+    "A modern clinic management platform built for the MENA region — right here in Jordan.",
+  "about.mission.title": "Our mission",
+  "about.mission.body":
+    "To modernize healthcare in the MENA region by giving clinics the tools they deserve — simple, affordable, and built with their workflows in mind.",
+  "about.story.title": "Our story",
+  "about.story.body":
+    "ClinicOS started as a personal project by a software engineering student in Jordan.\n\nAfter watching family doctors, dentists, and specialists struggle with paperwork, missed appointments, and outdated foreign software that never quite fit — the goal became clear: build the tool our region actually needs.\n\nToday, ClinicOS serves real clinics with real problems — and we're just getting started.",
+  "about.values.title": "What we value",
+  "about.values.v1.title": "Simplicity",
+  "about.values.v1.body":
+    "Software that works out of the box. No manuals, no training courses.",
+  "about.values.v2.title": "Reliability",
+  "about.values.v2.body":
+    "Your patient data is safe, backed up, and always available.",
+  "about.values.v3.title": "Local support",
+  "about.values.v3.body":
+    "We're in Jordan. We speak Arabic. We understand your reality.",
+  "about.contact.title": "Get in touch",
+  "about.contact.body":
+    "Have a question, feedback, or want to see a demo? We'd love to hear from you.",
+
+  // ===== Privacy Policy page =====
+  "privacy.title": "Privacy Policy",
+  "privacy.lastUpdated": "Last updated: July 2026",
+  "privacy.intro.title": "Introduction",
+  "privacy.intro.body":
+    "This Privacy Policy describes how ClinicOS collects, uses, and protects the information you share when using our clinic management platform. By using ClinicOS, you agree to the practices described here.",
+  "privacy.collect.title": "Information we collect",
+  "privacy.collect.body":
+    "We collect information you provide directly:\n• Account details: name, email, phone number, and password.\n• Clinic data: clinic name, working hours, doctors, staff.\n• Patient records: names, contact info, medical notes entered by your team.\n• Billing information: subscription details (processed by secure payment providers — we don't store card numbers).\n\nWe also collect basic technical data: IP address, browser type, and usage patterns to improve the service.",
+  "privacy.use.title": "How we use your data",
+  "privacy.use.body":
+    "We use your information to:\n• Provide and operate the ClinicOS service.\n• Send you important updates, security alerts, and support messages.\n• Improve the platform based on how it's used.\n• Comply with legal obligations.\n\nWe never use patient data for advertising or sell it to third parties.",
+  "privacy.protect.title": "Data protection",
+  "privacy.protect.body":
+    "We use industry-standard security practices:\n• Data encrypted in transit (HTTPS/TLS) and at rest.\n• Passwords hashed with bcrypt.\n• Access to your clinic's data is restricted to authorized users you invite.\n• Regular backups.\n\nWhile we work hard to protect your data, no system is 100% secure. We recommend using strong passwords and keeping your account credentials confidential.",
+  "privacy.share.title": "Sharing with third parties",
+  "privacy.share.body":
+    "We do not sell or rent your data. We only share information when necessary:\n• With service providers (hosting, email delivery, payment processing) under strict confidentiality.\n• When required by law or legal process.\n• With your explicit consent.",
+  "privacy.rights.title": "Your rights",
+  "privacy.rights.body":
+    "You have the right to:\n• Access the personal data we hold about you.\n• Correct inaccurate information.\n• Request deletion of your account and data.\n• Export your data at any time.\n\nTo exercise any of these rights, contact us at contact@clinicosjo.com.",
+  "privacy.cookies.title": "Cookies & sessions",
+  "privacy.cookies.body":
+    "We use cookies and local storage only to keep you signed in and to remember your preferences (like language and theme). We don't use tracking or advertising cookies.",
+  "privacy.contact.title": "Contact us",
+  "privacy.contact.body":
+    "Questions about this Privacy Policy? Email us at contact@clinicosjo.com and we'll get back to you within 48 hours.",
+
+  // ===== Terms of Service page =====
+  "terms.title": "Terms of Service",
+  "terms.lastUpdated": "Last updated: July 2026",
+  "terms.accept.title": "Acceptance of terms",
+  "terms.accept.body":
+    "By creating an account or using ClinicOS, you agree to these Terms of Service. If you don't agree, please don't use the service.\n\nThese terms may be updated over time. We'll notify you of any material changes via email or in-app notice.",
+  "terms.subscription.title": "Subscription & payment",
+  "terms.subscription.body":
+    "ClinicOS is offered on a subscription basis. Details of plans, features, and pricing are available on our website.\n\n• Payments are billed monthly in advance.\n• You can upgrade, downgrade, or cancel at any time from your account settings.\n• Refunds are handled on a case-by-case basis — contact us if you have concerns.",
+  "terms.user.title": "Your responsibilities",
+  "terms.user.body":
+    "As a ClinicOS user, you agree to:\n• Provide accurate information when signing up.\n• Keep your password secure and confidential.\n• Not share your account with unauthorized users.\n• Comply with all applicable laws when using the service, including data protection and healthcare regulations in your jurisdiction.\n• Ensure you have proper consent from patients before entering their data into the system.",
+  "terms.our.title": "Our responsibilities",
+  "terms.our.body":
+    "We commit to:\n• Providing the service as described.\n• Making reasonable efforts to keep the platform available and secure.\n• Notifying you of significant changes or service issues.\n• Responding to support requests in a timely manner.\n\nWe don't guarantee uninterrupted service, but we work hard to minimize downtime.",
+  "terms.use.title": "Acceptable use",
+  "terms.use.body":
+    "You may not:\n• Use ClinicOS for any illegal activity.\n• Attempt to access other clinics' data.\n• Reverse-engineer, decompile, or interfere with the platform.\n• Upload malicious code or content that violates others' rights.\n• Use the service to spam or harass others.\n\nViolations may result in account suspension or termination.",
+  "terms.cancel.title": "Cancellation & termination",
+  "terms.cancel.body":
+    "You can cancel your subscription at any time. Upon cancellation:\n• Your access continues until the end of your current billing period.\n• You may export your data before your account is closed.\n• After 30 days, your data may be permanently deleted.\n\nWe reserve the right to suspend or terminate accounts that violate these terms.",
+  "terms.liability.title": "Limitation of liability",
+  "terms.liability.body":
+    'ClinicOS is provided "as is" without warranties of any kind. While we work hard to provide reliable service, we can\'t guarantee it will be error-free or uninterrupted.\n\nWe are not liable for:\n• Loss of data due to user error or third-party services.\n• Indirect, incidental, or consequential damages.\n• Issues arising from misuse of the platform.\n\nOur total liability is limited to the amount you paid in the previous 12 months.',
+  "terms.law.title": "Governing law",
+  "terms.law.body":
+    "These Terms are governed by the laws of the Hashemite Kingdom of Jordan. Any disputes will be resolved in the courts of Amman, Jordan.\n\nQuestions about these Terms? Email us at contact@clinicosjo.com.",
 };
 
 const ar: Dict = {
@@ -1067,6 +1157,95 @@ const ar: Dict = {
   "bk.guideStep2": "اختر التاريخ والوقت",
   "bk.guideStep3": "أدخل بياناتك",
   "bk.guideStep4": "احتفظ برقم الحجز",
+
+  // ===== Common =====
+  "common.back": "العودة للرئيسية",
+
+  // ===== Nav additions =====
+  "nav.about": "من نحن",
+
+  // ===== Footer additions =====
+  "footer.privacy": "الخصوصية",
+  "footer.terms": "الشروط",
+
+  // ===== About Us page =====
+  "about.title": "عن ClinicOS",
+  "about.subtitle":
+    "منصة إدارة عيادات حديثة مبنية لواقع الشرق الأوسط وشمال أفريقيا — هنا في الأردن.",
+  "about.mission.title": "رسالتنا",
+  "about.mission.body":
+    "تحديث الرعاية الصحية في منطقتنا من خلال إعطاء العيادات الأدوات التي تستحقها — بسيطة، بأسعار معقولة، ومصممة لسير عملها.",
+  "about.story.title": "قصتنا",
+  "about.story.body":
+    "بدأت ClinicOS كمشروع شخصي لطالب هندسة برمجيات في الأردن.\n\nبعد مشاهدة أطباء العائلة، أطباء الأسنان، والاختصاصيين وهم يعانون من الأوراق، والمواعيد الضائعة، والبرامج الأجنبية القديمة التي لا تناسب واقعنا — أصبح الهدف واضحاً: بناء الأداة التي تحتاجها منطقتنا فعلاً.\n\nاليوم، تخدم ClinicOS عيادات حقيقية بمشاكل حقيقية — ونحن في بداية الطريق فقط.",
+  "about.values.title": "قيمنا",
+  "about.values.v1.title": "البساطة",
+  "about.values.v1.body":
+    "برنامج يشتغل من أول ثانية. بلا كتب تعليمات، بلا دورات تدريبية.",
+  "about.values.v2.title": "الموثوقية",
+  "about.values.v2.body":
+    "بيانات مرضاك آمنة، منسوخة احتياطياً، ومتوفرة دائماً.",
+  "about.values.v3.title": "الدعم المحلي",
+  "about.values.v3.body": "نحن في الأردن. نتكلم العربية. نفهم واقعكم.",
+  "about.contact.title": "تواصل معنا",
+  "about.contact.body":
+    "عندك سؤال، ملاحظة، أو تحب تشوف عرض توضيحي؟ نحب نسمع منك.",
+
+  // ===== Privacy Policy page =====
+  "privacy.title": "سياسة الخصوصية",
+  "privacy.lastUpdated": "آخر تحديث: تموز 2026",
+  "privacy.intro.title": "مقدمة",
+  "privacy.intro.body":
+    "توضح سياسة الخصوصية هذه كيف تجمع ClinicOS وتستخدم وتحمي المعلومات التي تشاركها عند استخدام منصتنا لإدارة العيادات. باستخدامك ClinicOS، فإنك توافق على الممارسات الموضحة هنا.",
+  "privacy.collect.title": "المعلومات التي نجمعها",
+  "privacy.collect.body":
+    "نجمع المعلومات التي تقدمها مباشرةً:\n• بيانات الحساب: الاسم، البريد الإلكتروني، رقم الهاتف، وكلمة المرور.\n• بيانات العيادة: اسم العيادة، ساعات العمل، الأطباء، الموظفون.\n• سجلات المرضى: الأسماء، معلومات الاتصال، الملاحظات الطبية التي يدخلها فريقك.\n• معلومات الدفع: تفاصيل الاشتراك (تُعالج عبر مزودي دفع آمنين — نحن لا نخزّن أرقام البطاقات).\n\nنجمع أيضاً بيانات تقنية أساسية: عنوان IP، نوع المتصفح، وأنماط الاستخدام لتحسين الخدمة.",
+  "privacy.use.title": "كيف نستخدم بياناتك",
+  "privacy.use.body":
+    "نستخدم معلوماتك من أجل:\n• توفير وتشغيل خدمة ClinicOS.\n• إرسال تحديثات مهمة، تنبيهات أمنية، ورسائل دعم.\n• تحسين المنصة بناءً على كيفية استخدامها.\n• الامتثال للالتزامات القانونية.\n\nلا نستخدم بيانات المرضى للإعلانات أبداً ولا نبيعها لأطراف ثالثة.",
+  "privacy.protect.title": "حماية البيانات",
+  "privacy.protect.body":
+    "نستخدم ممارسات أمنية معيارية:\n• البيانات مشفّرة أثناء النقل (HTTPS/TLS) وأثناء التخزين.\n• كلمات المرور مُشفّرة باستخدام bcrypt.\n• الوصول لبيانات عيادتك محدود بالمستخدمين الذين تدعوهم أنت.\n• نسخ احتياطي منتظم.\n\nرغم اجتهادنا في حماية بياناتك، لا يوجد نظام آمن بنسبة 100%. ننصح باستخدام كلمات مرور قوية والحفاظ على سرية بيانات حسابك.",
+  "privacy.share.title": "المشاركة مع أطراف ثالثة",
+  "privacy.share.body":
+    "نحن لا نبيع أو نؤجّر بياناتك. نشارك المعلومات فقط عند الضرورة:\n• مع مزودي الخدمة (الاستضافة، تسليم البريد، معالجة الدفع) بموجب سرية صارمة.\n• عند الطلب القانوني أو الإجراءات القضائية.\n• بموافقتك الصريحة.",
+  "privacy.rights.title": "حقوقك",
+  "privacy.rights.body":
+    "لك الحق في:\n• الوصول إلى البيانات الشخصية التي نحتفظ بها عنك.\n• تصحيح المعلومات غير الدقيقة.\n• طلب حذف حسابك وبياناتك.\n• تصدير بياناتك في أي وقت.\n\nلممارسة أي من هذه الحقوق، تواصل معنا على contact@clinicosjo.com.",
+  "privacy.cookies.title": "الكوكيز والجلسات",
+  "privacy.cookies.body":
+    "نستخدم الكوكيز والتخزين المحلي فقط لإبقائك مسجّل الدخول ولتذكّر تفضيلاتك (مثل اللغة والمظهر). لا نستخدم كوكيز التتبع أو الإعلانات.",
+  "privacy.contact.title": "تواصل معنا",
+  "privacy.contact.body":
+    "أسئلة حول سياسة الخصوصية؟ راسلنا على contact@clinicosjo.com وسنرد عليك خلال 48 ساعة.",
+
+  // ===== Terms of Service page =====
+  "terms.title": "شروط الاستخدام",
+  "terms.lastUpdated": "آخر تحديث: تموز 2026",
+  "terms.accept.title": "قبول الشروط",
+  "terms.accept.body":
+    "بإنشاء حساب أو باستخدام ClinicOS، فإنك توافق على شروط الاستخدام هذه. إذا لم توافق، الرجاء عدم استخدام الخدمة.\n\nقد يتم تحديث هذه الشروط بمرور الوقت. سنُعلمك بأي تغييرات جوهرية عبر البريد الإلكتروني أو إشعار داخل التطبيق.",
+  "terms.subscription.title": "الاشتراك والدفع",
+  "terms.subscription.body":
+    "ClinicOS تُقدَّم على أساس اشتراك. تفاصيل الخطط، الميزات، والأسعار متاحة على موقعنا.\n\n• الدفعات تُفوتر شهرياً مقدماً.\n• يمكنك الترقية، تخفيض الخطة، أو الإلغاء في أي وقت من إعدادات حسابك.\n• الاسترجاعات تُعالج حالة بحالة — تواصل معنا إذا كان لديك مخاوف.",
+  "terms.user.title": "مسؤولياتك",
+  "terms.user.body":
+    "كمستخدم لـ ClinicOS، أنت توافق على:\n• تقديم معلومات دقيقة عند التسجيل.\n• الحفاظ على كلمة مرورك آمنة وسرية.\n• عدم مشاركة حسابك مع مستخدمين غير مصرح لهم.\n• الامتثال لجميع القوانين المعمول بها عند استخدام الخدمة، بما فيها قوانين حماية البيانات والصحة في منطقتك.\n• التأكد من الحصول على موافقة المرضى قبل إدخال بياناتهم في النظام.",
+  "terms.our.title": "مسؤولياتنا",
+  "terms.our.body":
+    "نلتزم بـ:\n• تقديم الخدمة كما هو موصوف.\n• بذل جهود معقولة للحفاظ على المنصة متاحة وآمنة.\n• إعلامك بالتغييرات المهمة أو مشاكل الخدمة.\n• الرد على طلبات الدعم في وقت مناسب.\n\nلا نضمن خدمة بلا انقطاع، لكن نجتهد لتقليل التوقف.",
+  "terms.use.title": "الاستخدام المقبول",
+  "terms.use.body":
+    "لا يجوز لك:\n• استخدام ClinicOS لأي نشاط غير قانوني.\n• محاولة الوصول لبيانات عيادات أخرى.\n• إجراء هندسة عكسية أو تعطيل المنصة.\n• رفع كود ضار أو محتوى ينتهك حقوق الآخرين.\n• استخدام الخدمة للسبام أو مضايقة الآخرين.\n\nالانتهاكات قد تؤدي إلى تعليق أو إنهاء الحساب.",
+  "terms.cancel.title": "الإلغاء والإنهاء",
+  "terms.cancel.body":
+    "يمكنك إلغاء اشتراكك في أي وقت. عند الإلغاء:\n• يستمر وصولك حتى نهاية فترة الفوترة الحالية.\n• يمكنك تصدير بياناتك قبل إغلاق حسابك.\n• بعد 30 يوماً، قد تُحذف بياناتك بشكل نهائي.\n\nنحتفظ بالحق في تعليق أو إنهاء الحسابات التي تنتهك هذه الشروط.",
+  "terms.liability.title": "حدود المسؤولية",
+  "terms.liability.body":
+    'تُقدَّم ClinicOS "كما هي" دون أي ضمانات من أي نوع. رغم اجتهادنا لتقديم خدمة موثوقة، لا نضمن أنها خالية من الأخطاء أو بلا انقطاع.\n\nنحن غير مسؤولين عن:\n• فقدان البيانات بسبب خطأ المستخدم أو خدمات طرف ثالث.\n• الأضرار غير المباشرة، العرضية، أو التبعية.\n• المشاكل الناتجة عن سوء استخدام المنصة.\n\nمسؤوليتنا الإجمالية محدودة بالمبلغ الذي دفعته في آخر 12 شهراً.',
+  "terms.law.title": "القانون المعمول به",
+  "terms.law.body":
+    "تخضع هذه الشروط لقوانين المملكة الأردنية الهاشمية. أي نزاعات ستُحل في محاكم عمّان، الأردن.\n\nأسئلة حول هذه الشروط؟ راسلنا على contact@clinicosjo.com.",
 };
 
 const dicts: Record<Lang, Dict> = { en, ar };
