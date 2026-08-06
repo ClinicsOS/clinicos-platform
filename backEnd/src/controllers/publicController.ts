@@ -103,12 +103,21 @@ export const getAvailableSlots = asyncHandler(async (req: Request, res: Response
     status: { $in: ["scheduled", "confirmed"] },
   }).select("startAt");
 
-  // Build a set of booked wall-clock times ("HH:mm" in clinic local time)
-  // The appointment startAt is UTC in the DB; we convert to LOCAL for match.
+  // Build a set of booked wall-clock times ("HH:mm" in clinic local time).
+  // IMPORTANT: appointment.startAt is stored as UTC, and the server process
+  // itself may run in UTC (Render) — so we must explicitly convert to
+  // Asia/Amman here rather than using .getHours()/.getMinutes(), which
+  // return time in whatever timezone the SERVER happens to run in.
   const bookedTimes = new Set(
     booked.map((a) => {
-      const h = String(a.startAt.getHours()).padStart(2, "0");
-      const m = String(a.startAt.getMinutes()).padStart(2, "0");
+      const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Asia/Amman",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }).formatToParts(a.startAt);
+      const h = parts.find((p) => p.type === "hour")!.value;
+      const m = parts.find((p) => p.type === "minute")!.value;
       return `${h}:${m}`;
     })
   );
@@ -206,6 +215,21 @@ export const publicBook = asyncHandler(async (req: Request, res: Response) => {
   if (activeBookings >= 3) {
     return res.status(429).json({
       message: "Too many active bookings for this phone number",
+    });
+  }
+
+  // Guard against double-booking the same doctor/slot (race conditions,
+  // stale client cache, or the client sending an already-taken time).
+  const conflict = await Appointment.findOne({
+    clinicId: clinic._id,
+    doctorId: data.doctorId,
+    startAt,
+    status: { $in: ["scheduled", "confirmed"] },
+  });
+  if (conflict) {
+    return res.status(409).json({
+      message: "This time slot was just booked. Please pick another one.",
+      code: "SLOT_TAKEN",
     });
   }
 
