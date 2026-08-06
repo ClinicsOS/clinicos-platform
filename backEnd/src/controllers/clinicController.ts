@@ -43,6 +43,8 @@ const updateClinicSchema = z.object({
         isOpen: z.boolean(),
         from: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
         to: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+        breakFrom: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional().or(z.literal("")),
+        breakTo: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional().or(z.literal("")),
       })
     )
     .length(7)

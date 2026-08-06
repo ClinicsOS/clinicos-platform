@@ -40,6 +40,25 @@ export const createAppointment = asyncHandler(async (req: Request, res: Response
     });
   }
 
+  // ==== Layer 2.5 defence: reject appointments inside the break window ====
+  if (wh.breakFrom && wh.breakTo) {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Amman",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(startAt);
+    const wallTime = `${parts.find((p) => p.type === "hour")!.value}:${
+      parts.find((p) => p.type === "minute")!.value
+    }`;
+    if (wallTime >= wh.breakFrom && wallTime < wh.breakTo) {
+      return res.status(400).json({
+        message: "This time falls within the clinic's break — please pick another slot",
+        code: "BREAK_TIME",
+      });
+    }
+  }
+
   // Enforce trial appointment cap
   const limits = PLANS[clinic.plan as Plan];
   if (limits.maxAppointments !== -1) {

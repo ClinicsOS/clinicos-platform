@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import { api, errMsg } from "@/lib/api";
+import { to12h } from "@/lib/dates";
 import { useI18n } from "@/lib/i18n";
 import { useTheme } from "@/lib/theme";
 import Cube3D from "@/components/Cube3D";
@@ -25,6 +26,7 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconCalendarOff,
+  IconCoffee,
 } from "@tabler/icons-react";
 
 interface PublicClinic {
@@ -34,10 +36,10 @@ interface PublicClinic {
 }
 interface SlotDetail {
   time: string;
-  status: "available" | "booked" | "past";
+  status: "available" | "booked" | "past" | "break";
 }
 interface SlotsRes {
-  slots: string[]; // legacy — still supported by API
+  slots: string[];              // legacy — still supported by API
   slotDuration: number;
   closed?: boolean;
 }
@@ -83,8 +85,7 @@ export default function PublicBookingPage() {
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["public-clinic", slug],
-    queryFn: async () =>
-      (await api.get<PublicClinic>(`/public/clinics/${slug}`)).data,
+    queryFn: async () => (await api.get<PublicClinic>(`/public/clinics/${slug}`)).data,
     retry: false,
     // Poll clinic info every 5s so working-hours changes propagate quickly
     refetchInterval: 5_000,
@@ -106,7 +107,7 @@ export default function PublicBookingPage() {
     queryFn: async () =>
       (
         await api.get<SlotsRes>(
-          `/public/clinics/${slug}/slots?doctorId=${activeDoctor}&date=${date}`,
+          `/public/clinics/${slug}/slots?doctorId=${activeDoctor}&date=${date}`
         )
       ).data,
     enabled: !!activeDoctor && !!date && !!clinic,
@@ -114,11 +115,7 @@ export default function PublicBookingPage() {
     staleTime: 3_000,
   });
 
-  const slotGrid = useMemo((): {
-    slots: SlotDetail[];
-    closed: boolean;
-    noHours: boolean;
-  } => {
+  const slotGrid = useMemo((): { slots: SlotDetail[]; closed: boolean; noHours: boolean } => {
     if (!clinic) return { slots: [], closed: false, noHours: true };
     const day = new Date(date + "T00:00:00");
     const dow = day.getDay();
@@ -130,6 +127,16 @@ export default function PublicBookingPage() {
     const openM = fromH * 60 + fromM;
     const closeM = toH * 60 + toM;
     const step = clinic.slotDuration || 30;
+
+    // Optional break window (e.g. lunch break)
+    let breakStart = -1;
+    let breakEnd = -1;
+    if (wh.breakFrom && wh.breakTo) {
+      const [bfH, bfM] = wh.breakFrom.split(":").map(Number);
+      const [btH, btM] = wh.breakTo.split(":").map(Number);
+      breakStart = bfH * 60 + bfM;
+      breakEnd = btH * 60 + btM;
+    }
 
     // Available times from the API is the ground truth for "not booked and not past"
     const availableSet = new Set(dayBookings?.slots ?? []);
@@ -147,9 +154,11 @@ export default function PublicBookingPage() {
       // Create a local Date (no Z) so JS interprets it in the user's timezone
       const slotDate = new Date(`${date}T${time}:00`);
       const isPast = slotDate.getTime() < nowStamp;
+      const isBreak = breakStart !== -1 && m >= breakStart && m < breakEnd;
 
-      let status: "available" | "booked" | "past";
+      let status: "available" | "booked" | "past" | "break";
       if (isPast) status = "past";
+      else if (isBreak) status = "break";
       else if (availableSet.has(time)) status = "available";
       else status = "booked";
 
@@ -169,8 +178,7 @@ export default function PublicBookingPage() {
         phone: phone.trim(),
       };
       if (email.trim()) body.email = email.trim();
-      return (await api.post<BookRes>(`/public/clinics/${slug}/book`, body))
-        .data;
+      return (await api.post<BookRes>(`/public/clinics/${slug}/book`, body)).data;
     },
     onSuccess: (res) => {
       setDone(res);
@@ -216,16 +224,10 @@ export default function PublicBookingPage() {
           <div className="flex items-center gap-3">
             <Cube3D size={30} />
             <div className="min-w-0 flex-1">
-              <h1
-                className="truncate text-sm font-medium"
-                style={{ color: "var(--hero-text, #F2F7FC)" }}
-              >
+              <h1 className="truncate text-sm font-medium" style={{ color: "var(--hero-text, #F2F7FC)" }}>
                 {clinic.name}
               </h1>
-              <p
-                className="text-[10px]"
-                style={{ color: "var(--hero-text-mute, #8FB3CC)" }}
-              >
+              <p className="text-[10px]" style={{ color: "var(--hero-text-mute, #8FB3CC)" }}>
                 {clinic.specialty}
                 {clinic.address ? ` · ${clinic.address}` : ""}
               </p>
@@ -244,11 +246,7 @@ export default function PublicBookingPage() {
                 style={{ color: "var(--hero-text-mute, #DCEBF7)" }}
                 title="Theme"
               >
-                {theme === "dark" ? (
-                  <IconSun size={11} />
-                ) : (
-                  <IconMoon size={11} />
-                )}
+                {theme === "dark" ? <IconSun size={11} /> : <IconMoon size={11} />}
               </button>
             </div>
           </div>
@@ -268,44 +266,24 @@ export default function PublicBookingPage() {
                 </span>
               </div>
             </div>
-            <h2 className="mt-3 text-center text-base font-medium text-ink">
-              {t("bk.received")}
-            </h2>
+            <h2 className="mt-3 text-center text-base font-medium text-ink">{t("bk.received")}</h2>
             <div className="mt-2 flex justify-center">
               <span className="rounded-full border border-dashed border-sky/60 bg-soft px-3.5 py-1 font-mono text-[11px] text-blue">
                 {t("bk.ref")}: {done.refCode}
               </span>
             </div>
 
-            {/* ⚠️ Save-code warning */}
-            <div className="mt-3 flex gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-[10px] leading-relaxed text-amber-300">
-              <span className="text-sm leading-none">⚠️</span>
-              <div className="flex-1">
-                <p className="font-medium">{t("bk.saveCodeTitle")}</p>
-                <p className="mt-0.5 text-amber-300/80">
-                  {t("bk.saveCodeDesc")}
-                </p>
-              </div>
-            </div>
-
             <div className="card mt-4 px-4 py-1">
               {[
-                {
-                  icon: <IconUser size={13} />,
-                  l: t("ap.doctor"),
-                  v: done.doctorName,
-                },
+                { icon: <IconUser size={13} />, l: t("ap.doctor"), v: done.doctorName },
                 {
                   icon: <IconCalendar size={13} />,
                   l: t("ap.date"),
-                  v: new Date(done.startAt).toLocaleDateString(
-                    lang === "ar" ? "ar" : undefined,
-                    {
-                      weekday: "long",
-                      month: "short",
-                      day: "numeric",
-                    },
-                  ),
+                  v: new Date(done.startAt).toLocaleDateString(lang === "ar" ? "ar" : undefined, {
+                    weekday: "long",
+                    month: "short",
+                    day: "numeric",
+                  }),
                 },
                 {
                   icon: <IconClock size={13} />,
@@ -313,14 +291,10 @@ export default function PublicBookingPage() {
                   v: new Date(done.startAt).toLocaleTimeString([], {
                     hour: "2-digit",
                     minute: "2-digit",
-                    hour12: false,
+                    hour12: true,
                   }),
                 },
-                {
-                  icon: <IconMapPin size={13} />,
-                  l: t("st.address"),
-                  v: clinic.address || clinic.name,
-                },
+                { icon: <IconMapPin size={13} />, l: t("st.address"), v: clinic.address || clinic.name },
               ].map((row) => (
                 <div
                   key={row.l}
@@ -362,22 +336,6 @@ export default function PublicBookingPage() {
         ) : (
           /* ===== Flow ===== */
           <section className="px-5 pt-4">
-            {/* --- Quick booking guide --- */}
-            <div className="mb-4 rounded-lg border border-teal/30 bg-teal/5 px-3 py-2.5">
-              <p className="mb-1.5 flex items-center gap-1.5 text-[10px] font-medium text-teal">
-                <IconClipboardList size={12} /> {t("bk.guideTitle")}
-              </p>
-              <ol
-                className="space-y-1 ps-4 text-[10px] leading-relaxed text-mute"
-                style={{ listStyleType: "decimal" }}
-              >
-                <li>{t("bk.guideStep1")}</li>
-                <li>{t("bk.guideStep2")}</li>
-                <li>{t("bk.guideStep3")}</li>
-                <li>{t("bk.guideStep4")}</li>
-              </ol>
-            </div>
-
             {/* --- Doctor picker --- */}
             <p className="lbl !tracking-widest">{t("bk.choose")}</p>
             {doctors.length === 0 ? (
@@ -394,9 +352,7 @@ export default function PublicBookingPage() {
                       setSlot("");
                     }}
                     className={`flex items-center gap-2 rounded-xl border p-2.5 text-start ${
-                      activeDoctor === d._id
-                        ? "border-2 border-blue bg-card"
-                        : "border-edge bg-card2"
+                      activeDoctor === d._id ? "border-2 border-blue bg-card" : "border-edge bg-card2"
                     }`}
                   >
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-soft text-[9px] font-medium text-blue">
@@ -407,9 +363,7 @@ export default function PublicBookingPage() {
                         .join("")
                         .toUpperCase()}
                     </span>
-                    <span className="truncate text-[11px] font-medium text-ink">
-                      {d.name}
-                    </span>
+                    <span className="truncate text-[11px] font-medium text-ink">{d.name}</span>
                   </button>
                 ))}
               </div>
@@ -430,9 +384,7 @@ export default function PublicBookingPage() {
                   const dd = new Date(d + "T00:00:00");
                   const active = d === date;
                   const dow = dd.getDay();
-                  const wh = clinic.workingHours.find(
-                    (w: WorkingHour) => w.day === dow,
-                  );
+                  const wh = clinic.workingHours.find((w: WorkingHour) => w.day === dow);
                   const closed = !wh || !wh.isOpen;
                   return (
                     <button
@@ -446,35 +398,24 @@ export default function PublicBookingPage() {
                         closed
                           ? "cursor-not-allowed border-red-500/20 bg-red-500/5 opacity-60"
                           : active
-                            ? "border-blue bg-blue text-white"
-                            : "border-edge bg-card2 text-ink hover:border-sky"
+                          ? "border-blue bg-blue text-white"
+                          : "border-edge bg-card2 text-ink hover:border-sky"
                       }`}
                       title={closed ? t("bk.closedDay") : ""}
                     >
-                      <span
-                        className={`block text-[8px] ${active ? "text-white/70" : "text-mute"}`}
-                      >
-                        {dd.toLocaleDateString(
-                          lang === "ar" ? "ar" : undefined,
-                          { weekday: "short" },
-                        )}
+                      <span className={`block text-[8px] ${active ? "text-white/70" : "text-mute"}`}>
+                {dd.toLocaleDateString(lang === "ar" ? "ar" : undefined, { weekday: "short" })}
                       </span>
-                      <span className="text-xs font-medium">
-                        {dd.getDate()}
-                      </span>
+                      <span className="text-xs font-medium">{dd.getDate()}</span>
                       {closed && (
-                        <span className="mt-0.5 block text-[7px] text-red-400">
-                          {t("st.closed")}
-                        </span>
+                        <span className="mt-0.5 block text-[7px] text-red-400">{t("st.closed")}</span>
                       )}
                     </button>
                   );
                 })}
               </div>
               <button
-                onClick={() =>
-                  setDayOffset(Math.min(allDays.length - 5, dayOffset + 5))
-                }
+                onClick={() => setDayOffset(Math.min(allDays.length - 5, dayOffset + 5))}
                 disabled={dayOffset + 5 >= allDays.length}
                 className="rounded-lg border border-edge bg-card2 p-1.5 text-mute disabled:opacity-30"
               >
@@ -487,39 +428,27 @@ export default function PublicBookingPage() {
             {slotGrid.closed ? (
               <div className="mb-4 flex flex-col items-center rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-6 text-center">
                 <IconCalendarOff size={26} className="mb-2 text-red-400" />
-                <p className="text-[12px] font-medium text-red-400">
-                  {t("bk.dayClosedTitle")}
-                </p>
-                <p className="mt-1 text-[10px] text-mute">
-                  {t("bk.dayClosedSub")}
-                </p>
+                <p className="text-[12px] font-medium text-red-400">{t("bk.dayClosedTitle")}</p>
+                <p className="mt-1 text-[10px] text-mute">{t("bk.dayClosedSub")}</p>
               </div>
             ) : slotGrid.slots.length === 0 ? (
-              <p className="mb-4 py-3 text-center text-[11px] text-mute">
-                {t("common.loading")}
-              </p>
+              <p className="mb-4 py-3 text-center text-[11px] text-mute">{t("common.loading")}</p>
             ) : (
               <>
                 {/* Legend */}
                 <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[9px] text-mute">
                   <span className="flex items-center gap-1">
-                    <span className="h-2 w-2 rounded-sm bg-teal" />{" "}
-                    {t("bk.legend.available")}
+                    <span className="h-2 w-2 rounded-sm bg-teal" /> {t("bk.legend.available")}
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="h-2 w-2 rounded-sm bg-red-500/40" />{" "}
-                    {t("bk.legend.booked")}
+                    <span className="h-2 w-2 rounded-sm bg-red-500/40" /> {t("bk.legend.booked")}
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="h-2 w-2 rounded-sm bg-mute/40" />{" "}
-                    {t("bk.legend.past")}
+                    <span className="h-2 w-2 rounded-sm bg-mute/40" /> {t("bk.legend.past")}
                   </span>
                 </div>
 
-                <div
-                  className="mb-4 grid max-h-72 grid-cols-3 gap-1.5 overflow-y-auto pe-1"
-                  dir="ltr"
-                >
+                <div className="mb-4 grid max-h-72 grid-cols-3 gap-1.5 overflow-y-auto pe-1" dir="ltr">
                   {slotGrid.slots.map((s) => {
                     const isSelected = slot === s.time;
                     if (s.status === "available") {
@@ -533,7 +462,7 @@ export default function PublicBookingPage() {
                               : "border-teal/50 bg-teal/5 text-teal hover:bg-teal/15"
                           }`}
                         >
-                          {s.time}
+                          {to12h(s.time)}
                         </button>
                       );
                     }
@@ -542,11 +471,24 @@ export default function PublicBookingPage() {
                         <button
                           key={s.time}
                           disabled
-                          className="flex cursor-not-allowed items-center justify-center gap-1 rounded-lg border border-red-500/25 bg-red-500/5 py-2 text-[11px] font-medium text-red-400/70 opacity-40 hover:opacity-40 pointer-events-none"
+                          className="flex cursor-not-allowed items-center justify-center gap-1 rounded-lg border border-red-500/25 bg-red-500/5 py-2 text-[11px] font-medium text-red-400/70 opacity-70"
                           title={t("bk.slotBooked")}
                         >
                           <IconLock size={9} />
-                          <span className="line-through">{s.time}</span>
+                          <span className="line-through">{to12h(s.time)}</span>
+                        </button>
+                      );
+                    }
+                    if (s.status === "break") {
+                      return (
+                        <button
+                          key={s.time}
+                          disabled
+                          className="flex cursor-not-allowed items-center justify-center gap-1 rounded-lg border border-amber-500/25 bg-amber-500/5 py-2 text-[11px] font-medium text-amber-500/70 opacity-70"
+                          title={t("bk.slotBreak")}
+                        >
+                          <IconCoffee size={9} />
+                          <span className="line-through">{to12h(s.time)}</span>
                         </button>
                       );
                     }
@@ -558,7 +500,7 @@ export default function PublicBookingPage() {
                         className="cursor-not-allowed rounded-lg border border-edge bg-card2 py-2 text-[11px] font-mono text-mute opacity-40"
                         title={t("bk.slotPast")}
                       >
-                        {s.time}
+                        {to12h(s.time)}
                       </button>
                     );
                   })}
@@ -590,9 +532,7 @@ export default function PublicBookingPage() {
               dir="ltr"
             />
 
-            {error && (
-              <p className="mb-2 text-center text-xs text-red-400">{error}</p>
-            )}
+            {error && <p className="mb-2 text-center text-xs text-red-400">{error}</p>}
 
             <button
               className="w-full rounded-lg py-3 text-sm font-medium text-white transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
@@ -623,8 +563,7 @@ export default function PublicBookingPage() {
 
         {showPoweredBy && (
           <p className="mt-6 text-center text-[9px] text-mute">
-            {t("bk.powered")}{" "}
-            <span className="font-medium text-ink">ClinicOS</span>
+            {t("bk.powered")} <span className="font-medium text-ink">ClinicOS</span>
           </p>
         )}
       </div>

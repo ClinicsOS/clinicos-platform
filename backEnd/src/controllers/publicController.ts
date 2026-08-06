@@ -79,12 +79,24 @@ export const getAvailableSlots = asyncHandler(async (req: Request, res: Response
   const openMinutes = fromH * 60 + fromM;
   const closeMinutes = toH * 60 + toM;
 
+  // Optional break window (e.g. lunch break) — slots starting inside
+  // [breakStart, breakEnd) are excluded, same as closed-day handling.
+  let breakStart = -1;
+  let breakEnd = -1;
+  if (hours.breakFrom && hours.breakTo) {
+    const [bfH, bfM] = hours.breakFrom.split(":").map(Number);
+    const [btH, btM] = hours.breakTo.split(":").map(Number);
+    breakStart = bfH * 60 + bfM;
+    breakEnd = btH * 60 + btM;
+  }
+
   // Build slot list as wall-clock times (matched to the clinic's local timezone).
   // The client compares these against its LOCAL Date.now(), so we mirror that
   // logic here by treating times as local wall-clock too.
   const dateOnly = date; // "YYYY-MM-DD"
   const allSlots: { time: string; local: Date }[] = [];
   for (let m = openMinutes; m + slotMinutes <= closeMinutes; m += slotMinutes) {
+    if (breakStart !== -1 && m >= breakStart && m < breakEnd) continue; // skip break slots
     const h = String(Math.floor(m / 60)).padStart(2, "0");
     const mm = String(m % 60).padStart(2, "0");
     const time = `${h}:${mm}`;
@@ -171,6 +183,26 @@ export const publicBook = asyncHandler(async (req: Request, res: Response) => {
       message: "The clinic is closed on this day",
       code: "DAY_CLOSED",
     });
+  }
+
+  // Reject bookings that fall inside the clinic's break window (extra
+  // safety — client already blocks this, same as day-closed above).
+  if (wh.breakFrom && wh.breakTo) {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Amman",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(startAt);
+    const wallTime = `${parts.find((p) => p.type === "hour")!.value}:${
+      parts.find((p) => p.type === "minute")!.value
+    }`;
+    if (wallTime >= wh.breakFrom && wallTime < wh.breakTo) {
+      return res.status(400).json({
+        message: "This time falls within the clinic's break — please pick another slot",
+        code: "BREAK_TIME",
+      });
+    }
   }
 
   // Enforce trial appointment cap on public bookings too

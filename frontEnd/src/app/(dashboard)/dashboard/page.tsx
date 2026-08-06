@@ -122,7 +122,7 @@ export default function DashboardPage() {
             return (
               <div key={a._id} className="flex items-center gap-2.5 border-b border-edge py-2 last:border-0">
                 <span className="w-10 font-mono text-[10px] text-mute">
-                  {new Date(a.startAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}
+                  {new Date(a.startAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true })}
                 </span>
                 <span className="relative flex h-6 w-6 items-center justify-center rounded-full bg-soft text-[9px] font-medium text-blue">
                   {(p?.fullName || "?").split(" ").map((w) => w[0]).slice(0, 2).join("")}

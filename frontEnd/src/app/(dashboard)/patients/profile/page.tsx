@@ -187,7 +187,7 @@ export default function PatientProfilePage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-[11px] font-medium text-ink">
                         {new Date(v.startAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })} ·{" "}
-                        {new Date(v.startAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}
+                        {new Date(v.startAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true })}
                       </span>
                       <span className={`pill ${pillClass[v.status] ?? "bg-soft text-mute"}`}>{t(`status.${v.status}`)}</span>
                       <span className="ms-auto text-[9px] text-mute">{doc?.name}</span>

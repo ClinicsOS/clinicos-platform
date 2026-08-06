@@ -179,7 +179,7 @@ export default function TrackPage() {
                 v: new Date(booking.startAt).toLocaleTimeString([], {
                   hour: "2-digit",
                   minute: "2-digit",
-                  hour12: false,
+                  hour12: true,
                 }),
               },
             ].map((row) => (

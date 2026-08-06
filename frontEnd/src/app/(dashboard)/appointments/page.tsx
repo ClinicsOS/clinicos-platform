@@ -5,7 +5,7 @@ import { api, errMsg } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import Modal from "@/components/Modal";
 import type { Appointment, Patient, Staff, Clinic, WorkingHour } from "@/lib/types";
-import { fmtTime, todayLocal, combineToUTC } from "@/lib/dates";
+import { fmtTime, fmtTime12, to12h, todayLocal, combineToUTC } from "@/lib/dates";
 import {
   IconChevronLeft,
   IconChevronRight,
@@ -16,6 +16,7 @@ import {
   IconUserCircle,
   IconClock,
   IconInfoCircle,
+  IconCoffee,
 } from "@tabler/icons-react";
 
 const AR_DAYS = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
@@ -26,6 +27,7 @@ type SlotVisual = {
   utcStart: Date;                   // absolute date for this slot
   appt: Appointment | null;         // if booked
   isPast: boolean;                  // slot is in the past
+  isBreak: boolean;                 // falls inside the clinic's break window
 };
 
 export default function AppointmentsPage() {
@@ -86,6 +88,16 @@ export default function AppointmentsPage() {
     const closeM = toH * 60 + toM;
     const step = clinic.slotDuration || 30;
 
+    // Optional break window (e.g. lunch break)
+    let breakStart = -1;
+    let breakEnd = -1;
+    if (wh.breakFrom && wh.breakTo) {
+      const [bfH, bfM] = wh.breakFrom.split(":").map(Number);
+      const [btH, btM] = wh.breakTo.split(":").map(Number);
+      breakStart = bfH * 60 + bfM;
+      breakEnd = btH * 60 + btM;
+    }
+
     const rows: SlotVisual[] = [];
     const now = new Date();
 
@@ -109,6 +121,7 @@ export default function AppointmentsPage() {
         utcStart,
         appt: appt || null,
         isPast: utcStart.getTime() < now.getTime(),
+        isBreak: breakStart !== -1 && m >= breakStart && m < breakEnd,
       });
     }
     return rows;
@@ -338,7 +351,7 @@ function TimelineRow({
   onEdit: (a: Appointment) => void;
   t: (k: string) => string;
 }) {
-  const { time, appt, isPast } = row;
+  const { time, appt, isPast, isBreak } = row;
 
   // Booked row
   if (appt) {
@@ -357,7 +370,7 @@ function TimelineRow({
           isPast ? "opacity-60" : ""
         }`}
       >
-        <div className="w-14 font-mono text-[11px] font-medium text-ink">{time}</div>
+        <div className="w-14 font-mono text-[11px] font-medium text-ink">{to12h(time)}</div>
         <div
           className="h-8 w-1 rounded-full"
           style={{ background: color }}
@@ -405,9 +418,22 @@ function TimelineRow({
   if (isPast) {
     return (
       <div className="flex items-center gap-3 border-b border-edge px-4 py-2 opacity-40">
-        <div className="w-14 font-mono text-[11px] text-mute">{time}</div>
+        <div className="w-14 font-mono text-[11px] text-mute">{to12h(time)}</div>
         <div className="h-6 w-1 rounded-full bg-mute/30" />
         <span className="text-[10px] italic text-mute">{t("ap.rowPast")}</span>
+      </div>
+    );
+  }
+
+  // Break row — clinic is unavailable at this time, not because it's booked
+  if (isBreak) {
+    return (
+      <div className="flex items-center gap-3 border-b border-edge px-4 py-2 opacity-70">
+        <div className="w-14 font-mono text-[11px] text-amber-500/80">{to12h(time)}</div>
+        <div className="h-6 w-1 rounded-full bg-amber-500/30" />
+        <span className="flex items-center gap-1 text-[10px] italic text-amber-500/80">
+          <IconCoffee size={11} /> {t("ap.rowBreak")}
+        </span>
       </div>
     );
   }
@@ -418,7 +444,7 @@ function TimelineRow({
       onClick={() => onCreate(time)}
       className="group flex w-full items-center gap-3 border-b border-edge px-4 py-2 text-start transition-colors hover:bg-teal/5"
     >
-      <div className="w-14 font-mono text-[11px] text-mute group-hover:text-teal">{time}</div>
+      <div className="w-14 font-mono text-[11px] text-mute group-hover:text-teal">{to12h(time)}</div>
       <div className="h-6 w-1 rounded-full bg-teal/30 group-hover:bg-teal" />
       <span className="text-[10px] text-mute group-hover:text-teal">{t("ap.rowAvailable")}</span>
       <IconPlus size={11} className="ms-auto text-mute opacity-0 group-hover:opacity-100" />
@@ -510,6 +536,16 @@ function NewAppointmentModal({
     const closeM = toH * 60 + toM;
     const step = clinic.slotDuration || 30;
 
+    // Optional break window (e.g. lunch break)
+    let breakStart = -1;
+    let breakEnd = -1;
+    if (wh.breakFrom && wh.breakTo) {
+      const [bfH, bfM] = wh.breakFrom.split(":").map(Number);
+      const [btH, btM] = wh.breakTo.split(":").map(Number);
+      breakStart = bfH * 60 + bfM;
+      breakEnd = btH * 60 + btM;
+    }
+
     const bookedTimes = new Set(
       (dayAppts ?? [])
         .filter((a) => a.status === "scheduled" || a.status === "confirmed")
@@ -517,7 +553,7 @@ function NewAppointmentModal({
     );
 
     const now = Date.now();
-    const list: { time: string; taken: boolean; past: boolean }[] = [];
+    const list: { time: string; taken: boolean; past: boolean; isBreak: boolean }[] = [];
     for (let m = openM; m + step <= closeM; m += step) {
       const h = String(Math.floor(m / 60)).padStart(2, "0");
       const mm = String(m % 60).padStart(2, "0");
@@ -528,6 +564,7 @@ function NewAppointmentModal({
         time: timeStr,
         taken: bookedTimes.has(timeStr),
         past: slotDate.getTime() < now,
+        isBreak: breakStart !== -1 && m >= breakStart && m < breakEnd,
       });
     }
     return { list, closed: false };
@@ -628,21 +665,24 @@ function NewAppointmentModal({
           {slots.list.map((s) => (
             <button
               key={s.time}
-              disabled={s.taken || s.past}
+              disabled={s.taken || s.past || s.isBreak}
               onClick={() => setTime(s.time)}
               className={`rounded-md border py-1.5 text-[11px] font-mono transition-colors ${
                 time === s.time
                   ? "border-teal bg-teal text-navy"
                   : s.taken
                   ? "border-red-500/30 bg-red-500/10 text-red-400 opacity-60 line-through"
+                  : s.isBreak
+                  ? "border-amber-500/30 bg-amber-500/10 text-amber-500/80 opacity-60 line-through"
                   : s.past
                   ? "border-edge bg-card2 text-mute opacity-40"
                   : "border-sky/50 bg-card2 text-blue hover:bg-soft"
               }`}
-              title={s.taken ? t("ap.taken") : s.past ? t("ap.rowPast") : ""}
+              title={s.taken ? t("ap.taken") : s.isBreak ? t("ap.rowBreak") : s.past ? t("ap.rowPast") : ""}
             >
               {s.taken && <IconLock size={8} className="me-1 inline" />}
-              {s.time}
+              {s.isBreak && <IconCoffee size={8} className="me-1 inline" />}
+              {to12h(s.time)}
             </button>
           ))}
         </div>
@@ -720,7 +760,7 @@ function EditAppointmentModal({
               month: "short",
               day: "numeric",
             })}{" "}
-            · {fmtTime(appointment.startAt)}
+            · {fmtTime12(appointment.startAt)}
           </div>
         </div>
       </div>

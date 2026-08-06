@@ -1,4 +1,11 @@
-export interface WorkingHour { day: number; isOpen: boolean; from: string; to: string; }
+export interface WorkingHour {
+  day: number;
+  isOpen: boolean;
+  from: string;
+  to: string;
+  breakFrom?: string;
+  breakTo?: string;
+}
 
 export type Plan = "trial" | "basic" | "pro";
 export interface PlanLimits {

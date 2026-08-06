@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 
 /**
- * Digital 3D clock — HH:MM:SS in 24h format.
+ * Digital 3D clock — HH:MM:SS in 12h format with AM/PM.
  * Each digit sits on a "card" with a subtle 3D perspective; when a digit
  * changes, the card flips around its X-axis for a satisfying tick.
  */
@@ -14,7 +14,11 @@ export default function DigitalClock() {
     return () => window.clearInterval(id);
   }, []);
 
-  const h = String(now.getHours()).padStart(2, "0");
+  const h24 = now.getHours();
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  const period = h24 < 12 ? "AM" : "PM";
+
+  const h = String(h12).padStart(2, "0");
   const m = String(now.getMinutes()).padStart(2, "0");
   const s = String(now.getSeconds()).padStart(2, "0");
 
@@ -32,6 +36,7 @@ export default function DigitalClock() {
       <Colon />
       <Digit value={s[0]} accent />
       <Digit value={s[1]} accent />
+      <span className="ms-1 text-[9px] font-medium tracking-wide text-mute">{period}</span>
     </div>
   );
 }

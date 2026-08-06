@@ -122,7 +122,14 @@ export default function SettingsPage() {
     setHours(
       Array.from({ length: 7 }, (_, day) => {
         const w = byDay.get(day);
-        return { day, isOpen: w?.isOpen ?? day !== 5, from: w?.from ?? "10:00", to: w?.to ?? "18:00" };
+        return {
+          day,
+          isOpen: w?.isOpen ?? day !== 5,
+          from: w?.from ?? "10:00",
+          to: w?.to ?? "18:00",
+          breakFrom: w?.breakFrom,
+          breakTo: w?.breakTo,
+        };
       })
     );
   }, [clinic]);
@@ -143,7 +150,14 @@ export default function SettingsPage() {
         phone: phone || undefined,
         address: address || undefined,
         slotDuration: Number(slot) || 30,
-        workingHours: hours.map((h) => ({ day: h.day, isOpen: h.isOpen, from: h.from, to: h.to })),
+        workingHours: hours.map((h) => ({
+          day: h.day,
+          isOpen: h.isOpen,
+          from: h.from,
+          to: h.to,
+          breakFrom: h.breakFrom || "",
+          breakTo: h.breakTo || "",
+        })),
       };
       // Only include brandColor if the plan supports it (backend will reject otherwise)
       if (clinic?.planInfo?.limits.customBookingColor) {
@@ -294,45 +308,105 @@ export default function SettingsPage() {
             {hours.map((h, i) => (
               <div
                 key={h.day}
-                className="flex items-center gap-2.5 border-b border-edge py-1.5 text-xs last:border-0"
-                dir="ltr"
+                className="flex flex-col gap-1.5 border-b border-edge py-1.5 text-xs last:border-0"
               >
-                <span className="w-16 font-medium text-ink">{days[h.day]}</span>
-                <button
-                  onClick={() =>
-                    isOwner && setHours(hours.map((x, j) => (j === i ? { ...x, isOpen: !x.isOpen } : x)))
-                  }
-                  className={`relative h-4 w-7 rounded-full transition-colors ${h.isOpen ? "bg-teal" : "bg-edge"}`}
-                  aria-label={days[h.day]}
-                >
-                  <span
-                    className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${
-                      h.isOpen ? "start-3.5" : "start-0.5"
-                    }`}
-                  />
-                </button>
-                {h.isOpen ? (
-                  <>
-                    <input
-                      type="time"
-                      className="inp !w-24 !px-2 !py-1 font-mono text-[11px]"
-                      value={h.from}
-                      disabled={!isOwner}
-                      onChange={(e) =>
-                        setHours(hours.map((x, j) => (j === i ? { ...x, from: e.target.value } : x)))
-                      }
+                <div className="flex items-center gap-2.5" dir="ltr">
+                  <span className="w-16 font-medium text-ink">{days[h.day]}</span>
+                  <button
+                    onClick={() =>
+                      isOwner && setHours(hours.map((x, j) => (j === i ? { ...x, isOpen: !x.isOpen } : x)))
+                    }
+                    className={`relative h-4 w-7 rounded-full transition-colors ${h.isOpen ? "bg-teal" : "bg-edge"}`}
+                    aria-label={days[h.day]}
+                  >
+                    <span
+                      className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${
+                        h.isOpen ? "start-3.5" : "start-0.5"
+                      }`}
                     />
-                    <span className="text-mute">—</span>
-                    <input
-                      type="time"
-                      className="inp !w-24 !px-2 !py-1 font-mono text-[11px]"
-                      value={h.to}
-                      disabled={!isOwner}
-                      onChange={(e) => setHours(hours.map((x, j) => (j === i ? { ...x, to: e.target.value } : x)))}
-                    />
-                  </>
-                ) : (
-                  <span className="text-[11px] italic text-mute opacity-70">{t("st.closed")}</span>
+                  </button>
+                  {h.isOpen ? (
+                    <>
+                      <input
+                        type="time"
+                        className="inp !w-24 !px-2 !py-1 font-mono text-[11px]"
+                        value={h.from}
+                        disabled={!isOwner}
+                        onChange={(e) =>
+                          setHours(hours.map((x, j) => (j === i ? { ...x, from: e.target.value } : x)))
+                        }
+                      />
+                      <span className="text-mute">—</span>
+                      <input
+                        type="time"
+                        className="inp !w-24 !px-2 !py-1 font-mono text-[11px]"
+                        value={h.to}
+                        disabled={!isOwner}
+                        onChange={(e) => setHours(hours.map((x, j) => (j === i ? { ...x, to: e.target.value } : x)))}
+                      />
+                    </>
+                  ) : (
+                    <span className="text-[11px] italic text-mute opacity-70">{t("st.closed")}</span>
+                  )}
+                </div>
+
+                {/* Break time — optional, only shown for open days */}
+                {h.isOpen && (
+                  <div className="flex items-center gap-2.5 ps-[4.75rem]" dir="ltr">
+                    {h.breakFrom && h.breakTo ? (
+                      <>
+                        <span className="w-16 shrink-0 text-[10px] text-mute">{t("st.breakLabel")}</span>
+                        <input
+                          type="time"
+                          className="inp !w-24 !px-2 !py-1 font-mono text-[11px]"
+                          value={h.breakFrom}
+                          disabled={!isOwner}
+                          onChange={(e) =>
+                            setHours(hours.map((x, j) => (j === i ? { ...x, breakFrom: e.target.value } : x)))
+                          }
+                        />
+                        <span className="text-mute">—</span>
+                        <input
+                          type="time"
+                          className="inp !w-24 !px-2 !py-1 font-mono text-[11px]"
+                          value={h.breakTo}
+                          disabled={!isOwner}
+                          onChange={(e) =>
+                            setHours(hours.map((x, j) => (j === i ? { ...x, breakTo: e.target.value } : x)))
+                          }
+                        />
+                        {isOwner && (
+                          <button
+                            onClick={() =>
+                              setHours(
+                                hours.map((x, j) =>
+                                  j === i ? { ...x, breakFrom: undefined, breakTo: undefined } : x
+                                )
+                              )
+                            }
+                            className="text-[10px] text-red-400 hover:underline"
+                          >
+                            {t("st.removeBreak")}
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      isOwner && (
+                        <button
+                          onClick={() =>
+                            setHours(
+                              hours.map((x, j) =>
+                                j === i ? { ...x, breakFrom: "13:00", breakTo: "14:00" } : x
+                              )
+                            )
+                          }
+                          className="text-[10px] text-blue hover:underline"
+                        >
+                          {t("st.addBreak")}
+                        </button>
+                      )
+                    )}
+                  </div>
                 )}
               </div>
             ))}

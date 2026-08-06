@@ -5,7 +5,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { useAuth } from "@/store/auth";
-import { fmtTime } from "@/lib/dates";
+import { fmtTime12 } from "@/lib/dates";
 import type { Appointment, Patient } from "@/lib/types";
 import { IconBell, IconCheck, IconCalendarPlus, IconInbox } from "@tabler/icons-react";
 
@@ -131,7 +131,7 @@ export default function NotificationBell({ appointments }: { appointments: Appoi
                           {patient?.fullName ?? "—"}
                         </div>
                         <div className="mt-0.5 text-[9px] text-mute" dir="ltr">
-                          {fmtDay(a.startAt)} · {fmtTime(a.startAt)} · {doctor?.name}
+                          {fmtDay(a.startAt)} · {fmtTime12(a.startAt)} · {doctor?.name}
                         </div>
                         {a.refCode && (
                           <div className="mt-1 inline-block rounded border border-dashed border-sky/40 bg-soft px-1.5 py-0.5 font-mono text-[8px] text-blue">

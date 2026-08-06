@@ -14,6 +14,8 @@ export interface IClinic extends Document {
     isOpen: boolean;
     from: string;
     to: string;
+    breakFrom?: string;
+    breakTo?: string;
   }[];
   slotDuration: number;
 
@@ -49,6 +51,8 @@ const clinicSchema = new Schema<IClinic>(
         isOpen: { type: Boolean, default: true },
         from: { type: String, default: "10:00" },
         to: { type: String, default: "18:00" },
+        breakFrom: { type: String },
+        breakTo: { type: String },
       },
     ],
     slotDuration: { type: Number, default: 30 },

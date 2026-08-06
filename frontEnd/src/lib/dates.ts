@@ -16,6 +16,30 @@ export const fmtTime = (iso: string | Date): string => {
   return `${h}:${m}`;
 };
 
+/**
+ * DISPLAY-ONLY: format an ISO date/time as 12-hour clock with AM/PM,
+ * e.g. "2:30 PM". Never use this for comparisons/matching — use fmtTime
+ * (24h "HH:mm") for that, since slot matching relies on that exact format.
+ */
+export const fmtTime12 = (iso: string | Date): string => {
+  const d = typeof iso === "string" ? new Date(iso) : iso;
+  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true });
+};
+
+/**
+ * DISPLAY-ONLY: convert a raw 24h "HH:mm" string (like the ones used
+ * internally for slot grids) into a 12-hour "h:mm AM/PM" string.
+ * The underlying "HH:mm" value should still be used for state/matching —
+ * only wrap the rendered label with this.
+ */
+export const to12h = (hhmm: string): string => {
+  const [hStr, mStr] = hhmm.split(":");
+  const h24 = Number(hStr);
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  const period = h24 < 12 ? "AM" : "PM";
+  return `${h12}:${mStr} ${period}`;
+};
+
 /** Format a Date as "YYYY-MM-DD" using local timezone. */
 export const ymd = (d: Date | string): string => {
   const dd = typeof d === "string" ? new Date(d) : d;
