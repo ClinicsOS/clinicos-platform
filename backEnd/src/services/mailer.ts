@@ -1,38 +1,28 @@
 /**
- * Email sending service — Brevo SMTP via nodemailer.
+ * Email sending service — Resend Email API (HTTPS).
+ *
+ * We use an HTTP API instead of raw SMTP sockets because Render's network
+ * occasionally times out long-lived SMTP (587/STARTTLS) connections — a
+ * known intermittent issue on many PaaS hosts. Plain HTTPS calls avoid it.
  *
  * Development fallback:
- *   If SMTP_USER/SMTP_PASS are empty, emails are logged to the console.
+ *   If RESEND_API_KEY is empty, emails are logged to the console.
  *
- * Production (Brevo):
- *   - Sign up at https://brevo.com — the free tier is 300 emails/day.
- *   - From dashboard: SMTP & API → SMTP → note your login and SMTP key.
+ * Production (Resend):
+ *   - Sign up at https://resend.com and add + verify your domain (DNS records).
+ *   - Dashboard → API Keys → Create API Key.
  *   - Set the environment variables below.
  */
 
-import nodemailer, { Transporter } from "nodemailer";
-
-const host = process.env.SMTP_HOST || "smtp-relay.brevo.com";
-const port = Number(process.env.SMTP_PORT) || 587;
-const user = process.env.SMTP_USER || "";
-const pass = process.env.SMTP_PASS || "";
-const mailFrom = process.env.MAIL_FROM || "ClinicOS <clinicos.system@gmail.com>";
+const apiKey = process.env.RESEND_API_KEY || "";
+const mailFromEmail = process.env.MAIL_FROM_EMAIL || "no-reply@clinicosjo.com";
+const mailFromName = process.env.MAIL_FROM_NAME || "ClinicOS";
 const appUrl = process.env.APP_URL || "http://localhost:3000";
 
-let transporter: Transporter | null = null;
-if (user && pass) {
-  transporter = nodemailer.createTransport({
-    host,
-    port,
-    secure: false, // Brevo uses STARTTLS on 587, not implicit TLS
-    auth: { user, pass },
-  });
-
-  // Verify once at startup so misconfiguration surfaces early in the logs
-  transporter
-    .verify()
-    .then(() => console.log(`[MAILER] SMTP ready — sending as ${mailFrom} via ${host}`))
-    .catch((err) => console.error("[MAILER] SMTP verify failed:", err.message));
+if (apiKey) {
+  console.log(`[MAILER] Resend API ready — sending as ${mailFromName} <${mailFromEmail}>`);
+} else {
+  console.log("[MAILER] No RESEND_API_KEY set — running in dev/console mode");
 }
 
 interface SendArgs {
@@ -42,10 +32,10 @@ interface SendArgs {
 }
 
 async function send({ to, subject, html }: SendArgs): Promise<void> {
-  if (!transporter) {
+  if (!apiKey) {
     // Dev fallback — print email to console so the developer can copy the link
     console.log("═══════════════════════════════════════════════════");
-    console.log("📧 [MAILER — dev mode, no SMTP configured]");
+    console.log("📧 [MAILER — dev mode, no RESEND_API_KEY configured]");
     console.log("To:      ", to);
     console.log("Subject: ", subject);
     console.log("──────────────────────────────────────────────────");
@@ -54,8 +44,25 @@ async function send({ to, subject, html }: SendArgs): Promise<void> {
     return;
   }
   try {
-    const info = await transporter.sendMail({ from: mailFrom, to, subject, html });
-    console.log(`[MAILER] ✔ Sent to ${to} — messageId: ${info.messageId}`);
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        from: `${mailFromName} <${mailFromEmail}>`,
+        to: [to],
+        subject,
+        html,
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`Resend API ${res.status}: ${body}`);
+    }
+    const data = (await res.json()) as { id?: string };
+    console.log(`[MAILER] ✔ Sent to ${to} — id: ${data.id}`);
   } catch (err) {
     console.error(`[MAILER] ✗ Failed to send to ${to}:`, (err as Error).message);
   }
@@ -121,6 +128,39 @@ export async function sendPasswordResetEmail(email: string, name: string, token:
       `<p>We received a request to reset the password for your ClinicOS account. Click the button below to choose a new one — this link expires in 1 hour.</p>
        <p style="color:#8095a8;font-size:12px">If you didn't request this, no action is needed — your password stays the same.</p>`,
       { url, label: "Reset password" }
+    ),
+  });
+}
+
+export async function sendNewBookingNotification(
+  ownerEmail: string,
+  ownerName: string,
+  opts: {
+    patientName: string;
+    patientPhone: string;
+    doctorName: string;
+    startAt: Date;
+    refCode: string;
+  }
+) {
+  const dashboardUrl = `${appUrl}/dashboard/appointments`;
+  const dateStr = opts.startAt.toLocaleString("en-GB", {
+    timeZone: "Asia/Amman",
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+  await send({
+    to: ownerEmail,
+    subject: `حجز جديد — ${opts.patientName}`,
+    html: wrap(
+      `مرحباً ${ownerName}،`,
+      `<p>في حجز جديد وصل عن طريق صفحة الحجز أونلاين.</p>
+       <p><b>المريض:</b> ${opts.patientName}<br/>
+       <b>الهاتف:</b> ${opts.patientPhone}<br/>
+       <b>الطبيب:</b> ${opts.doctorName}<br/>
+       <b>الموعد:</b> ${dateStr}<br/>
+       <b>رقم المرجع:</b> ${opts.refCode}</p>`,
+      { url: dashboardUrl, label: "افتح لوحة التحكم" }
     ),
   });
 }

@@ -6,6 +6,7 @@ import { Appointment } from "../models/Appointment";
 import { Patient } from "../models/Patient";
 import { asyncHandler } from "../middleware/errorHandler";
 import { PLANS, type Plan } from "../config/plans";
+import { sendNewBookingNotification } from "../services/mailer";
 
 // ===== GET /api/public/clinics/:slug =====
 export const getClinicBySlug = asyncHandler(async (req: Request, res: Response) => {
@@ -217,6 +218,18 @@ export const publicBook = asyncHandler(async (req: Request, res: Response) => {
     source: "public",
     refCode: makeRefCode(),
   });
+
+  // نبعت إشعار للـ owner، بس ما نوقف الـ response لو الإيميل فشل
+  const owner = await User.findOne({ clinicId: clinic._id, role: "owner", isActive: true });
+  if (owner) {
+    sendNewBookingNotification(owner.email, owner.name, {
+      patientName: patient.fullName,
+      patientPhone: patient.phone,
+      doctorName: doctor.name,
+      startAt: appointment.startAt,
+      refCode: appointment.refCode ?? "",
+    }).catch((err) => console.error("[publicBook] notify owner failed:", err));
+  }
 
   return res.status(201).json({
     message: "Booking received",
