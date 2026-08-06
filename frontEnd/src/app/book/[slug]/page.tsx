@@ -542,7 +542,7 @@ export default function PublicBookingPage() {
                         <button
                           key={s.time}
                           disabled
-                          className="flex cursor-not-allowed items-center justify-center gap-1 rounded-lg border border-red-500/25 bg-red-500/5 py-2 text-[11px] font-medium text-red-400/70 opacity-70"
+                          className="flex cursor-not-allowed items-center justify-center gap-1 rounded-lg border border-red-500/25 bg-red-500/5 py-2 text-[11px] font-medium text-red-400/70 opacity-40 hover:opacity-40 pointer-events-none"
                           title={t("bk.slotBooked")}
                         >
                           <IconLock size={9} />
