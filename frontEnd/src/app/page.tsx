@@ -289,7 +289,7 @@ export default function LandingPage() {
     },
     {
       name: t("sub.basic"),
-      price: "19 JD",
+      price: "30 JD",
       per: t("sub.per"),
       hot: true,
       feats: [
@@ -301,7 +301,7 @@ export default function LandingPage() {
     },
     {
       name: t("sub.pro"),
-      price: "29 JD",
+      price: "40 JD",
       per: t("sub.per"),
       hot: false,
       feats: [
@@ -355,7 +355,7 @@ export default function LandingPage() {
           <a href="#pricing" className="hover:text-sky">
             {t("nav.pricing")}
           </a>
-          <Link href="/about" className="hover:text-sky">
+          <Link href="/about" className="hover:txt-sky">
             {t("nav.about")}
           </Link>
           <a href="#contact" className="hover:text-sky">

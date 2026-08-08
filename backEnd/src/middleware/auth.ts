@@ -61,6 +61,21 @@ export const requireActivePlan = async (
 
   const expired = clinic.planExpiresAt && new Date(clinic.planExpiresAt) < new Date();
   if (expired) {
+    // Paid plan (basic/pro) lapsed — instead of closing the clinic immediately,
+    // drop them into a fresh trial-length grace period so they don't lose
+    // access abruptly. If THIS also runs out (plan is now "trial"), we fall
+    // through to the hard-expire branch below on the next check.
+    if (clinic.plan !== "trial") {
+      clinic.plan = "trial";
+      clinic.planStartedAt = new Date();
+      clinic.planExpiresAt = new Date(
+        Date.now() + PLANS.trial.trialDays * 24 * 60 * 60 * 1000
+      );
+      if (clinic.status !== "active") clinic.status = "active";
+      await clinic.save();
+      return next();
+    }
+
     // Auto-mark expired if we haven't yet
     if (clinic.status !== "expired") {
       clinic.status = "expired";

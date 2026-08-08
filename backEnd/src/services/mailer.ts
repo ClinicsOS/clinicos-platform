@@ -164,3 +164,31 @@ export async function sendNewBookingNotification(
     ),
   });
 }
+
+/**
+ * Notifies the platform admin (Amjad) whenever a clinic submits a new
+ * subscription upgrade request, so it doesn't sit unnoticed until he
+ * happens to check the admin panel.
+ */
+export async function sendNewSubscriptionRequestNotification(opts: {
+  clinicName: string;
+  requestedPlan: string;
+  billingName: string;
+  billingPhone: string;
+  paymentMethod: string;
+}) {
+  const adminUrl = `${appUrl}/admin/upgrade-requests`;
+  await send({
+    to: "clinicos.system@gmail.com",
+    subject: `طلب اشتراك جديد — ${opts.clinicName}`,
+    html: wrap(
+      `طلب اشتراك جديد بانتظار الموافقة`,
+      `<p><b>العيادة:</b> ${opts.clinicName}<br/>
+       <b>الخطة المطلوبة:</b> ${opts.requestedPlan}<br/>
+       <b>الاسم:</b> ${opts.billingName}<br/>
+       <b>الهاتف:</b> ${opts.billingPhone}<br/>
+       <b>طريقة الدفع:</b> ${opts.paymentMethod}</p>`,
+      { url: adminUrl, label: "افتح صفحة الطلبات" }
+    ),
+  });
+}

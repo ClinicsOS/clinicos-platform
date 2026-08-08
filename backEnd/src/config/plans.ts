@@ -63,8 +63,14 @@ export const PLANS: Record<Plan, PlanLimits> = {
 
 export const PLAN_PRICES: Record<Plan, number> = {
   trial: 0,
-  basic: 19,
-  pro: 29,
+  basic: 30,
+  pro: 40,
+};
+
+/** CliQ transfer details shown to the clinic owner when they pick CliQ as the payment method. */
+export const CLIQ_INFO = {
+  alias: "00962778676359",
+  bank: "البنك الإسلامي الأردني",
 };
 
 /** Compute days remaining until expiry. */

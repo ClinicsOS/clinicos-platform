@@ -48,6 +48,7 @@ export interface Subscription {
   limits: PlanLimits;
   pendingRequest: { id: string; plan: Plan; createdAt: string } | null;
   plans: Record<Plan, { price: number; limits: PlanLimits }>;
+  cliqInfo: { alias: string; bank: string };
 }
 
 export interface Staff { _id: string; name: string; email: string; role: string; phone?: string; isActive: boolean; }

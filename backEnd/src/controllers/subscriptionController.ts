@@ -3,7 +3,8 @@ import { z } from "zod";
 import { Clinic } from "../models/Clinic";
 import { SubscriptionRequest } from "../models/SubscriptionRequest";
 import { asyncHandler } from "../middleware/errorHandler";
-import { PLANS, PLAN_PRICES, daysUntil, type Plan } from "../config/plans";
+import { PLANS, PLAN_PRICES, CLIQ_INFO, daysUntil, type Plan } from "../config/plans";
+import { sendNewSubscriptionRequestNotification } from "../services/mailer";
 
 /**
  * GET /api/subscription
@@ -39,6 +40,7 @@ export const getSubscription = asyncHandler(async (req: Request, res: Response) 
       basic: { price: PLAN_PRICES.basic, limits: PLANS.basic },
       pro: { price: PLAN_PRICES.pro, limits: PLANS.pro },
     },
+    cliqInfo: CLIQ_INFO,
   });
 });
 
@@ -47,7 +49,7 @@ const upgradeSchema = z.object({
   billingName: z.string().min(2).max(100),
   billingEmail: z.string().email(),
   billingPhone: z.string().min(7).max(20),
-  paymentMethod: z.enum(["cliq", "bank_transfer", "cash"]),
+  paymentMethod: z.enum(["cliq", "cash"]),
   paymentRef: z.string().max(120).optional(),
   notes: z.string().max(500).optional(),
 });
@@ -82,6 +84,16 @@ export const requestUpgrade = asyncHandler(async (req: Request, res: Response) =
     notes: data.notes,
     status: "pending",
   });
+
+  // Notify the platform admin by email — don't block the response if it fails
+  const clinic = await Clinic.findById(req.clinicId).select("name");
+  sendNewSubscriptionRequestNotification({
+    clinicName: clinic?.name || "Unknown clinic",
+    requestedPlan: data.plan,
+    billingName: data.billingName,
+    billingPhone: data.billingPhone,
+    paymentMethod: data.paymentMethod,
+  }).catch((err) => console.error("[requestUpgrade] admin notify failed:", err));
 
   return res.status(201).json({
     message: "Upgrade request submitted — we'll activate your plan shortly",

@@ -13,7 +13,7 @@ export interface ISubscriptionRequest extends Document {
   billingName: string;
   billingEmail: string;
   billingPhone: string;
-  paymentMethod: "cliq" | "bank_transfer" | "cash";
+  paymentMethod: "cliq" | "cash";
   paymentRef?: string;              // CliQ ref / transfer ref if provided
   notes?: string;
   status: "pending" | "approved" | "rejected";
@@ -29,7 +29,7 @@ const schema = new Schema<ISubscriptionRequest>(
     billingName: { type: String, required: true },
     billingEmail: { type: String, required: true, lowercase: true },
     billingPhone: { type: String, required: true },
-    paymentMethod: { type: String, enum: ["cliq", "bank_transfer", "cash"], required: true },
+    paymentMethod: { type: String, enum: ["cliq", "cash"], required: true },
     paymentRef: { type: String },
     notes: { type: String },
     status: { type: String, enum: ["pending", "approved", "rejected"], default: "pending" },

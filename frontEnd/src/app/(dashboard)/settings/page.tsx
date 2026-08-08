@@ -54,6 +54,7 @@ export default function SettingsPage() {
     return "clinic";
   });
   const [copied, setCopied] = useState(false);
+  const [cliqCopied, setCliqCopied] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   const [origin, setOrigin] = useState("");
@@ -92,7 +93,7 @@ export default function SettingsPage() {
   const [bName, setBName] = useState("");
   const [bEmail, setBEmail] = useState("");
   const [bPhone, setBPhone] = useState("");
-  const [bMethod, setBMethod] = useState<"cliq" | "bank_transfer" | "cash">("cliq");
+  const [bMethod, setBMethod] = useState<"cliq" | "cash">("cliq");
   const [bRef, setBRef] = useState("");
   const [bNotes, setBNotes] = useState("");
 
@@ -833,11 +834,10 @@ export default function SettingsPage() {
           <input className="inp mb-3" value={bPhone} onChange={(e) => setBPhone(e.target.value)} dir="ltr" />
 
           <label className="lbl">{t("sub.paymentMethod")}</label>
-          <div className="mb-3 grid grid-cols-3 gap-2">
+          <div className="mb-3 grid grid-cols-2 gap-2">
             {(
               [
                 ["cliq", t("sub.cliq")],
-                ["bank_transfer", t("sub.bankTransfer")],
                 ["cash", t("sub.cash")],
               ] as const
             ).map(([m, l]) => (
@@ -852,6 +852,29 @@ export default function SettingsPage() {
               </button>
             ))}
           </div>
+
+          {bMethod === "cliq" && subscription?.cliqInfo && (
+            <div className="mb-3 rounded-lg border border-dashed border-sky/60 bg-soft p-3">
+              <p className="mb-2 text-[10px] text-mute">{t("sub.cliqInstructions")}</p>
+              <div className="flex items-center gap-2 rounded-md border border-edge bg-card px-2.5 py-2" dir="ltr">
+                <span className="min-w-0 flex-1 break-all font-mono text-[11px] font-medium text-blue">
+                  {subscription.cliqInfo.alias}
+                </span>
+                <button
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(subscription.cliqInfo.alias);
+                    setCliqCopied(true);
+                    setTimeout(() => setCliqCopied(false), 1500);
+                  }}
+                  className="btn-blue !px-2.5 !py-1 text-[10px]"
+                >
+                  {cliqCopied ? <IconCheck size={12} /> : <IconCopy size={12} />}
+                  {cliqCopied ? t("st.copied") : t("st.copy")}
+                </button>
+              </div>
+              <p className="mt-1.5 text-[10px] text-mute">{subscription.cliqInfo.bank}</p>
+            </div>
+          )}
 
           {bMethod !== "cash" && (
             <>

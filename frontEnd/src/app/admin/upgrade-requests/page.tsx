@@ -20,7 +20,7 @@ interface UpgradeRequest {
   billingName: string;
   billingEmail: string;
   billingPhone: string;
-  paymentMethod: "cliq" | "bank_transfer" | "cash";
+  paymentMethod: "cliq" | "cash";
   paymentRef?: string;
   notes?: string;
   status: "pending" | "approved" | "rejected";
@@ -164,13 +164,7 @@ export default function UpgradeRequestsPage() {
               <Detail label="Billing phone" value={req.billingPhone} monospace />
               <Detail
                 label="Payment method"
-                value={
-                  req.paymentMethod === "cliq"
-                    ? "CliQ"
-                    : req.paymentMethod === "bank_transfer"
-                    ? "Bank Transfer"
-                    : "Cash"
-                }
+                value={req.paymentMethod === "cliq" ? "CliQ" : "Cash"}
               />
               {req.paymentRef && (
                 <Detail label="Payment reference" value={req.paymentRef} monospace />
