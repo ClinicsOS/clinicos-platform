@@ -47,14 +47,65 @@ export const createInvoice = asyncHandler(async (req: Request, res: Response) =>
   return res.status(201).json(invoice);
 });
 
+const updateInvoiceSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        description: z.string().min(1).max(200),
+        price: z.number().min(0),
+        qty: z.number().min(1).default(1),
+      })
+    )
+    .min(1),
+  discount: z.number().min(0).default(0),
+});
+
+/**
+ * PUT /api/invoices/:id
+ * Lets staff fix mistakes on an invoice (wrong price, wrong item, printed
+ * before it was corrected, etc). The one hard rule: the new total can never
+ * drop below what's already been collected in payments — that would mean
+ * the patient somehow overpaid, which needs a refund flow we don't have.
+ */
+export const updateInvoice = asyncHandler(async (req: Request, res: Response) => {
+  const data = updateInvoiceSchema.parse(req.body);
+
+  const invoice = await Invoice.findOne({ _id: req.params.id, clinicId: req.clinicId });
+  if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+
+  const itemsTotal = data.items.reduce((sum, it) => sum + it.price * it.qty, 0);
+  const newTotal = Math.max(0, itemsTotal - data.discount);
+
+  const paidSoFar = invoice.payments.reduce((sum, p) => sum + p.amount, 0);
+  if (newTotal < paidSoFar) {
+    return res.status(400).json({
+      message: `Can't lower the total below what's already been paid (${paidSoFar} JD collected). Adjust items or add a note instead.`,
+      code: "TOTAL_BELOW_PAID",
+    });
+  }
+
+  invoice.items = data.items;
+  invoice.discount = data.discount;
+  invoice.total = newTotal;
+  invoice.status = paidSoFar === 0 ? "unpaid" : paidSoFar >= newTotal ? "paid" : "partially_paid";
+
+  await invoice.save();
+  return res.json(invoice);
+});
+
 export const listInvoices = asyncHandler(async (req: Request, res: Response) => {
   const filter: Record<string, any> = { clinicId: req.clinicId };
   if (req.query.status) filter.status = String(req.query.status);
   if (req.query.patientId) filter.patientId = String(req.query.patientId);
+  if (req.query.from || req.query.to) {
+    filter.createdAt = {};
+    if (req.query.from) filter.createdAt.$gte = new Date(String(req.query.from));
+    if (req.query.to) filter.createdAt.$lt = new Date(String(req.query.to));
+  }
 
   const invoices = await Invoice.find(filter)
     .sort({ createdAt: -1 })
-    .limit(50)
+    .limit(300)
     .populate("patientId", "fullName phone fileNumber");
 
   return res.json(invoices);

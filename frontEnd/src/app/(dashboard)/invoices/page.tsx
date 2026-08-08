@@ -14,6 +14,7 @@ import {
   IconPlus,
   IconTrash,
   IconCreditCard,
+  IconPencil,
 } from "@tabler/icons-react";
 
 const statusPill: Record<string, string> = {
@@ -34,6 +35,7 @@ export default function InvoicesPage() {
   const toast = useToast();
   const [creating, setCreating] = useState(false);
   const [paying, setPaying] = useState<Invoice | null>(null);
+  const [editing, setEditing] = useState<Invoice | null>(null);
   const [error, setError] = useState("");
 
   // --- create form state ---
@@ -42,13 +44,52 @@ export default function InvoicesPage() {
   const [items, setItems] = useState<ItemRow[]>([{ description: "", price: "", qty: "1" }]);
   const [discount, setDiscount] = useState("0");
 
+  // --- edit form state ---
+  const [editItems, setEditItems] = useState<ItemRow[]>([]);
+  const [editDiscount, setEditDiscount] = useState("0");
+  const [editError, setEditError] = useState("");
+
   // --- payment form state ---
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState("cash");
 
+  // --- list filters ---
+  const [period, setPeriod] = useState<"day" | "week" | "month">("month");
+  const [statusFilter, setStatusFilter] = useState<"all" | "paid" | "partially_paid" | "unpaid">("all");
+
+  // Compute the [from, to) date range for the selected period
+  const dateRange = useMemo(() => {
+    const now = new Date();
+    if (period === "day") {
+      const from = new Date(now);
+      from.setHours(0, 0, 0, 0);
+      const to = new Date(from);
+      to.setDate(to.getDate() + 1);
+      return { from, to };
+    }
+    if (period === "week") {
+      const to = new Date(now);
+      to.setHours(23, 59, 59, 999);
+      const from = new Date(now);
+      from.setDate(from.getDate() - 6);
+      from.setHours(0, 0, 0, 0);
+      return { from, to };
+    }
+    // month
+    const from = new Date(now.getFullYear(), now.getMonth(), 1);
+    const to = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    return { from, to };
+  }, [period]);
+
   const { data: invoices } = useQuery({
-    queryKey: ["invoices"],
-    queryFn: async () => (await api.get<Invoice[]>("/invoices")).data,
+    queryKey: ["invoices", period, statusFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("from", dateRange.from.toISOString());
+      params.set("to", dateRange.to.toISOString());
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      return (await api.get<Invoice[]>(`/invoices?${params.toString()}`)).data;
+    },
   });
 
   const { data: patientResults } = useQuery({
@@ -86,6 +127,13 @@ export default function InvoicesPage() {
     0
   );
   const grandTotal = Math.max(0, itemsTotal - (Number(discount) || 0));
+
+  const editItemsTotal = editItems.reduce(
+    (s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 0),
+    0
+  );
+  const editGrandTotal = Math.max(0, editItemsTotal - (Number(editDiscount) || 0));
+  const editPaidSoFar = editing ? paidOf(editing) : 0;
 
   const resetCreate = () => {
     setPatient(null);
@@ -146,6 +194,33 @@ export default function InvoicesPage() {
     },
   });
 
+  const update = useMutation({
+    mutationFn: async () => {
+      const body = {
+        items: editItems
+          .filter((it) => it.description.trim())
+          .map((it) => ({
+            description: it.description.trim(),
+            price: Number(it.price) || 0,
+            qty: Number(it.qty) || 1,
+          })),
+        discount: Number(editDiscount) || 0,
+      };
+      return (await api.put<Invoice>(`/invoices/${editing!._id}`, body)).data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      setEditing(null);
+      setEditError("");
+      toast.success(t("tst.savedTitle"), t("tst.savedBody"));
+    },
+    onError: (e) => {
+      const msg = errMsg(e, t("common.error"));
+      setEditError(msg);
+      toast.error(t("common.error"), msg);
+    },
+  });
+
   const cards = [
     { icon: <IconCoin size={16} />, v: `${summary.month} JD`, l: t("inv.month"), d: 0 },
     { icon: <IconHourglass size={16} />, v: `${summary.outstanding} JD`, l: t("inv.out"), d: 0.8 },
@@ -174,6 +249,34 @@ export default function InvoicesPage() {
         ))}
       </div>
 
+      {/* Filters: period + payment status */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="flex gap-1 rounded-lg border border-edge bg-card2 p-1">
+          {(["day", "week", "month"] as const).map((p) => (
+            <button
+              key={p}
+              onClick={() => setPeriod(p)}
+              className={`rounded-md px-3 py-1.5 text-[11px] font-medium transition-colors ${
+                period === p ? "bg-teal text-navy" : "text-mute hover:text-ink"
+              }`}
+            >
+              {p === "day" ? t("inv.periodDay") : p === "week" ? t("inv.periodWeek") : t("inv.periodMonth")}
+            </button>
+          ))}
+        </div>
+
+        <select
+          className="inp !w-auto !py-1.5 text-[11px]"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+        >
+          <option value="all">{t("inv.filterAll")}</option>
+          <option value="paid">{t("inv.paid")}</option>
+          <option value="partially_paid">{t("inv.partial")}</option>
+          <option value="unpaid">{t("inv.unpaid")}</option>
+        </select>
+      </div>
+
       {/* Table */}
       <div className="card overflow-hidden">
         <div className="flex border-b border-edge bg-card2 px-4 py-2 text-[9px] font-medium tracking-widest text-mute">
@@ -181,7 +284,7 @@ export default function InvoicesPage() {
           <span className="flex-[1.2]">{t("pt.patient")}</span>
           <span className="flex-1">{t("inv.paidTotal")}</span>
           <span className="w-20">{t("inv.status")}</span>
-          <span className="w-20 text-end">{t("pt.actions")}</span>
+          <span className="w-32 text-end">{t("pt.actions")}</span>
         </div>
         {invoices && invoices.length === 0 && (
           <div className="py-16 text-center">
@@ -218,7 +321,24 @@ export default function InvoicesPage() {
                   {inv.status === "paid" ? t("inv.paid") : inv.status === "partially_paid" ? t("inv.partial") : t("inv.unpaid")}
                 </span>
               </span>
-              <span className="flex w-20 justify-end">
+              <span className="flex w-32 justify-end gap-1.5">
+                <button
+                  onClick={() => {
+                    setEditing(inv);
+                    setEditItems(
+                      inv.items.map((it) => ({
+                        description: it.description,
+                        price: String(it.price),
+                        qty: String(it.qty),
+                      }))
+                    );
+                    setEditDiscount(String(inv.discount));
+                    setEditError("");
+                  }}
+                  className="btn-ghost !px-2.5 !py-1 text-[10px]"
+                >
+                  <IconPencil size={12} /> {t("inv.edit")}
+                </button>
                 {inv.status !== "paid" && (
                   <button
                     onClick={() => {
@@ -337,6 +457,97 @@ export default function InvoicesPage() {
             onClick={() => create.mutate()}
           >
             {create.isPending ? t("common.loading") : t("inv.create")}
+          </button>
+        </Modal>
+      )}
+
+      {/* ===== Edit invoice modal ===== */}
+      {editing && (
+        <Modal
+          title={`${t("inv.edit")} — INV-${String(editing.invoiceNumber).padStart(4, "0")}`}
+          onClose={() => setEditing(null)}
+        >
+          {editPaidSoFar > 0 && (
+            <p className="mb-3 rounded-lg bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+              {t("inv.editPaidWarning").replace("{amount}", String(editPaidSoFar))}
+            </p>
+          )}
+
+          <label className="lbl">{t("inv.items")}</label>
+          {editItems.map((it, i) => (
+            <div key={i} className="mb-2 flex gap-2" dir="ltr">
+              <input
+                className="inp flex-[2]"
+                placeholder={t("inv.desc")}
+                value={it.description}
+                onChange={(e) =>
+                  setEditItems(editItems.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))
+                }
+              />
+              <input
+                className="inp w-20"
+                placeholder={t("inv.price")}
+                type="number"
+                min={0}
+                value={it.price}
+                onChange={(e) => setEditItems(editItems.map((x, j) => (j === i ? { ...x, price: e.target.value } : x)))}
+              />
+              <input
+                className="inp w-14"
+                placeholder={t("inv.qty")}
+                type="number"
+                min={1}
+                value={it.qty}
+                onChange={(e) => setEditItems(editItems.map((x, j) => (j === i ? { ...x, qty: e.target.value } : x)))}
+              />
+              {editItems.length > 1 && (
+                <button
+                  onClick={() => setEditItems(editItems.filter((_, j) => j !== i))}
+                  className="text-mute hover:text-red-400"
+                  aria-label="Remove item"
+                >
+                  <IconTrash size={15} />
+                </button>
+              )}
+            </div>
+          ))}
+          <button
+            onClick={() => setEditItems([...editItems, { description: "", price: "", qty: "1" }])}
+            className="mb-3 text-xs text-blue hover:underline"
+          >
+            {t("inv.addItem")}
+          </button>
+
+          <div className="mb-3 flex items-end gap-3">
+            <div className="flex-1">
+              <label className="lbl">{t("inv.discount")}</label>
+              <input
+                className="inp"
+                type="number"
+                min={0}
+                value={editDiscount}
+                onChange={(e) => setEditDiscount(e.target.value)}
+              />
+            </div>
+            <div
+              className={`pb-1 text-sm font-medium ${editGrandTotal < editPaidSoFar ? "text-red-400" : "text-ink"}`}
+              dir="ltr"
+            >
+              = {editGrandTotal} JD
+            </div>
+          </div>
+
+          {editError && <p className="mb-2 text-xs text-red-400">{editError}</p>}
+          <button
+            className="btn-teal w-full"
+            disabled={
+              editGrandTotal < editPaidSoFar ||
+              !editItems.some((it) => it.description.trim()) ||
+              update.isPending
+            }
+            onClick={() => update.mutate()}
+          >
+            {update.isPending ? t("common.loading") : t("inv.saveChanges")}
           </button>
         </Modal>
       )}
