@@ -60,9 +60,11 @@ export interface Patient {
 
 export interface Appointment {
   _id: string;
-  patientId: Patient | string;
+  patientId?: Patient | string;
   doctorId: { _id: string; name: string } | string;
   startAt: string; duration: number; status: string; source: string;
+  type?: "appointment" | "blocked";
+  blockNote?: string;
   visitNote?: string; cancelReason?: string; refCode?: string;
   readBy?: string[];
 }

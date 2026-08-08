@@ -2,12 +2,14 @@ import mongoose, { Schema, Document, Types } from "mongoose";
 
 export interface IAppointment extends Document {
   clinicId: Types.ObjectId;
-  patientId: Types.ObjectId;
+  patientId?: Types.ObjectId;
   doctorId: Types.ObjectId;
   startAt: Date;
   duration: number;
   status: "scheduled" | "confirmed" | "completed" | "cancelled" | "no_show";
   source: "dashboard" | "public";
+  type: "appointment" | "blocked";
+  blockNote?: string;
   visitNote?: string;
   cancelReason?: string;
   refCode?: string;
@@ -27,7 +29,10 @@ const appointmentSchema = new Schema<IAppointment>(
     patientId: {
       type: Schema.Types.ObjectId,
       ref: "Patient",
-      required: true,
+      // Required for real appointments, absent for the doctor's own blocked slots
+      required: function (this: IAppointment) {
+        return this.type !== "blocked";
+      },
       index: true,
     },
     doctorId: {
@@ -47,6 +52,13 @@ const appointmentSchema = new Schema<IAppointment>(
       enum: ["dashboard", "public"],
       default: "dashboard",
     },
+    type: {
+      type: String,
+      enum: ["appointment", "blocked"],
+      default: "appointment",
+      index: true,
+    },
+    blockNote: { type: String },
     visitNote: { type: String },
     cancelReason: { type: String },
     refCode: { type: String, index: true },

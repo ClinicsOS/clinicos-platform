@@ -16,7 +16,7 @@ export const getStats = asyncHandler(async (req: Request, res: Response) => {
   weekStart.setUTCDate(weekStart.getUTCDate() - 6);
 
   const todayByStatus = await Appointment.aggregate([
-    { $match: { clinicId, startAt: { $gte: todayStart, $lt: todayEnd } } },
+    { $match: { clinicId, type: { $ne: "blocked" }, startAt: { $gte: todayStart, $lt: todayEnd } } },
     { $group: { _id: "$status", count: { $sum: 1 } } },
   ]);
 
@@ -34,7 +34,7 @@ export const getStats = asyncHandler(async (req: Request, res: Response) => {
   const todayRevenue = revenueResult[0]?.total || 0;
 
   const weekAgg = await Appointment.aggregate([
-    { $match: { clinicId, startAt: { $gte: weekStart, $lt: todayEnd } } },
+    { $match: { clinicId, type: { $ne: "blocked" }, startAt: { $gte: weekStart, $lt: todayEnd } } },
     {
       $group: {
         _id: { $dateToString: { format: "%Y-%m-%d", date: "$startAt" } },

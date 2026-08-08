@@ -36,7 +36,7 @@ export const monthlyReport = asyncHandler(async (req: Request, res: Response) =>
 
   // ==== Appointments by status ====
   const statusAgg = await Appointment.aggregate([
-    { $match: { clinicId, startAt: { $gte: start, $lt: end } } },
+    { $match: { clinicId, type: { $ne: "blocked" }, startAt: { $gte: start, $lt: end } } },
     { $group: { _id: "$status", count: { $sum: 1 } } },
   ]);
   const byStatus: Record<string, number> = {};
@@ -50,7 +50,7 @@ export const monthlyReport = asyncHandler(async (req: Request, res: Response) =>
 
   // ==== Top doctors ====
   const topDoctorsAgg = await Appointment.aggregate([
-    { $match: { clinicId, startAt: { $gte: start, $lt: end } } },
+    { $match: { clinicId, type: { $ne: "blocked" }, startAt: { $gte: start, $lt: end } } },
     { $group: { _id: "$doctorId", count: { $sum: 1 } } },
     { $sort: { count: -1 } },
     { $limit: 5 },
@@ -78,7 +78,7 @@ export const monthlyReport = asyncHandler(async (req: Request, res: Response) =>
       },
     ]),
     Appointment.aggregate([
-      { $match: { clinicId, startAt: { $gte: start, $lt: end } } },
+      { $match: { clinicId, type: { $ne: "blocked" }, startAt: { $gte: start, $lt: end } } },
       {
         $group: {
           _id: { $dateToString: { format: "%Y-%m-%d", date: "$startAt" } },

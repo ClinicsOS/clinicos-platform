@@ -77,6 +77,7 @@ export const getDashboardStats = asyncHandler(
           $lt: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1),
         },
         status: { $ne: "cancelled" },
+        type: { $ne: "blocked" },
       }),
       SubscriptionRequest.countDocuments({
         status: "approved",
@@ -351,7 +352,7 @@ export const getClinicDetails = asyncHandler(
         .select("-password -verifyTokenHash -resetTokenHash")
         .lean(),
       Patient.countDocuments({ clinicId: id }),
-      Appointment.countDocuments({ clinicId: id }),
+      Appointment.countDocuments({ clinicId: id, type: { $ne: "blocked" } }),
       Invoice.find({ clinicId: id }).sort("-createdAt").limit(10).lean(),
       SubscriptionRequest.find({ clinicId: id })
         .sort("-createdAt")

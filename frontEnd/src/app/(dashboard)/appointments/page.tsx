@@ -357,8 +357,38 @@ function TimelineRow({
   if (appt) {
     const did = typeof appt.doctorId === "string" ? appt.doctorId : appt.doctorId?._id;
     const doctor = typeof appt.doctorId === "object" ? appt.doctorId : doctors.find((d) => d._id === did);
-    const patient = typeof appt.patientId === "object" ? appt.patientId : null;
     const color = docColor(did || "");
+
+    // Blocked row — the doctor reserved this slot for themselves, no patient involved
+    if (appt.type === "blocked") {
+      return (
+        <button
+          onClick={() => onEdit(appt)}
+          className={`flex w-full items-center gap-3 border-b border-edge px-4 py-2.5 text-start transition-colors hover:bg-soft ${
+            isPast ? "opacity-60" : ""
+          }`}
+        >
+          <div className="w-14 font-mono text-[11px] font-medium text-ink">{to12h(time)}</div>
+          <div className="h-8 w-1 rounded-full bg-mute/40" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 text-[12px] font-medium text-mute">
+              <IconLock size={11} /> {t("ap.blockedLabel")}
+            </div>
+            <div className="mt-0.5 flex items-center gap-2 text-[10px] text-mute">
+              <span>{doctor?.name}</span>
+              {appt.blockNote && (
+                <>
+                  <span>·</span>
+                  <span className="truncate">{appt.blockNote}</span>
+                </>
+              )}
+            </div>
+          </div>
+        </button>
+      );
+    }
+
+    const patient = typeof appt.patientId === "object" ? appt.patientId : null;
     const isPending = appt.source === "public" && appt.status === "scheduled";
     const isConfirmed = appt.status === "confirmed";
     const isCompleted = appt.status === "completed";
@@ -493,12 +523,14 @@ function NewAppointmentModal({
   onDone: () => void;
 }) {
   const { t } = useI18n();
+  const [mode, setMode] = useState<"appointment" | "block">("appointment");
   const [search, setSearch] = useState("");
   const [patientId, setPatientId] = useState("");
   const [doctorId, setDoctorId] = useState(doctors[0]?._id ?? "");
   const [date, setDate] = useState(initialDate);
   const [time, setTime] = useState(initialTime || "");
   const [duration, setDuration] = useState(clinic.slotDuration || 30);
+  const [blockNote, setBlockNote] = useState("");
   const [error, setError] = useState("");
 
   const { data: patients } = useQuery({
@@ -579,27 +611,69 @@ function NewAppointmentModal({
     onError: (e) => setError(errMsg(e, t("ap.taken"))),
   });
 
+  const createBlock = useMutation({
+    mutationFn: async () => {
+      const startAt = combineToUTC(date, time);
+      await api.post("/appointments/block", { doctorId, startAt, duration, note: blockNote || undefined });
+    },
+    onSuccess: onDone,
+    onError: (e) => setError(errMsg(e, t("ap.taken"))),
+  });
+
   return (
-    <Modal title={t("dash.new")} onClose={onClose}>
-      <label className="lbl">{t("ap.patient")}</label>
-      <input
-        className="inp mb-1.5"
-        placeholder={t("pt.search")}
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-      />
-      <select
-        className="inp mb-3"
-        value={patientId}
-        onChange={(e) => setPatientId(e.target.value)}
-      >
-        <option value="">—</option>
-        {(patients ?? []).map((p) => (
-          <option key={p._id} value={p._id}>
-            #{String(p.fileNumber).padStart(4, "0")} · {p.fullName}
-          </option>
-        ))}
-      </select>
+    <Modal title={mode === "block" ? t("ap.blockTitle") : t("dash.new")} onClose={onClose}>
+      <div className="mb-3 grid grid-cols-2 gap-2">
+        <button
+          onClick={() => setMode("appointment")}
+          className={`rounded-lg border py-2 text-[11px] font-medium ${
+            mode === "appointment" ? "border-blue bg-blue/15 text-sky" : "border-edge bg-card2 text-mute"
+          }`}
+        >
+          {t("ap.modeAppointment")}
+        </button>
+        <button
+          onClick={() => setMode("block")}
+          className={`rounded-lg border py-2 text-[11px] font-medium ${
+            mode === "block" ? "border-blue bg-blue/15 text-sky" : "border-edge bg-card2 text-mute"
+          }`}
+        >
+          {t("ap.modeBlock")}
+        </button>
+      </div>
+
+      {mode === "appointment" ? (
+        <>
+          <label className="lbl">{t("ap.patient")}</label>
+          <input
+            className="inp mb-1.5"
+            placeholder={t("pt.search")}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <select
+            className="inp mb-3"
+            value={patientId}
+            onChange={(e) => setPatientId(e.target.value)}
+          >
+            <option value="">—</option>
+            {(patients ?? []).map((p) => (
+              <option key={p._id} value={p._id}>
+                #{String(p.fileNumber).padStart(4, "0")} · {p.fullName}
+              </option>
+            ))}
+          </select>
+        </>
+      ) : (
+        <>
+          <label className="lbl">{t("ap.blockNote")}</label>
+          <input
+            className="inp mb-3"
+            placeholder={t("ap.blockNotePlaceholder")}
+            value={blockNote}
+            onChange={(e) => setBlockNote(e.target.value)}
+          />
+        </>
+      )}
 
       <label className="lbl">{t("ap.doctor")}</label>
       {doctors.length === 0 ? (
@@ -692,12 +766,23 @@ function NewAppointmentModal({
       <button
         onClick={() => {
           setError("");
-          create.mutate();
+          if (mode === "block") createBlock.mutate();
+          else create.mutate();
         }}
-        disabled={!patientId || !doctorId || !time || create.isPending}
+        disabled={
+          mode === "block"
+            ? !doctorId || !time || createBlock.isPending
+            : !patientId || !doctorId || !time || create.isPending
+        }
         className="btn-blue w-full !py-2.5"
       >
-        {create.isPending ? t("common.loading") : t("ap.create")}
+        {mode === "block"
+          ? createBlock.isPending
+            ? t("common.loading")
+            : t("ap.createBlock")
+          : create.isPending
+          ? t("common.loading")
+          : t("ap.create")}
       </button>
     </Modal>
   );
@@ -742,9 +827,17 @@ function EditAppointmentModal({
       )}
 
       <div className="mb-3 rounded-lg border border-edge bg-card2 p-3">
-        <div className="mb-1 text-[9px] tracking-widest text-mute">{t("ap.patient")}</div>
-        <div className="text-sm font-medium text-ink">{patient?.fullName || "—"}</div>
-        {patient?.phone && <div className="text-[10px] text-mute" dir="ltr">{patient.phone}</div>}
+        <div className="mb-1 text-[9px] tracking-widest text-mute">
+          {appointment.type === "blocked" ? t("ap.blockedLabel") : t("ap.patient")}
+        </div>
+        {appointment.type === "blocked" ? (
+          <div className="text-sm font-medium text-ink">{appointment.blockNote || t("ap.blockNoNote")}</div>
+        ) : (
+          <>
+            <div className="text-sm font-medium text-ink">{patient?.fullName || "—"}</div>
+            {patient?.phone && <div className="text-[10px] text-mute" dir="ltr">{patient.phone}</div>}
+          </>
+        )}
       </div>
 
       <div className="mb-3 grid grid-cols-2 gap-2">

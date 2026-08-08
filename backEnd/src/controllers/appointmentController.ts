@@ -15,6 +15,13 @@ const createAppointmentSchema = z.object({
   notes: z.string().max(500).optional(),
 });
 
+const createBlockSchema = z.object({
+  doctorId: z.string().length(24),
+  startAt: z.string().datetime(),
+  duration: z.number().min(10).max(480).optional(),
+  note: z.string().max(200).optional(),
+});
+
 export const createAppointment = asyncHandler(async (req: Request, res: Response) => {
   const data = createAppointmentSchema.parse(req.body);
 
@@ -94,6 +101,65 @@ export const createAppointment = asyncHandler(async (req: Request, res: Response
   });
 
   return res.status(201).json(appointment);
+});
+
+/**
+ * POST /api/appointments/block
+ * Lets a doctor/owner reserve a slot for themselves (personal errand, meeting,
+ * etc.) without a real patient. To the public booking page and every stats
+ * query, this behaves exactly like a normal booked appointment — patients
+ * just see the slot as "already booked" with no indication why.
+ */
+export const createBlock = asyncHandler(async (req: Request, res: Response) => {
+  const data = createBlockSchema.parse(req.body);
+
+  const startAt = new Date(data.startAt);
+  if (startAt.getTime() <= Date.now()) {
+    return res.status(400).json({ message: "Cannot block a time in the past", code: "PAST_TIME" });
+  }
+
+  const clinic = await Clinic.findById(req.clinicId);
+  if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+
+  const dow = startAt.getUTCDay();
+  const wh = clinic.workingHours.find((w) => w.day === dow);
+  if (!wh || !wh.isOpen) {
+    return res.status(400).json({ message: "The clinic is closed on this day", code: "DAY_CLOSED" });
+  }
+
+  const doctor = await User.findOne({
+    _id: data.doctorId,
+    clinicId: req.clinicId,
+    role: "doctor",
+    isActive: true,
+  });
+  if (!doctor) return res.status(404).json({ message: "Doctor not found" });
+
+  // Same conflict guard as public/admin booking — the unique DB index also
+  // enforces this, but checking here gives a clean 409 instead of a raw
+  // duplicate-key error.
+  const conflict = await Appointment.findOne({
+    clinicId: req.clinicId,
+    doctorId: data.doctorId,
+    startAt,
+    status: { $in: ["scheduled", "confirmed"] },
+  });
+  if (conflict) {
+    return res.status(409).json({ message: "This time is already taken", code: "SLOT_TAKEN" });
+  }
+
+  const block = await Appointment.create({
+    clinicId: req.clinicId,
+    doctorId: data.doctorId,
+    startAt,
+    duration: data.duration ?? clinic.slotDuration,
+    source: "dashboard",
+    type: "blocked",
+    blockNote: data.note,
+    status: "confirmed",
+  });
+
+  return res.status(201).json(block);
 });
 
 export const listAppointments = asyncHandler(async (req: Request, res: Response) => {
