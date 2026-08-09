@@ -27,6 +27,8 @@ import {
   IconChevronRight,
   IconCalendarOff,
   IconCoffee,
+  IconAlertTriangle,
+  IconListNumbers,
 } from "@tabler/icons-react";
 
 interface PublicClinic {
@@ -273,6 +275,14 @@ export default function PublicBookingPage() {
               </span>
             </div>
 
+            <div className="mt-3 flex gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-amber-300">
+              <IconAlertTriangle size={15} className="mt-0.5 shrink-0" />
+              <div>
+                <p className="text-[11px] font-medium">{t("bk.saveCodeTitle")}</p>
+                <p className="mt-0.5 text-[10px] leading-relaxed opacity-90">{t("bk.saveCodeDesc")}</p>
+              </div>
+            </div>
+
             <div className="card mt-4 px-4 py-1">
               {[
                 { icon: <IconUser size={13} />, l: t("ap.doctor"), v: done.doctorName },
@@ -336,6 +346,25 @@ export default function PublicBookingPage() {
         ) : (
           /* ===== Flow ===== */
           <section className="px-5 pt-4">
+            {/* --- Quick guide --- */}
+            <div className="mb-4 rounded-lg border border-edge bg-card2 p-3">
+              <p className="mb-2 flex items-center gap-1.5 text-[10px] font-medium tracking-widest text-mute">
+                <IconListNumbers size={13} /> {t("bk.guideTitle")}
+              </p>
+              <div className="grid grid-cols-2 gap-y-1.5 text-[10px] text-mute sm:grid-cols-4">
+                {[t("bk.guideStep1"), t("bk.guideStep2"), t("bk.guideStep3"), t("bk.guideStep4")].map(
+                  (step, i) => (
+                    <div key={i} className="flex items-center gap-1.5">
+                      <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-soft text-[9px] font-medium text-blue">
+                        {i + 1}
+                      </span>
+                      <span>{step}</span>
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
+
             {/* --- Doctor picker --- */}
             <p className="lbl !tracking-widest">{t("bk.choose")}</p>
             {doctors.length === 0 ? (
