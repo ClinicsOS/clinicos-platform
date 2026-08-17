@@ -65,6 +65,8 @@ export interface Appointment {
   startAt: string; duration: number; status: string; source: string;
   type?: "appointment" | "blocked";
   blockNote?: string;
+  visitType?: "consultation" | "procedure";
+  procedureNote?: string;
   visitNote?: string; cancelReason?: string; refCode?: string;
   readBy?: string[];
 }

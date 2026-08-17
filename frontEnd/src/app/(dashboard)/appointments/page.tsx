@@ -410,6 +410,11 @@ function TimelineRow({
             <span className="truncate text-[12px] font-medium text-ink">
               {patient?.fullName ?? "—"}
             </span>
+            {appt.visitType === "procedure" && (
+              <span className="pill shrink-0 bg-purple-500/15 text-[8px] text-purple-300">
+                {t("visit.procedureBadge")}
+              </span>
+            )}
             {isPending && (
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-2 w-2 animate-ping rounded-full bg-amber-400 opacity-75" />
@@ -423,6 +428,12 @@ function TimelineRow({
               <>
                 <span>·</span>
                 <span dir="ltr">{patient.phone}</span>
+              </>
+            )}
+            {appt.visitType === "procedure" && appt.procedureNote && (
+              <>
+                <span>·</span>
+                <span className="truncate">{appt.procedureNote}</span>
               </>
             )}
           </div>
@@ -531,6 +542,8 @@ function NewAppointmentModal({
   const [time, setTime] = useState(initialTime || "");
   const [duration, setDuration] = useState(clinic.slotDuration || 30);
   const [blockNote, setBlockNote] = useState("");
+  const [visitType, setVisitType] = useState<"consultation" | "procedure">("consultation");
+  const [procedureNote, setProcedureNote] = useState("");
   const [error, setError] = useState("");
 
   const { data: patients } = useQuery({
@@ -605,7 +618,14 @@ function NewAppointmentModal({
   const create = useMutation({
     mutationFn: async () => {
       const startAt = combineToUTC(date, time);
-      await api.post("/appointments", { patientId, doctorId, startAt, duration });
+      await api.post("/appointments", {
+        patientId,
+        doctorId,
+        startAt,
+        duration,
+        visitType,
+        procedureNote: visitType === "procedure" ? procedureNote.trim() : undefined,
+      });
     },
     onSuccess: onDone,
     onError: (e) => setError(errMsg(e, t("ap.taken"))),
@@ -662,6 +682,36 @@ function NewAppointmentModal({
               </option>
             ))}
           </select>
+
+          <label className="lbl">{t("visit.type")}</label>
+          <div className="mb-3 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setVisitType("consultation")}
+              className={`rounded-lg border py-2 text-[11px] font-medium ${
+                visitType === "consultation" ? "border-blue bg-blue/15 text-sky" : "border-edge bg-card2 text-mute"
+              }`}
+            >
+              {t("visit.consultation")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setVisitType("procedure")}
+              className={`rounded-lg border py-2 text-[11px] font-medium ${
+                visitType === "procedure" ? "border-blue bg-blue/15 text-sky" : "border-edge bg-card2 text-mute"
+              }`}
+            >
+              {t("visit.procedure")}
+            </button>
+          </div>
+          {visitType === "procedure" && (
+            <input
+              className="inp mb-3"
+              placeholder={t("visit.procedureNotePlaceholder")}
+              value={procedureNote}
+              onChange={(e) => setProcedureNote(e.target.value)}
+            />
+          )}
         </>
       ) : (
         <>
@@ -772,7 +822,11 @@ function NewAppointmentModal({
         disabled={
           mode === "block"
             ? !doctorId || !time || createBlock.isPending
-            : !patientId || !doctorId || !time || create.isPending
+            : !patientId ||
+              !doctorId ||
+              !time ||
+              (visitType === "procedure" && procedureNote.trim().length < 2) ||
+              create.isPending
         }
         className="btn-blue w-full !py-2.5"
       >
@@ -839,6 +893,20 @@ function EditAppointmentModal({
           </>
         )}
       </div>
+
+      {appointment.type !== "blocked" && (
+        <div className="mb-3 rounded-lg border border-edge bg-card2 p-3">
+          <div className="mb-1 text-[9px] tracking-widest text-mute">{t("visit.type")}</div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-ink">
+              {appointment.visitType === "procedure" ? t("visit.procedure") : t("visit.consultation")}
+            </span>
+          </div>
+          {appointment.visitType === "procedure" && appointment.procedureNote && (
+            <div className="mt-1 text-[11px] text-mute">{appointment.procedureNote}</div>
+          )}
+        </div>
+      )}
 
       <div className="mb-3 grid grid-cols-2 gap-2">
         <div className="rounded-lg border border-edge bg-card2 p-2.5">

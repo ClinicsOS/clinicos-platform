@@ -76,6 +76,8 @@ export default function PublicBookingPage() {
   const [date, setDate] = useState(upcomingDays()[0]);
   const [dayOffset, setDayOffset] = useState(0);
   const [slot, setSlot] = useState("");
+  const [visitType, setVisitType] = useState<"consultation" | "procedure">("consultation");
+  const [procedureNote, setProcedureNote] = useState("");
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -178,8 +180,10 @@ export default function PublicBookingPage() {
         startAt,
         fullName: fullName.trim(),
         phone: phone.trim(),
+        visitType,
       };
       if (email.trim()) body.email = email.trim();
+      if (visitType === "procedure") body.procedureNote = procedureNote.trim();
       return (await api.post<BookRes>(`/public/clinics/${slug}/book`, body)).data;
     },
     onSuccess: (res) => {
@@ -537,6 +541,41 @@ export default function PublicBookingPage() {
               </>
             )}
 
+            {/* --- Visit type --- */}
+            <p className="lbl !tracking-widest">{t("visit.type")}</p>
+            <div className="mb-3 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setVisitType("consultation")}
+                className={`rounded-lg border py-2 text-[11px] font-medium ${
+                  visitType === "consultation"
+                    ? "border-blue bg-blue/15 text-sky"
+                    : "border-edge bg-card2 text-mute"
+                }`}
+              >
+                {t("visit.consultation")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setVisitType("procedure")}
+                className={`rounded-lg border py-2 text-[11px] font-medium ${
+                  visitType === "procedure"
+                    ? "border-blue bg-blue/15 text-sky"
+                    : "border-edge bg-card2 text-mute"
+                }`}
+              >
+                {t("visit.procedure")}
+              </button>
+            </div>
+            {visitType === "procedure" && (
+              <input
+                className="inp mb-3"
+                placeholder={t("visit.procedureNotePlaceholder")}
+                value={procedureNote}
+                onChange={(e) => setProcedureNote(e.target.value)}
+              />
+            )}
+
             {/* --- Patient details --- */}
             <p className="lbl !tracking-widest">{t("bk.details")}</p>
             <input
@@ -571,6 +610,7 @@ export default function PublicBookingPage() {
               disabled={
                 !activeDoctor ||
                 !slot ||
+                (visitType === "procedure" && procedureNote.trim().length < 2) ||
                 fullName.trim().length < 2 ||
                 phone.trim().length < 7 ||
                 book.isPending

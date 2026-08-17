@@ -7,13 +7,20 @@ import { Clinic } from "../models/Clinic";
 import { asyncHandler } from "../middleware/errorHandler";
 import { PLANS, type Plan } from "../config/plans";
 
-const createAppointmentSchema = z.object({
-  patientId: z.string().length(24),
-  doctorId: z.string().length(24),
-  startAt: z.string().datetime(),
-  duration: z.number().min(10).max(180).optional(),
-  notes: z.string().max(500).optional(),
-});
+const createAppointmentSchema = z
+  .object({
+    patientId: z.string().length(24),
+    doctorId: z.string().length(24),
+    startAt: z.string().datetime(),
+    duration: z.number().min(10).max(180).optional(),
+    notes: z.string().max(500).optional(),
+    visitType: z.enum(["consultation", "procedure"]).default("consultation"),
+    procedureNote: z.string().max(200).optional(),
+  })
+  .refine(
+    (data) => data.visitType !== "procedure" || !!data.procedureNote?.trim(),
+    { message: "Please specify the procedure", path: ["procedureNote"] }
+  );
 
 const createBlockSchema = z.object({
   doctorId: z.string().length(24),
@@ -98,6 +105,8 @@ export const createAppointment = asyncHandler(async (req: Request, res: Response
     startAt: new Date(data.startAt),
     duration: data.duration ?? clinic.slotDuration,
     source: "dashboard",
+    visitType: data.visitType,
+    procedureNote: data.visitType === "procedure" ? data.procedureNote?.trim() : undefined,
   });
 
   return res.status(201).json(appointment);

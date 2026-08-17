@@ -10,6 +10,8 @@ export interface IAppointment extends Document {
   source: "dashboard" | "public";
   type: "appointment" | "blocked";
   blockNote?: string;
+  visitType?: "consultation" | "procedure";
+  procedureNote?: string;
   visitNote?: string;
   cancelReason?: string;
   refCode?: string;
@@ -59,6 +61,12 @@ const appointmentSchema = new Schema<IAppointment>(
       index: true,
     },
     blockNote: { type: String },
+    visitType: {
+      type: String,
+      enum: ["consultation", "procedure"],
+      default: "consultation",
+    },
+    procedureNote: { type: String },
     visitNote: { type: String },
     cancelReason: { type: String },
     refCode: { type: String, index: true },
