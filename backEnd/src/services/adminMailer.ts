@@ -1,25 +1,13 @@
 /**
- * Sends admin-composed emails using the same Brevo SMTP transport as the rest
- * of the app.  We wrap the plain text body in a branded HTML template so every
- * email the admin sends still looks like it came from ClinicOS proper.
+ * Sends admin-composed emails using the Resend Email API (HTTPS) — the same
+ * transport used by services/mailer.ts. Previously this used raw SMTP
+ * (Brevo), which suffers the same intermittent "Connection timeout" issue
+ * on Render as the rest of the app used to before the switch to Resend.
  */
-import nodemailer, { Transporter } from "nodemailer";
 
-const host = process.env.SMTP_HOST || "smtp-relay.brevo.com";
-const port = Number(process.env.SMTP_PORT) || 587;
-const user = process.env.SMTP_USER || "";
-const pass = process.env.SMTP_PASS || "";
-const mailFrom = process.env.MAIL_FROM || "ClinicOS <clinicos.system@gmail.com>";
-
-let transporter: Transporter | null = null;
-if (user && pass) {
-  transporter = nodemailer.createTransport({
-    host,
-    port,
-    secure: false,
-    auth: { user, pass },
-  });
-}
+const apiKey = process.env.RESEND_API_KEY || "";
+const mailFromEmail = process.env.MAIL_FROM_EMAIL || "no-reply@clinicosjo.com";
+const mailFromName = process.env.MAIL_FROM_NAME || "ClinicOS";
 
 const wrap = (title: string, bodyText: string) => {
   // Convert plain-text line breaks into <p> tags without breaking on empty lines
@@ -47,7 +35,7 @@ const wrap = (title: string, bodyText: string) => {
           <div style="font-size:14px;line-height:1.65;color:#4b6b85">${paragraphs}</div>
         </td></tr>
         <tr><td style="padding:20px 32px 28px;border-top:1px solid #eef3f8;color:#8095a8;font-size:11px;line-height:1.5">
-          ClinicOS · Amman, Jordan · You're receiving this because your clinic is registered on ClinicOS.
+          ClinicOS · Amman, Jordan · You're receiving this because your account is registered on ClinicOS.
         </td></tr>
       </table>
     </td></tr>
@@ -65,9 +53,9 @@ export async function sendAdminCustomEmail(
   const greeting = recipientName ? `Hi ${recipientName},\n\n` : "";
   const html = wrap(subject, greeting + body);
 
-  if (!transporter) {
+  if (!apiKey) {
     console.log("═══════════════════════════════════════════════════");
-    console.log("📧 [ADMIN MAILER — dev mode, no SMTP configured]");
+    console.log("📧 [ADMIN MAILER — dev mode, no RESEND_API_KEY configured]");
     console.log("To:      ", to);
     console.log("Subject: ", subject);
     console.log("──────────────────────────────────────────────────");
@@ -77,8 +65,25 @@ export async function sendAdminCustomEmail(
   }
 
   try {
-    const info = await transporter.sendMail({ from: mailFrom, to, subject, html });
-    console.log(`[ADMIN MAILER] ✔ Sent to ${to} — messageId: ${info.messageId}`);
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        from: `${mailFromName} <${mailFromEmail}>`,
+        to: [to],
+        subject,
+        html,
+      }),
+    });
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => "");
+      throw new Error(`Resend API ${res.status}: ${errBody}`);
+    }
+    const data = (await res.json()) as { id?: string };
+    console.log(`[ADMIN MAILER] ✔ Sent to ${to} — id: ${data.id}`);
   } catch (err) {
     console.error(`[ADMIN MAILER] ✗ Failed to send to ${to}:`, (err as Error).message);
     throw err; // Rethrow so the API returns an error to the admin

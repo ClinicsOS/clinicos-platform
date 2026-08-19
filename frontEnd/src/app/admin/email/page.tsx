@@ -54,6 +54,7 @@ If you have any questions, please reply to this email.`,
 function EmailContent() {
   const params = useSearchParams();
   const initialClinicId = params.get("clinicId") || "";
+  const initialTemplate = params.get("template") || "";
 
   const [clinicId, setClinicId] = useState(initialClinicId);
   const [subject, setSubject] = useState("");
@@ -73,7 +74,12 @@ function EmailContent() {
 
   useEffect(() => {
     if (initialClinicId) setClinicId(initialClinicId);
-  }, [initialClinicId]);
+    if (initialTemplate === "renewal") {
+      setSelectedTemplate(0);
+      setSubject(TEMPLATES[0].subject);
+      setBody(TEMPLATES[0].body);
+    }
+  }, [initialClinicId, initialTemplate]);
 
   const send = useMutation({
     mutationFn: async () =>

@@ -11,6 +11,7 @@ import {
   IconClock,
   IconExternalLink,
   IconClockPlus,
+  IconMail,
   IconX,
 } from "@tabler/icons-react";
 
@@ -134,6 +135,13 @@ export default function ExpiringPage() {
                 >
                   <IconClockPlus size={13} /> Extend
                 </button>
+                <Link
+                  href={`/admin/email?clinicId=${c._id}&template=renewal`}
+                  className="flex items-center justify-center rounded-md border border-red-800/50 bg-red-900/20 px-3 py-1.5 text-[11px] font-medium text-red-100 hover:bg-red-900/40"
+                  title="Send renewal reminder email"
+                >
+                  <IconMail size={13} />
+                </Link>
                 <Link
                   href={`/admin/clinics/${c._id}`}
                   className="flex items-center justify-center rounded-md border border-red-800/50 bg-red-900/20 px-3 py-1.5 text-[11px] font-medium text-red-100 hover:bg-red-900/40"
