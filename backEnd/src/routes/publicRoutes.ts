@@ -1,6 +1,6 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
-import { getClinicBySlug, getAvailableSlots, publicBook } from "../controllers/publicController";
+import { getClinicBySlug, getAvailableSlots, publicBook, searchClinics } from "../controllers/publicController";
 import { trackBooking, cancelBooking } from "../controllers/trackController";
 
 const router = Router();
@@ -17,6 +17,16 @@ const trackLimiter = rateLimit({
   message: { message: "Too many requests, try again later" },
 });
 
+const searchLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  message: { message: "Too many requests, try again later" },
+});
+
+// IMPORTANT: /clinics/search must be registered BEFORE /clinics/:slug —
+// otherwise Express matches "search" as a :slug value and this route is
+// never reached.
+router.get("/clinics/search", searchLimiter, searchClinics);
 router.get("/clinics/:slug", getClinicBySlug);
 router.get("/clinics/:slug/slots", getAvailableSlots);
 router.post("/clinics/:slug/book", bookLimiter, publicBook);

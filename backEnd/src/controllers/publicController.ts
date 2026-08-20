@@ -8,157 +8,253 @@ import { asyncHandler } from "../middleware/errorHandler";
 import { PLANS, type Plan } from "../config/plans";
 import { sendNewBookingNotification } from "../services/mailer";
 
+// ===== GET /api/public/clinics/search?q= =====
+// Added for mobile clinic discovery (patient no longer needs a direct link).
+// Public-safe fields only — mirrors the field selection already used in
+// getClinicBySlug above. No owner email, no subscription/billing data.
+export const searchClinics = asyncHandler(
+  async (req: Request, res: Response) => {
+    const q = String(req.query.q || "").trim();
+    if (q.length < 2) {
+      return res.json({ results: [] });
+    }
+
+    // Case-insensitive partial match. Mongo regex on a modest clinic
+    // collection is fine here; a text index would be the next step if this
+    // ever needs to scale beyond that.
+    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const regex = new RegExp(escaped, "i");
+
+    const clinics = await Clinic.find({
+      status: "active",
+      name: regex,
+    })
+      .select("name slug specialty logoUrl brandColor plan")
+      .limit(20);
+
+    // Also match clinics via a doctor's name, in case the clinic itself
+    // didn't match (e.g. searching "Mahmoud" for "Dr. Mahmoud" at a clinic
+    // named something else entirely).
+    const matchingDoctors = await User.find({
+      role: "doctor",
+      isActive: true,
+      name: regex,
+    }).select("clinicId name");
+
+    const doctorClinicIds = matchingDoctors.map((d) => String(d.clinicId));
+    const alreadyIncluded = new Set(clinics.map((c) => String(c._id)));
+    const extraClinicIds = doctorClinicIds.filter(
+      (id) => !alreadyIncluded.has(id),
+    );
+
+    const clinicsByDoctor = extraClinicIds.length
+      ? await Clinic.find({ _id: { $in: extraClinicIds }, status: "active" })
+          .select("name slug specialty logoUrl brandColor plan")
+          .limit(20)
+      : [];
+
+    const doctorNameByClinic = new Map<string, string>();
+    for (const d of matchingDoctors) {
+      doctorNameByClinic.set(String(d.clinicId), d.name);
+    }
+
+    const toResult = (c: (typeof clinics)[number]) => {
+      const plan = c.plan as Plan;
+      return {
+        _id: c._id,
+        name: c.name,
+        slug: c.slug,
+        specialty: c.specialty,
+        logoUrl: c.logoUrl,
+        brandColor: PLANS[plan].customBookingColor ? c.brandColor : undefined,
+        matchedDoctorName: doctorNameByClinic.get(String(c._id)) || undefined,
+      };
+    };
+
+    // Rank: exact name match, then starts-with, then partial name match,
+    // then doctor-name matches.
+    const lower = q.toLowerCase();
+    const nameMatches = clinics.map(toResult).sort((a, b) => {
+      const rank = (name: string) => {
+        const n = name.toLowerCase();
+        if (n === lower) return 0;
+        if (n.startsWith(lower)) return 1;
+        return 2;
+      };
+      return rank(a.name) - rank(b.name);
+    });
+
+    const doctorMatches = clinicsByDoctor.map(toResult);
+
+    return res.json({
+      results: [...nameMatches, ...doctorMatches].slice(0, 20),
+    });
+  },
+);
+
 // ===== GET /api/public/clinics/:slug =====
-export const getClinicBySlug = asyncHandler(async (req: Request, res: Response) => {
-  const clinic = await Clinic.findOne({
-    slug: req.params.slug,
-    status: "active",
-  }).select("name slug specialty phone address logoUrl brandColor workingHours slotDuration plan");
+export const getClinicBySlug = asyncHandler(
+  async (req: Request, res: Response) => {
+    const clinic = await Clinic.findOne({
+      slug: req.params.slug,
+      status: "active",
+    }).select(
+      "name slug specialty phone address logoUrl brandColor workingHours slotDuration plan",
+    );
 
-  if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+    if (!clinic) return res.status(404).json({ message: "Clinic not found" });
 
-  const doctors = await User.find({
-    clinicId: clinic._id,
-    role: "doctor",
-    isActive: true,
-  }).select("name");
+    const doctors = await User.find({
+      clinicId: clinic._id,
+      role: "doctor",
+      isActive: true,
+    }).select("name");
 
-  const plan = clinic.plan as Plan;
-  return res.json({
-    clinic: {
-      _id: clinic._id,
-      name: clinic.name,
-      slug: clinic.slug,
-      specialty: clinic.specialty,
-      phone: clinic.phone,
-      address: clinic.address,
-      logoUrl: clinic.logoUrl,
-      brandColor: PLANS[plan].customBookingColor ? clinic.brandColor : undefined,
-      workingHours: clinic.workingHours,
-      slotDuration: clinic.slotDuration,
-    },
-    doctors,
-    showPoweredBy: !PLANS[plan].whiteLabel,
-  });
-});
+    const plan = clinic.plan as Plan;
+    return res.json({
+      clinic: {
+        _id: clinic._id,
+        name: clinic.name,
+        slug: clinic.slug,
+        specialty: clinic.specialty,
+        phone: clinic.phone,
+        address: clinic.address,
+        logoUrl: clinic.logoUrl,
+        brandColor: PLANS[plan].customBookingColor
+          ? clinic.brandColor
+          : undefined,
+        workingHours: clinic.workingHours,
+        slotDuration: clinic.slotDuration,
+      },
+      doctors,
+      showPoweredBy: !PLANS[plan].whiteLabel,
+    });
+  },
+);
 
 // ===== GET /api/public/clinics/:slug/slots =====
-export const getAvailableSlots = asyncHandler(async (req: Request, res: Response) => {
-  const doctorId = String(req.query.doctorId || "");
-  const date = String(req.query.date || "");
+export const getAvailableSlots = asyncHandler(
+  async (req: Request, res: Response) => {
+    const doctorId = String(req.query.doctorId || "");
+    const date = String(req.query.date || "");
 
-  if (!doctorId || !date) {
-    return res.status(400).json({ message: "doctorId and date are required" });
-  }
+    if (!doctorId || !date) {
+      return res
+        .status(400)
+        .json({ message: "doctorId and date are required" });
+    }
 
-  const clinic = await Clinic.findOne({ slug: req.params.slug, status: "active" });
-  if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+    const clinic = await Clinic.findOne({
+      slug: req.params.slug,
+      status: "active",
+    });
+    if (!clinic) return res.status(404).json({ message: "Clinic not found" });
 
-  const doctor = await User.findOne({
-    _id: doctorId,
-    clinicId: clinic._id,
-    role: "doctor",
-    isActive: true,
-  });
-  if (!doctor) return res.status(404).json({ message: "Doctor not found" });
+    const doctor = await User.findOne({
+      _id: doctorId,
+      clinicId: clinic._id,
+      role: "doctor",
+      isActive: true,
+    });
+    if (!doctor) return res.status(404).json({ message: "Doctor not found" });
 
-  const day = new Date(date + "T00:00:00.000Z");
-  if (isNaN(day.getTime())) {
-    return res.status(400).json({ message: "Invalid date format, use YYYY-MM-DD" });
-  }
+    const day = new Date(date + "T00:00:00.000Z");
+    if (isNaN(day.getTime())) {
+      return res
+        .status(400)
+        .json({ message: "Invalid date format, use YYYY-MM-DD" });
+    }
 
-  const dayOfWeek = day.getUTCDay();
-  const hours = clinic.workingHours.find((wh) => wh.day === dayOfWeek);
-  if (!hours || !hours.isOpen) {
-    return res.json({ slots: [], message: "Clinic is closed on this day" });
-  }
+    const dayOfWeek = day.getUTCDay();
+    const hours = clinic.workingHours.find((wh) => wh.day === dayOfWeek);
+    if (!hours || !hours.isOpen) {
+      return res.json({ slots: [], message: "Clinic is closed on this day" });
+    }
 
-  const slotMinutes = clinic.slotDuration;
-  const [fromH, fromM] = hours.from.split(":").map(Number);
-  const [toH, toM] = hours.to.split(":").map(Number);
-  const openMinutes = fromH * 60 + fromM;
-  const closeMinutes = toH * 60 + toM;
+    const slotMinutes = clinic.slotDuration;
+    const [fromH, fromM] = hours.from.split(":").map(Number);
+    const [toH, toM] = hours.to.split(":").map(Number);
+    const openMinutes = fromH * 60 + fromM;
+    const closeMinutes = toH * 60 + toM;
 
-  // Optional break window (e.g. lunch break) — slots starting inside
-  // [breakStart, breakEnd) are excluded, same as closed-day handling.
-  let breakStart = -1;
-  let breakEnd = -1;
-  if (hours.breakFrom && hours.breakTo) {
-    const [bfH, bfM] = hours.breakFrom.split(":").map(Number);
-    const [btH, btM] = hours.breakTo.split(":").map(Number);
-    breakStart = bfH * 60 + bfM;
-    breakEnd = btH * 60 + btM;
-  }
+    // Optional break window (e.g. lunch break) — slots starting inside
+    // [breakStart, breakEnd) are excluded, same as closed-day handling.
+    let breakStart = -1;
+    let breakEnd = -1;
+    if (hours.breakFrom && hours.breakTo) {
+      const [bfH, bfM] = hours.breakFrom.split(":").map(Number);
+      const [btH, btM] = hours.breakTo.split(":").map(Number);
+      breakStart = bfH * 60 + bfM;
+      breakEnd = btH * 60 + btM;
+    }
 
-  // Build slot list as wall-clock times (matched to the clinic's local timezone).
-  // The client compares these against its LOCAL Date.now(), so we mirror that
-  // logic here by treating times as local wall-clock too.
-  const dateOnly = date; // "YYYY-MM-DD"
-  const allSlots: { time: string; local: Date }[] = [];
-  for (let m = openMinutes; m + slotMinutes <= closeMinutes; m += slotMinutes) {
-    if (breakStart !== -1 && m >= breakStart && m < breakEnd) continue; // skip break slots
-    const h = String(Math.floor(m / 60)).padStart(2, "0");
-    const mm = String(m % 60).padStart(2, "0");
-    const time = `${h}:${mm}`;
-    // Interpret as WALL-CLOCK local time (no Z)
-    const local = new Date(`${dateOnly}T${time}:00`);
-    allSlots.push({ time, local });
-  }
+    // Build slot list as wall-clock times (matched to the clinic's local timezone).
+    // The client compares these against its LOCAL Date.now(), so we mirror that
+    // logic here by treating times as local wall-clock too.
+    const dateOnly = date; // "YYYY-MM-DD"
+    const allSlots: { time: string; local: Date }[] = [];
+    for (
+      let m = openMinutes;
+      m + slotMinutes <= closeMinutes;
+      m += slotMinutes
+    ) {
+      if (breakStart !== -1 && m >= breakStart && m < breakEnd) continue; // skip break slots
+      const h = String(Math.floor(m / 60)).padStart(2, "0");
+      const mm = String(m % 60).padStart(2, "0");
+      const time = `${h}:${mm}`;
+      // Interpret as WALL-CLOCK local time (no Z)
+      const local = new Date(`${dateOnly}T${time}:00`);
+      allSlots.push({ time, local });
+    }
 
-  const nextDay = new Date(day);
-  nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+    const nextDay = new Date(day);
+    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
 
-  const booked = await Appointment.find({
-    clinicId: clinic._id,
-    doctorId,
-    startAt: { $gte: day, $lt: nextDay },
-    status: { $in: ["scheduled", "confirmed"] },
-  }).select("startAt");
+    const booked = await Appointment.find({
+      clinicId: clinic._id,
+      doctorId,
+      startAt: { $gte: day, $lt: nextDay },
+      status: { $in: ["scheduled", "confirmed"] },
+    }).select("startAt");
 
-  // Build a set of booked wall-clock times ("HH:mm" in clinic local time).
-  // IMPORTANT: appointment.startAt is stored as UTC, and the server process
-  // itself may run in UTC (Render) — so we must explicitly convert to
-  // Asia/Amman here rather than using .getHours()/.getMinutes(), which
-  // return time in whatever timezone the SERVER happens to run in.
-  const bookedTimes = new Set(
-    booked.map((a) => {
-      const parts = new Intl.DateTimeFormat("en-GB", {
-        timeZone: "Asia/Amman",
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      }).formatToParts(a.startAt);
-      const h = parts.find((p) => p.type === "hour")!.value;
-      const m = parts.find((p) => p.type === "minute")!.value;
-      return `${h}:${m}`;
-    })
-  );
+    // Build a set of booked wall-clock times ("HH:mm" in clinic local time).
+    // IMPORTANT: appointment.startAt is stored as UTC, and the server process
+    // itself may run in UTC (Render) — so we must explicitly convert to
+    // Asia/Amman here rather than using .getHours()/.getMinutes(), which
+    // return time in whatever timezone the SERVER happens to run in.
+    const bookedTimes = new Set(
+      booked.map((a) => {
+        const parts = new Intl.DateTimeFormat("en-GB", {
+          timeZone: "Asia/Amman",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        }).formatToParts(a.startAt);
+        const h = parts.find((p) => p.type === "hour")!.value;
+        const m = parts.find((p) => p.type === "minute")!.value;
+        return `${h}:${m}`;
+      }),
+    );
 
-  const now = Date.now();
-  const available = allSlots.filter(
-    (s) => !bookedTimes.has(s.time) && s.local.getTime() > now
-  );
+    const now = Date.now();
+    const available = allSlots.filter(
+      (s) => !bookedTimes.has(s.time) && s.local.getTime() > now,
+    );
 
-  const slots = available.map((s) => s.time);
+    const slots = available.map((s) => s.time);
 
-  return res.json({ date, doctorId, slotDuration: slotMinutes, slots });
-});
+    return res.json({ date, doctorId, slotDuration: slotMinutes, slots });
+  },
+);
 
 // ===== POST /api/public/clinics/:slug/book =====
-const publicBookSchema = z
-  .object({
-    doctorId: z.string().length(24),
-    startAt: z.string().datetime(),
-    fullName: z.string().min(2).max(100),
-    phone: z.string().min(7).max(20),
-    email: z.string().email().optional().or(z.literal("")),
-    visitType: z.enum(["consultation", "procedure"]).default("consultation"),
-    procedureNote: z.string().max(200).optional(),
-  })
-  .refine(
-    (data) => data.visitType !== "procedure" || !!data.procedureNote?.trim(),
-    { message: "Please specify the procedure", path: ["procedureNote"] }
-  );
+const publicBookSchema = z.object({
+  doctorId: z.string().length(24),
+  startAt: z.string().datetime(),
+  fullName: z.string().min(2).max(100),
+  phone: z.string().min(7).max(20),
+  email: z.string().email().optional().or(z.literal("")),
+});
 
 const makeRefCode = () =>
   "BK-" + Math.random().toString(36).slice(2, 7).toUpperCase();
@@ -166,7 +262,10 @@ const makeRefCode = () =>
 export const publicBook = asyncHandler(async (req: Request, res: Response) => {
   const data = publicBookSchema.parse(req.body);
 
-  const clinic = await Clinic.findOne({ slug: req.params.slug, status: "active" });
+  const clinic = await Clinic.findOne({
+    slug: req.params.slug,
+    status: "active",
+  });
   if (!clinic) return res.status(404).json({ message: "Clinic not found" });
 
   const doctor = await User.findOne({
@@ -206,7 +305,8 @@ export const publicBook = asyncHandler(async (req: Request, res: Response) => {
     }`;
     if (wallTime >= wh.breakFrom && wallTime < wh.breakTo) {
       return res.status(400).json({
-        message: "This time falls within the clinic's break — please pick another slot",
+        message:
+          "This time falls within the clinic's break — please pick another slot",
         code: "BREAK_TIME",
       });
     }
@@ -280,12 +380,14 @@ export const publicBook = asyncHandler(async (req: Request, res: Response) => {
     duration: clinic.slotDuration,
     source: "public",
     refCode: makeRefCode(),
-    visitType: data.visitType,
-    procedureNote: data.visitType === "procedure" ? data.procedureNote?.trim() : undefined,
   });
 
   // نبعت إشعار للـ owner، بس ما نوقف الـ response لو الإيميل فشل
-  const owner = await User.findOne({ clinicId: clinic._id, role: "owner", isActive: true });
+  const owner = await User.findOne({
+    clinicId: clinic._id,
+    role: "owner",
+    isActive: true,
+  });
   if (owner) {
     sendNewBookingNotification(owner.email, owner.name, {
       patientName: patient.fullName,
