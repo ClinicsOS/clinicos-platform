@@ -248,13 +248,20 @@ export const getAvailableSlots = asyncHandler(
 );
 
 // ===== POST /api/public/clinics/:slug/book =====
-const publicBookSchema = z.object({
-  doctorId: z.string().length(24),
-  startAt: z.string().datetime(),
-  fullName: z.string().min(2).max(100),
-  phone: z.string().min(7).max(20),
-  email: z.string().email().optional().or(z.literal("")),
-});
+const publicBookSchema = z
+  .object({
+    doctorId: z.string().length(24),
+    startAt: z.string().datetime(),
+    fullName: z.string().min(2).max(100),
+    phone: z.string().min(7).max(20),
+    email: z.string().email().optional().or(z.literal("")),
+    visitType: z.enum(["consultation", "procedure"]).default("consultation"),
+    procedureNote: z.string().max(200).optional(),
+  })
+  .refine(
+    (data) => data.visitType !== "procedure" || !!data.procedureNote?.trim(),
+    { message: "Please specify the procedure", path: ["procedureNote"] },
+  );
 
 const makeRefCode = () =>
   "BK-" + Math.random().toString(36).slice(2, 7).toUpperCase();
@@ -380,6 +387,9 @@ export const publicBook = asyncHandler(async (req: Request, res: Response) => {
     duration: clinic.slotDuration,
     source: "public",
     refCode: makeRefCode(),
+    visitType: data.visitType,
+    procedureNote:
+      data.visitType === "procedure" ? data.procedureNote?.trim() : undefined,
   });
 
   // نبعت إشعار للـ owner، بس ما نوقف الـ response لو الإيميل فشل
@@ -406,5 +416,7 @@ export const publicBook = asyncHandler(async (req: Request, res: Response) => {
     doctorName: doctor.name,
     startAt: appointment.startAt,
     duration: appointment.duration,
+    visitType: appointment.visitType,
+    procedureNote: appointment.procedureNote,
   });
 });
