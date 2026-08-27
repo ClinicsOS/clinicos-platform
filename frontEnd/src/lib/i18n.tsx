@@ -1,5 +1,11 @@
 "use client";
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  ReactNode,
+} from "react";
 
 type Lang = "en" | "ar";
 type Dict = Record<string, string>;
@@ -28,7 +34,7 @@ const en: Dict = {
     "You're responsible for keeping your login credentials secure and for all activity under your account. You agree to provide accurate clinic and patient information and to use ClinicOS only for legitimate clinic-management purposes.",
   "terms.our.title": "4. Our service",
   "terms.our.body":
-    "We provide the ClinicOS platform \"as is\" and work to keep it available and reliable, but we don't guarantee uninterrupted access. We may update, improve, or change features over time to keep the product secure and useful.",
+    'We provide the ClinicOS platform "as is" and work to keep it available and reliable, but we don\'t guarantee uninterrupted access. We may update, improve, or change features over time to keep the product secure and useful.',
   "terms.use.title": "5. Acceptable use",
   "terms.use.body":
     "You agree not to misuse the platform — this includes attempting to disrupt the service, accessing data that isn't yours, or using the booking pages to submit false or abusive bookings.",
@@ -47,10 +53,10 @@ const en: Dict = {
   "privacy.lastUpdated": "Last updated · 2026",
   "privacy.intro.title": "1. Introduction",
   "privacy.intro.body":
-    "This policy explains what information ClinicOS collects, why we collect it, and how clinics and patients can control it. By using ClinicOS or booking through one of our clinic pages, you agree to this policy.",
+    "This policy explains what information the ClinicOS mobile app and website collect, why we collect it, and how clinics and patients can control it. By using the ClinicOS app, our website, or booking through one of our clinic pages, you agree to this policy. ClinicOS is intended for clinic staff and their patients and is not directed at children; we do not knowingly collect data from children under 13.",
   "privacy.collect.title": "2. Information we collect",
   "privacy.collect.body":
-    "For clinic accounts: name, email, phone, and clinic details you provide at signup. For patients booking appointments: name, phone number, and the appointment details you enter — we don't require patients to create an account.",
+    "For clinic accounts: name, email, phone, and clinic details you provide at signup. For patients booking appointments: name, phone number, and the appointment details you enter — we don't require patients to create an account. Clinic staff may also record medical notes about their own patients directly in the app; this information is only visible to that clinic's staff.",
   "privacy.use.title": "3. How we use your information",
   "privacy.use.body":
     "We use this data to run the booking and clinic-management features you're using — confirming appointments, sending reminders and notifications, and letting clinic staff manage their own patient records.",
@@ -69,7 +75,23 @@ const en: Dict = {
   "privacy.contact.title": "8. Contact us",
   "privacy.contact.body":
     "If you have any questions about this privacy policy or how your data is handled, reach out to us using the button below.",
-
+  "delAcc.title": "Delete Your Account",
+  "delAcc.intro":
+    "You can delete your ClinicOS clinic account and all associated data at any time. Here's how.",
+  "delAcc.step1.title": "1. Open the app",
+  "delAcc.step1.body":
+    "Sign in to the ClinicOS mobile app with your clinic account.",
+  "delAcc.step2.title": "2. Go to Security settings",
+  "delAcc.step2.body": "From the More tab, open Settings, then Security.",
+  "delAcc.step3.title": "3. Delete your account",
+  "delAcc.step3.body":
+    'Scroll to the Danger Zone, tap "Delete clinic account", type DELETE to confirm, and submit. Your account is deleted immediately.',
+  "delAcc.noAccess.title": "Can't access the app?",
+  "delAcc.noAccess.body":
+    "If you no longer have access to the app or your account, email us and we'll process your deletion request within a few business days.",
+  "delAcc.whatGets.title": "What gets deleted",
+  "delAcc.whatGets.body":
+    "Deleting your account permanently removes your clinic profile, staff accounts, patients, appointments, and invoices from our systems. This cannot be undone.",
   // ===== About =====
   "about.title": "About ClinicOS",
   "about.subtitle": "Smart clinic management, built for Jordan",
@@ -81,17 +103,22 @@ const en: Dict = {
     "ClinicOS started from a simple observation: most clinics in Jordan were still running on paper logs and phone calls. We set out to build something clinics could adopt in a day and patients could use without any learning curve.",
   "about.values.title": "What we care about",
   "about.values.v1.title": "Simplicity",
-  "about.values.v1.body": "No unnecessary complexity — every screen is built so clinic staff can use it without training.",
+  "about.values.v1.body":
+    "No unnecessary complexity — every screen is built so clinic staff can use it without training.",
   "about.values.v2.title": "Reliability",
-  "about.values.v2.body": "Appointments and patient data are things you can't afford to lose — we treat them that way.",
+  "about.values.v2.body":
+    "Appointments and patient data are things you can't afford to lose — we treat them that way.",
   "about.values.v3.title": "Built for here",
-  "about.values.v3.body": "Arabic-first, Jordan-focused — from working hours to local payment methods.",
+  "about.values.v3.body":
+    "Arabic-first, Jordan-focused — from working hours to local payment methods.",
   "about.contact.title": "Get in touch",
-  "about.contact.body": "Questions, feedback, or want to bring ClinicOS to your clinic? We'd love to hear from you.",
+  "about.contact.body":
+    "Questions, feedback, or want to bring ClinicOS to your clinic? We'd love to hear from you.",
   "hero.title.a": "Run your clinic",
   "hero.title.b": "on autopilot",
   "hero.title.c": ", not on paper",
-  "hero.sub": "Appointments, patient records, and invoices in one smart system — with a booking page your patients will love.",
+  "hero.sub":
+    "Appointments, patient records, and invoices in one smart system — with a booking page your patients will love.",
   "hero.cta": "Start free trial",
   "nav.track": "Track booking",
 
@@ -99,17 +126,20 @@ const en: Dict = {
   "auth.forgotPassword": "Forgot password?",
   "auth.sessionExpired": "Your session has expired. Please sign in again.",
   "fp.title": "Reset your password",
-  "fp.subtitle": "Enter the email you signed up with — we'll send you a reset link.",
+  "fp.subtitle":
+    "Enter the email you signed up with — we'll send you a reset link.",
   "fp.sendLink": "Send reset link",
   "fp.backToSignin": "Back to sign in",
   "fp.sent.title": "Check your email",
-  "fp.sent.body": "If an account exists for {email}, a reset link is on its way. The link expires in one hour.",
+  "fp.sent.body":
+    "If an account exists for {email}, a reset link is on its way. The link expires in one hour.",
   "fp.didntGet": "Didn't get the email?",
   "fp.resend": "Resend",
 
   // ===== Reset password =====
   "rp.title": "Choose a new password",
-  "rp.subtitle": "Pick something you'll remember — at least 8 characters with a number.",
+  "rp.subtitle":
+    "Pick something you'll remember — at least 8 characters with a number.",
   "rp.newPassword": "New password",
   "rp.confirmPassword": "Confirm new password",
   "rp.reqLength": "At least 8 characters",
@@ -126,14 +156,16 @@ const en: Dict = {
   "ve.successTitle": "Email verified!",
   "ve.successBody": "Thanks — your account is all set up.",
   "ve.errorTitle": "Verification failed",
-  "ve.errorGeneric": "This link is invalid or has expired. Please request a new one from Settings → Security.",
+  "ve.errorGeneric":
+    "This link is invalid or has expired. Please request a new one from Settings → Security.",
   "ve.noToken": "This link is missing its token.",
   "ve.goToDashboard": "Go to dashboard",
 
   // ===== Security tab =====
   "sec.tabTitle": "Security",
   "sec.changePwTitle": "Change password",
-  "sec.changePwSub": "Choose a strong new password. You'll stay signed in on this device.",
+  "sec.changePwSub":
+    "Choose a strong new password. You'll stay signed in on this device.",
   "sec.currentPw": "Current password",
   "sec.newPw": "New password",
   "sec.confirmPw": "Confirm new password",
@@ -142,7 +174,8 @@ const en: Dict = {
   "sec.pwChanged": "Password updated",
   "sec.pwChangedSub": "Use the new password next time you sign in.",
   "sec.emailVerifyTitle": "Email verification",
-  "sec.emailVerifySub": "Your email isn't verified yet. Verifying helps us reach you for important updates.",
+  "sec.emailVerifySub":
+    "Your email isn't verified yet. Verifying helps us reach you for important updates.",
   "sec.verified": "Email verified",
   "sec.resendVerify": "Send verification email",
   "sec.iVerified": "I've verified",
@@ -150,16 +183,19 @@ const en: Dict = {
   "sec.verifySentSub": "Check your inbox — the link expires in 24 hours.",
   "sec.verifyOk": "Email successfully verified.",
   "sec.exportTitle": "Export your data",
-  "sec.exportSub": "Download a JSON file containing every clinic, patient, appointment and invoice record.",
+  "sec.exportSub":
+    "Download a JSON file containing every clinic, patient, appointment and invoice record.",
   "sec.exportBtn": "Download data (JSON)",
   "sec.exportOk": "Export ready",
   "sec.exportOkSub": "Your file has been downloaded.",
   "sec.dangerTitle": "Danger zone",
-  "sec.dangerSub": "Deleting your clinic is permanent. Patients, appointments, invoices and staff will all be removed and cannot be recovered.",
+  "sec.dangerSub":
+    "Deleting your clinic is permanent. Patients, appointments, invoices and staff will all be removed and cannot be recovered.",
   "sec.dangerType": "Type DELETE to enable the button",
   "sec.deleteBtn": "Permanently delete my clinic",
   "sec.deleteConfirmTitle": "Delete clinic permanently?",
-  "sec.deleteConfirmBody": "This will remove every record forever. There is no undo. Are you absolutely sure?",
+  "sec.deleteConfirmBody":
+    "This will remove every record forever. There is no undo. Are you absolutely sure?",
   "sec.deleteConfirmBtn": "Yes, delete forever",
   "sec.deleteOk": "Clinic deleted. Goodbye!",
 
@@ -172,21 +208,28 @@ const en: Dict = {
   "cf.deleteConfirmBody": "This action cannot be undone.",
   "cf.deleteBtn": "Delete",
   "cf.cancelAppt": "Cancel this appointment?",
-  "cf.cancelApptBody": "The time slot will be freed up and the patient will need to be notified.",
+  "cf.cancelApptBody":
+    "The time slot will be freed up and the patient will need to be notified.",
   "cf.cancelInvoice": "Delete this invoice?",
-  "cf.cancelInvoiceBody": "The invoice and its payment history will be permanently removed.",
+  "cf.cancelInvoiceBody":
+    "The invoice and its payment history will be permanently removed.",
   "cf.deletePatient": "Delete this patient?",
-  "cf.deletePatientBody": "This patient's file, appointments and invoices will be permanently removed.",
+  "cf.deletePatientBody":
+    "This patient's file, appointments and invoices will be permanently removed.",
   "cf.deactivateStaff": "Deactivate this staff member?",
-  "cf.deactivateStaffBody": "They won't be able to sign in until you reactivate them.",
+  "cf.deactivateStaffBody":
+    "They won't be able to sign in until you reactivate them.",
 
   // ===== Empty states =====
   "empty.noPatients.title": "No patients yet",
-  "empty.noPatients.body": "Add your first patient or share your booking link so patients can register themselves.",
+  "empty.noPatients.body":
+    "Add your first patient or share your booking link so patients can register themselves.",
   "empty.noAppointments.title": "No appointments today",
-  "empty.noAppointments.body": "A quiet day. Enjoy the calm or add a new appointment manually.",
+  "empty.noAppointments.body":
+    "A quiet day. Enjoy the calm or add a new appointment manually.",
   "empty.noInvoices.title": "No invoices yet",
-  "empty.noInvoices.body": "Create your first invoice to start tracking clinic revenue.",
+  "empty.noInvoices.body":
+    "Create your first invoice to start tracking clinic revenue.",
 
   // ===== Toast/success generic =====
   "tst.savedTitle": "Saved",
@@ -196,27 +239,32 @@ const en: Dict = {
   "tst.copiedTitle": "Copied",
   "tst.copiedBody": "Copied to clipboard.",
 
-
   // ===== Contact section =====
   "contact.badge": "Get in touch",
   "contact.title": "Let's talk",
-  "contact.subtitle": "Reach out through any channel — we're here for you and your clinic.",
+  "contact.subtitle":
+    "Reach out through any channel — we're here for you and your clinic.",
   "contact.instagram.sub": "Follow us for updates",
   "contact.email.sub": "We reply within 24 hours",
   "contact.whatsapp.sub": "Fastest way to reach us",
   "contact.thanks.title": "Thank you for choosing ClinicOS",
-  "contact.thanks.body": "You've taken a big step toward running your clinic on autopilot. We're honoured to be part of your journey.",
+  "contact.thanks.body":
+    "You've taken a big step toward running your clinic on autopilot. We're honoured to be part of your journey.",
   "contact.footer.location": "Made in Jordan",
   "hero.demo": "Watch demo",
   "hero.talk": "Talk to us",
   "feat.title": "Everything your clinic needs",
-  "feat.sub": "Three roles, one system — built for owners, doctors, and front desk.",
+  "feat.sub":
+    "Three roles, one system — built for owners, doctors, and front desk.",
   "feat.1.t": "Smart scheduling",
-  "feat.1.d": "Conflict-free calendar with day and week views. Double-booking is impossible.",
+  "feat.1.d":
+    "Conflict-free calendar with day and week views. Double-booking is impossible.",
   "feat.2.t": "Online booking page",
-  "feat.2.d": "Your own branded link. Patients book in under a minute — no account needed.",
+  "feat.2.d":
+    "Your own branded link. Patients book in under a minute — no account needed.",
   "feat.3.t": "Records and invoices",
-  "feat.3.d": "Full patient history and clean invoicing with daily income reports.",
+  "feat.3.d":
+    "Full patient history and clean invoicing with daily income reports.",
   "stats.1": "Average booking time",
   "stats.2": "Double bookings",
   "stats.3": "Patients can book",
@@ -363,7 +411,8 @@ const en: Dict = {
   "inv.create": "Create invoice",
   "inv.edit": "Edit",
   "inv.saveChanges": "Save changes",
-  "inv.editPaidWarning": "{amount} JD already collected on this invoice — the total can't be lowered below that.",
+  "inv.editPaidWarning":
+    "{amount} JD already collected on this invoice — the total can't be lowered below that.",
   "st.title": "Settings",
   "st.hours": "Working hours",
   "st.slot": "Default appointment duration (min)",
@@ -398,9 +447,11 @@ const en: Dict = {
   "bk.none": "No available times on this day.",
   "bk.received": "Booking received!",
   "bk.ref": "Ref",
-  "bk.confirmNote": "The clinic will confirm your booking shortly on your number.",
+  "bk.confirmNote":
+    "The clinic will confirm your booking shortly on your number.",
   "bk.saveCodeTitle": "Save this reference code",
-  "bk.saveCodeDesc": "You'll need it to track, change, or cancel your booking later.",
+  "bk.saveCodeDesc":
+    "You'll need it to track, change, or cancel your booking later.",
   "bk.guideTitle": "How booking works",
   "bk.guideStep1": "Choose doctor",
   "bk.guideStep2": "Pick date & time",
@@ -437,7 +488,8 @@ const en: Dict = {
   "sub.per": "/ month",
   "sub.perTrial": "/ 7 days",
   "sub.chooseYourPlan": "Choose your plan",
-  "sub.chooseSub": "Move up when you're ready to run your whole clinic on ClinicOS.",
+  "sub.chooseSub":
+    "Move up when you're ready to run your whole clinic on ClinicOS.",
   "sub.current": "Current",
   "sub.selectPlan": "Select plan",
   "sub.mostPopular": "Most popular",
@@ -447,15 +499,18 @@ const en: Dict = {
   "sub.billingPhone": "Billing phone",
   "sub.paymentMethod": "Payment method",
   "sub.cliq": "CliQ",
-  "sub.cliqInstructions": "Transfer the subscription amount to this CliQ alias:",
+  "sub.cliqInstructions":
+    "Transfer the subscription amount to this CliQ alias:",
   "sub.cash": "Cash on site",
   "sub.paymentRef": "Payment reference (optional)",
   "sub.notes": "Notes (optional)",
   "sub.submitRequest": "Submit request",
   "sub.submitted": "Request submitted. We'll activate your plan within 1 hour.",
-  "sub.pendingMsg": "Your upgrade to {plan} is being processed. It'll be activated within 1 hour.",
+  "sub.pendingMsg":
+    "Your upgrade to {plan} is being processed. It'll be activated within 1 hour.",
   "sub.expiredScreen.title": "Your subscription has expired",
-  "sub.expiredScreen.sub": "Renew now to keep managing your clinic without losing any data.",
+  "sub.expiredScreen.sub":
+    "Renew now to keep managing your clinic without losing any data.",
   "sub.feat.doctors": "doctors",
   "sub.feat.doctorsUnlim": "Unlimited doctors",
   "sub.feat.oneDoctor": "1 doctor",
@@ -529,10 +584,13 @@ const en: Dict = {
 
   // Pending review screen
   "sub.pending.title": "Your request is being reviewed",
-  "sub.pending.sub": "We're processing your upgrade to {plan}. Activation happens within 1 hour maximum.",
+  "sub.pending.sub":
+    "We're processing your upgrade to {plan}. Activation happens within 1 hour maximum.",
   "sub.pending.remaining": "APPROXIMATE TIME REMAINING",
-  "sub.pending.maxTime": "This is the maximum expected time — usually much faster",
-  "sub.pending.stillProcessing": "Still processing — please be patient. Contact us if this persists.",
+  "sub.pending.maxTime":
+    "This is the maximum expected time — usually much faster",
+  "sub.pending.stillProcessing":
+    "Still processing — please be patient. Contact us if this persists.",
   "sub.pending.willGet": "AFTER ACTIVATION YOU'LL GET",
   "sub.pending.back": "Back to dashboard",
   "sub.pending.b1": "5 doctors + 2 receptionists",
@@ -560,13 +618,16 @@ const en: Dict = {
   "reports.exportExcel": "Export Excel",
   "reports.exportPdf": "Export PDF",
   "reports.lockedTitle": "Reports are a Pro feature",
-  "reports.lockedSub": "Upgrade to Pro to unlock monthly analytics, revenue tracking, top-doctor rankings, and Excel/PDF exports.",
+  "reports.lockedSub":
+    "Upgrade to Pro to unlock monthly analytics, revenue tracking, top-doctor rankings, and Excel/PDF exports.",
 
   // Brand colour
   "st.brandColor": "Brand colour",
-  "st.brandColorHint": "This colour appears on your public booking page's buttons",
+  "st.brandColorHint":
+    "This colour appears on your public booking page's buttons",
   "st.brandColorPreview": "Preview",
-  "st.brandColorLocked": "Custom brand colour is a Pro feature. Upgrade to unlock.",
+  "st.brandColorLocked":
+    "Custom brand colour is a Pro feature. Upgrade to unlock.",
 
   // New: staff edit + calendar
   "st.editStaff": "Edit staff member",
@@ -579,7 +640,8 @@ const en: Dict = {
   "ap.noDoctors": "No doctors yet",
   "ap.noDoctorsSub": "Add a doctor from Settings → Staff to start scheduling.",
   "ap.pendingCount": "awaiting confirmation",
-  "ap.pendingNote": "New booking from the public page — please review and confirm",
+  "ap.pendingNote":
+    "New booking from the public page — please review and confirm",
   "ap.dayClosed": "The clinic is closed on this day",
   "ap.dayClosedSub": "Change the schedule in Settings if this looks wrong.",
   "ap.min": "min",
@@ -605,7 +667,8 @@ const en: Dict = {
   "bk.slotBooked": "This time is already booked",
   "bk.slotPast": "This time has already passed",
   "bk.slotBreak": "The clinic is on a break at this time",
-  "bk.noDoctorsYet": "This clinic has no doctors available yet. Please try again later.",
+  "bk.noDoctorsYet":
+    "This clinic has no doctors available yet. Please try again later.",
 };
 
 const ar: Dict = {
@@ -632,7 +695,7 @@ const ar: Dict = {
     "أنت مسؤول عن الحفاظ على سرية بيانات دخولك وعن كل نشاط يتم عبر حسابك. تتعهد بتقديم بيانات صحيحة للعيادة والمرضى، واستخدام ClinicOS لأغراض إدارة العيادة المشروعة فقط.",
   "terms.our.title": "4. خدمتنا",
   "terms.our.body":
-    "نوفر منصة ClinicOS \"كما هي\" ونعمل على إبقائها متاحة وموثوقة، دون ضمان استمرارية الوصول دون انقطاع. قد نقوم بتحديث أو تحسين أو تغيير الميزات مع الوقت للحفاظ على أمان المنتج وفائدته.",
+    'نوفر منصة ClinicOS "كما هي" ونعمل على إبقائها متاحة وموثوقة، دون ضمان استمرارية الوصول دون انقطاع. قد نقوم بتحديث أو تحسين أو تغيير الميزات مع الوقت للحفاظ على أمان المنتج وفائدته.',
   "terms.use.title": "5. الاستخدام المقبول",
   "terms.use.body":
     "تتعهد بعدم إساءة استخدام المنصة — بما في ذلك محاولة تعطيل الخدمة، الوصول إلى بيانات ليست ملكك، أو استخدام صفحات الحجز لإرسال حجوزات وهمية أو مسيئة.",
@@ -651,7 +714,7 @@ const ar: Dict = {
   "privacy.lastUpdated": "آخر تحديث · 2026",
   "privacy.intro.title": "1. مقدمة",
   "privacy.intro.body":
-    "توضح هذه السياسة ما هي المعلومات التي يجمعها ClinicOS، ولماذا نجمعها، وكيف يمكن للعيادات والمرضى التحكم بها. باستخدامك لـ ClinicOS أو الحجز عبر إحدى صفحات عياداتنا، فأنت توافق على هذه السياسة.",
+    "توضّح هذه السياسة ما هي المعلومات التي يجمعها تطبيق ClinicOS للموبايل وموقعنا الإلكتروني، ولماذا نجمعها، وكيف يمكن للعيادات والمرضى التحكم بها. باستخدامك تطبيق ClinicOS أو موقعنا أو الحجز عبر إحدى صفحات عياداتنا، فإنك توافق على هذه السياسة. ClinicOS موجّه لطواقم العيادات ومرضاهم وليس موجّهاً للأطفال؛ نحن لا نجمع بيانات من الأطفال دون 13 سنة عن قصد.",
   "privacy.collect.title": "2. المعلومات التي نجمعها",
   "privacy.collect.body":
     "لحسابات العيادات: الاسم، البريد الإلكتروني، الهاتف، وبيانات العيادة عند التسجيل. للمرضى الذين يحجزون مواعيد: الاسم ورقم الهاتف وتفاصيل الموعد — لا نطلب من المريض إنشاء حساب.",
@@ -673,7 +736,22 @@ const ar: Dict = {
   "privacy.contact.title": "8. تواصل معنا",
   "privacy.contact.body":
     "لأي استفسار حول سياسة الخصوصية هذه أو كيفية التعامل مع بياناتك، تواصل معنا عبر الزر أدناه.",
-
+  "delAcc.title": "حذف حسابك",
+  "delAcc.intro":
+    "تقدر تحذف حساب عيادتك على ClinicOS وكل البيانات المرتبطة فيه بأي وقت. هيك بيصير.",
+  "delAcc.step1.title": "1. افتح التطبيق",
+  "delAcc.step1.body": "سجّل دخول لتطبيق ClinicOS بحساب عيادتك.",
+  "delAcc.step2.title": "2. روح لإعدادات الأمان",
+  "delAcc.step2.body": "من تبويب المزيد، افتح الإعدادات، وبعدين الأمان.",
+  "delAcc.step3.title": "3. احذف حسابك",
+  "delAcc.step3.body":
+    'انزل لقسم "منطقة الخطر"، دوس "حذف حساب العيادة"، اكتب DELETE للتأكيد، وأرسل. حسابك بينحذف فوراً.',
+  "delAcc.noAccess.title": "ما تقدر توصل للتطبيق؟",
+  "delAcc.noAccess.body":
+    "لو ما عاد عندك وصول للتطبيق أو حسابك، ابعتلنا إيميل ورح نعالج طلب الحذف خلال كم يوم عمل.",
+  "delAcc.whatGets.title": "شو بينحذف بالضبط",
+  "delAcc.whatGets.body":
+    "حذف حسابك بيمسح نهائياً بيانات عيادتك، حسابات الموظفين، المرضى، المواعيد، والفواتير من أنظمتنا. هالإجراء ما ممكن التراجع عنه.",
   // ===== من نحن =====
   "about.title": "عن ClinicOS",
   "about.subtitle": "إدارة عيادات ذكية، مصممة للأردن",
@@ -685,17 +763,22 @@ const ar: Dict = {
     "بدأ ClinicOS من ملاحظة بسيطة: معظم العيادات بالأردن لسا شغالة على دفاتر ورقية ومكالمات هاتفية. قررنا نبني شي تقدر أي عيادة تستخدمه بيوم واحد، والمريض يستخدمه بدون أي تعقيد.",
   "about.values.title": "شو يهمنا",
   "about.values.v1.title": "البساطة",
-  "about.values.v1.body": "بدون تعقيد زايد — كل شاشة مبنية عشان موظف العيادة يستخدمها بدون أي تدريب.",
+  "about.values.v1.body":
+    "بدون تعقيد زايد — كل شاشة مبنية عشان موظف العيادة يستخدمها بدون أي تدريب.",
   "about.values.v2.title": "الموثوقية",
-  "about.values.v2.body": "المواعيد وبيانات المرضى أشياء ما بتقدر تخسرها — وإحنا بنتعامل معها هيك.",
+  "about.values.v2.body":
+    "المواعيد وبيانات المرضى أشياء ما بتقدر تخسرها — وإحنا بنتعامل معها هيك.",
   "about.values.v3.title": "مبني لهون",
-  "about.values.v3.body": "عربي بالدرجة الأولى، ومركّز على الأردن — من ساعات الدوام لطرق الدفع المحلية.",
+  "about.values.v3.body":
+    "عربي بالدرجة الأولى، ومركّز على الأردن — من ساعات الدوام لطرق الدفع المحلية.",
   "about.contact.title": "تواصل معنا",
-  "about.contact.body": "عندك سؤال، ملاحظة، أو بدك تجيب ClinicOS لعيادتك؟ يسعدنا نسمع منك.",
+  "about.contact.body":
+    "عندك سؤال، ملاحظة، أو بدك تجيب ClinicOS لعيادتك؟ يسعدنا نسمع منك.",
   "hero.title.a": "أدر عيادتك",
   "hero.title.b": "بشكل تلقائي",
   "hero.title.c": "، لا على الورق",
-  "hero.sub": "المواعيد وملفات المرضى والفواتير في نظام ذكي واحد — مع صفحة حجز سيحبها مرضاك.",
+  "hero.sub":
+    "المواعيد وملفات المرضى والفواتير في نظام ذكي واحد — مع صفحة حجز سيحبها مرضاك.",
   "hero.cta": "ابدأ التجربة المجانية",
   "nav.track": "تتبع الحجز",
 
@@ -703,11 +786,13 @@ const ar: Dict = {
   "auth.forgotPassword": "نسيت كلمة المرور؟",
   "auth.sessionExpired": "انتهت جلستك. الرجاء تسجيل الدخول مجدداً.",
   "fp.title": "استعادة كلمة المرور",
-  "fp.subtitle": "أدخل البريد الإلكتروني الذي سجلت به — سنرسل لك رابط إعادة التعيين.",
+  "fp.subtitle":
+    "أدخل البريد الإلكتروني الذي سجلت به — سنرسل لك رابط إعادة التعيين.",
   "fp.sendLink": "إرسال رابط الاستعادة",
   "fp.backToSignin": "العودة لتسجيل الدخول",
   "fp.sent.title": "تفقد بريدك الإلكتروني",
-  "fp.sent.body": "إذا كان هناك حساب على {email}، فرابط الاستعادة في طريقه إليك. صلاحية الرابط ساعة واحدة.",
+  "fp.sent.body":
+    "إذا كان هناك حساب على {email}، فرابط الاستعادة في طريقه إليك. صلاحية الرابط ساعة واحدة.",
   "fp.didntGet": "لم يصلك البريد؟",
   "fp.resend": "إعادة الإرسال",
 
@@ -730,14 +815,16 @@ const ar: Dict = {
   "ve.successTitle": "تم تفعيل البريد!",
   "ve.successBody": "شكراً — حسابك جاهز الآن.",
   "ve.errorTitle": "فشل التفعيل",
-  "ve.errorGeneric": "هذا الرابط غير صالح أو منتهي الصلاحية. الرجاء طلب رابط جديد من الإعدادات ← الأمان.",
+  "ve.errorGeneric":
+    "هذا الرابط غير صالح أو منتهي الصلاحية. الرجاء طلب رابط جديد من الإعدادات ← الأمان.",
   "ve.noToken": "هذا الرابط ينقصه الرمز.",
   "ve.goToDashboard": "الذهاب إلى لوحة التحكم",
 
   // ===== تبويب الأمان =====
   "sec.tabTitle": "الأمان",
   "sec.changePwTitle": "تغيير كلمة المرور",
-  "sec.changePwSub": "اختر كلمة مرور قوية جديدة. ستبقى مسجل الدخول على هذا الجهاز.",
+  "sec.changePwSub":
+    "اختر كلمة مرور قوية جديدة. ستبقى مسجل الدخول على هذا الجهاز.",
   "sec.currentPw": "كلمة المرور الحالية",
   "sec.newPw": "كلمة المرور الجديدة",
   "sec.confirmPw": "تأكيد كلمة المرور الجديدة",
@@ -746,7 +833,8 @@ const ar: Dict = {
   "sec.pwChanged": "تم تحديث كلمة المرور",
   "sec.pwChangedSub": "استخدم كلمة المرور الجديدة في المرة القادمة.",
   "sec.emailVerifyTitle": "تفعيل البريد الإلكتروني",
-  "sec.emailVerifySub": "بريدك غير مفعّل بعد. التفعيل يساعدنا في الوصول إليك للتحديثات المهمة.",
+  "sec.emailVerifySub":
+    "بريدك غير مفعّل بعد. التفعيل يساعدنا في الوصول إليك للتحديثات المهمة.",
   "sec.verified": "البريد مفعّل",
   "sec.resendVerify": "إرسال بريد التفعيل",
   "sec.iVerified": "لقد فعّلت",
@@ -754,16 +842,19 @@ const ar: Dict = {
   "sec.verifySentSub": "تفقد بريدك — الرابط صالح لمدة 24 ساعة.",
   "sec.verifyOk": "تم تفعيل البريد بنجاح.",
   "sec.exportTitle": "تصدير بياناتك",
-  "sec.exportSub": "حمّل ملف JSON يحوي كل سجلات العيادة، المرضى، المواعيد والفواتير.",
+  "sec.exportSub":
+    "حمّل ملف JSON يحوي كل سجلات العيادة، المرضى، المواعيد والفواتير.",
   "sec.exportBtn": "تحميل البيانات (JSON)",
   "sec.exportOk": "الملف جاهز",
   "sec.exportOkSub": "تم تحميل الملف.",
   "sec.dangerTitle": "منطقة الخطر",
-  "sec.dangerSub": "حذف العيادة نهائي. سيتم إزالة المرضى والمواعيد والفواتير والموظفين ولا يمكن استعادتهم.",
+  "sec.dangerSub":
+    "حذف العيادة نهائي. سيتم إزالة المرضى والمواعيد والفواتير والموظفين ولا يمكن استعادتهم.",
   "sec.dangerType": "اكتب DELETE لتفعيل الزر",
   "sec.deleteBtn": "حذف عيادتي نهائياً",
   "sec.deleteConfirmTitle": "حذف العيادة نهائياً؟",
-  "sec.deleteConfirmBody": "سيتم حذف كل السجلات للأبد. لا يوجد تراجع. هل أنت متأكد تماماً؟",
+  "sec.deleteConfirmBody":
+    "سيتم حذف كل السجلات للأبد. لا يوجد تراجع. هل أنت متأكد تماماً؟",
   "sec.deleteConfirmBtn": "نعم، احذف للأبد",
   "sec.deleteOk": "تم حذف العيادة. وداعاً!",
 
@@ -786,9 +877,11 @@ const ar: Dict = {
 
   // ===== الحالات الفارغة =====
   "empty.noPatients.title": "لا يوجد مرضى بعد",
-  "empty.noPatients.body": "أضف مريضك الأول أو شارك رابط الحجز ليسجل المرضى بأنفسهم.",
+  "empty.noPatients.body":
+    "أضف مريضك الأول أو شارك رابط الحجز ليسجل المرضى بأنفسهم.",
   "empty.noAppointments.title": "لا مواعيد اليوم",
-  "empty.noAppointments.body": "يوم هادئ. استمتع بالهدوء أو أضف موعداً جديداً يدوياً.",
+  "empty.noAppointments.body":
+    "يوم هادئ. استمتع بالهدوء أو أضف موعداً جديداً يدوياً.",
   "empty.noInvoices.title": "لا فواتير بعد",
   "empty.noInvoices.body": "أنشئ فاتورتك الأولى لتبدأ بتتبع دخل العيادة.",
 
@@ -800,16 +893,17 @@ const ar: Dict = {
   "tst.copiedTitle": "تم النسخ",
   "tst.copiedBody": "تم النسخ إلى الحافظة.",
 
-
   // ===== Contact section =====
   "contact.badge": "تواصل معنا",
   "contact.title": "خلينا نحكي",
-  "contact.subtitle": "تواصل معنا بأي طريقة تناسبك — نحن هنا لخدمتك ولخدمة عيادتك.",
+  "contact.subtitle":
+    "تواصل معنا بأي طريقة تناسبك — نحن هنا لخدمتك ولخدمة عيادتك.",
   "contact.instagram.sub": "تابعنا للتحديثات",
   "contact.email.sub": "نرد خلال 24 ساعة",
   "contact.whatsapp.sub": "أسرع طريقة للوصول إلينا",
   "contact.thanks.title": "شكراً لاستخدامك ClinicOS",
-  "contact.thanks.body": "لقد اتخذت خطوة كبيرة نحو إدارة عيادتك تلقائياً. يشرفنا أن نكون جزءاً من رحلتك.",
+  "contact.thanks.body":
+    "لقد اتخذت خطوة كبيرة نحو إدارة عيادتك تلقائياً. يشرفنا أن نكون جزءاً من رحلتك.",
   "contact.footer.location": "صُنع في الأردن",
   "hero.demo": "شاهد العرض",
   "hero.talk": "تواصل معنا",
@@ -967,7 +1061,8 @@ const ar: Dict = {
   "inv.create": "إنشاء الفاتورة",
   "inv.edit": "تعديل",
   "inv.saveChanges": "حفظ التعديلات",
-  "inv.editPaidWarning": "تم تحصيل {amount} دينار على هذه الفاتورة مسبقاً — لا يمكن إنزال المجموع تحت هذا المبلغ.",
+  "inv.editPaidWarning":
+    "تم تحصيل {amount} دينار على هذه الفاتورة مسبقاً — لا يمكن إنزال المجموع تحت هذا المبلغ.",
   "st.title": "الإعدادات",
   "st.hours": "ساعات الدوام",
   "st.slot": "مدة الموعد الافتراضية (دقيقة)",
@@ -1041,7 +1136,8 @@ const ar: Dict = {
   "sub.per": "/ شهرياً",
   "sub.perTrial": "/ 7 أيام",
   "sub.chooseYourPlan": "اختر خطتك",
-  "sub.chooseSub": "ارتقِ عندما تكون جاهزاً لإدارة عيادتك بالكامل على ClinicOS.",
+  "sub.chooseSub":
+    "ارتقِ عندما تكون جاهزاً لإدارة عيادتك بالكامل على ClinicOS.",
   "sub.current": "الحالية",
   "sub.selectPlan": "اختر هذه الخطة",
   "sub.mostPopular": "الأكثر شيوعاً",
@@ -1057,9 +1153,11 @@ const ar: Dict = {
   "sub.notes": "ملاحظات (اختياري)",
   "sub.submitRequest": "إرسال الطلب",
   "sub.submitted": "تم استلام الطلب. سنفعّل خطتك خلال ساعة واحدة.",
-  "sub.pendingMsg": "طلب الترقية إلى {plan} قيد المعالجة، وسيتم تفعيله خلال ساعة واحدة.",
+  "sub.pendingMsg":
+    "طلب الترقية إلى {plan} قيد المعالجة، وسيتم تفعيله خلال ساعة واحدة.",
   "sub.expiredScreen.title": "انتهى اشتراكك",
-  "sub.expiredScreen.sub": "جدد الآن للمتابعة بإدارة عيادتك دون فقدان أي بيانات.",
+  "sub.expiredScreen.sub":
+    "جدد الآن للمتابعة بإدارة عيادتك دون فقدان أي بيانات.",
   "sub.feat.doctors": "أطباء",
   "sub.feat.doctorsUnlim": "أطباء بلا حدود",
   "sub.feat.oneDoctor": "طبيب واحد",
@@ -1133,10 +1231,12 @@ const ar: Dict = {
 
   // Pending review screen
   "sub.pending.title": "طلبك قيد المراجعة",
-  "sub.pending.sub": "نعالج طلب ترقيتك إلى {plan}. يتم التفعيل خلال ساعة كحد أقصى.",
+  "sub.pending.sub":
+    "نعالج طلب ترقيتك إلى {plan}. يتم التفعيل خلال ساعة كحد أقصى.",
   "sub.pending.remaining": "الوقت المتبقي التقريبي",
   "sub.pending.maxTime": "هذا الحد الأقصى المتوقع — عادةً أسرع بكثير",
-  "sub.pending.stillProcessing": "لا يزال قيد المعالجة — الرجاء الانتظار. تواصل معنا إذا استمر الأمر.",
+  "sub.pending.stillProcessing":
+    "لا يزال قيد المعالجة — الرجاء الانتظار. تواصل معنا إذا استمر الأمر.",
   "sub.pending.willGet": "بعد التفعيل ستحصل على",
   "sub.pending.back": "العودة للوحة التحكم",
   "sub.pending.b1": "5 أطباء + 2 موظفي استقبال",
@@ -1164,7 +1264,8 @@ const ar: Dict = {
   "reports.exportExcel": "تصدير Excel",
   "reports.exportPdf": "تصدير PDF",
   "reports.lockedTitle": "التقارير ميزة Pro",
-  "reports.lockedSub": "رقّي إلى Pro لفتح التحليلات الشهرية، تتبع الدخل، ترتيب الأطباء، والتصدير إلى Excel و PDF.",
+  "reports.lockedSub":
+    "رقّي إلى Pro لفتح التحليلات الشهرية، تتبع الدخل، ترتيب الأطباء، والتصدير إلى Excel و PDF.",
 
   // Brand colour
   "st.brandColor": "لون هوية العيادة",
@@ -1219,7 +1320,11 @@ interface I18nCtx {
   setLang: (l: Lang) => void;
   t: (key: string) => string;
 }
-const Ctx = createContext<I18nCtx>({ lang: "en", setLang: () => {}, t: (k) => k });
+const Ctx = createContext<I18nCtx>({
+  lang: "en",
+  setLang: () => {},
+  t: (k) => k,
+});
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>("en");
