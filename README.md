@@ -12,7 +12,7 @@
 [![MongoDB](https://img.shields.io/badge/MongoDB-Atlas-green?style=flat-square&logo=mongodb)](https://mongodb.com/)
 [![License](https://img.shields.io/badge/license-Proprietary-red?style=flat-square)]()
 
-[🌐 Live Demo](https://clinicos-platform.vercel.app) · [📧 Contact](mailto:clinicos.system@gmail.com)
+[🌐 Live Demo](https://www.clinicosjo.com/) · [📧 Contact](mailto:clinicos.system@gmail.com)
 
 </div>
 
