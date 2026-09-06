@@ -76,7 +76,7 @@ Whether you're running a single practice or managing multiple clinics, ClinicOS 
 ### 📊 Subscription System
 Three-tier pricing model:
 
-| Feature | Trial | Basic (19 JOD/mo) | Pro (29 JOD/mo) |
+| Feature | Trial | Basic (29 JOD/mo) | Pro (39 JOD/mo) |
 |---------|-------|-------------------|-----------------|
 | Doctors | 1 | 5 | Unlimited |
 | Receptionists | 1 | 2 | Unlimited |
