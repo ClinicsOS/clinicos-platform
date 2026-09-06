@@ -97,7 +97,7 @@ Three-tier pricing model:
 - **Database:** MongoDB Atlas (via Mongoose 8.5)
 - **Authentication:** JWT + bcrypt
 - **Validation:** Zod
-- **Email:** Nodemailer + Brevo SMTP
+- **Email:** Nodemailer + Resend
 - **Deployment:** Render
 
 ### Frontend
@@ -113,162 +113,14 @@ Three-tier pricing model:
 ### Infrastructure
 - **Version Control:** Git + GitHub
 - **CI/CD:** Automatic deployment via Vercel & Render
-- **Email Service:** Brevo (300 emails/day free tier)
-- **Database Hosting:** MongoDB Atlas (Free tier)
-
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-- Node.js 20 or higher
-- MongoDB Atlas account
-- Brevo account (for email sending)
-
-### Installation
-
-**1. Clone the repository**
-```bash
-git clone https://github.com/ClinicsOS/clinicos-platform.git
-cd clinicos-platform
-```
-
-**2. Backend Setup**
-```bash
-cd backEnd
-npm install
-cp .env.example .env
-# Edit .env with your credentials
-npm run dev
-```
-
-**3. Frontend Setup** (in a new terminal)
-```bash
-cd frontEnd
-npm install
-cp .env.example .env
-# Edit .env with your API URL
-npm run dev
-```
-
-**4. Open the app**
-```
-Frontend: http://localhost:3000
-Backend:  http://localhost:5000
-```
-
-### Environment Variables
-
-**Backend (`backEnd/.env`):**
-```env
-PORT=5000
-JWT_SECRET=your-secret-key
-MONGO_URI=mongodb+srv://user:pass@cluster.mongodb.net/clinicos
-APP_URL=http://localhost:3000
-FRONTEND_URL=http://localhost:3000
-
-# Email (Brevo SMTP)
-SMTP_HOST=smtp-relay.brevo.com
-SMTP_PORT=587
-SMTP_USER=your-brevo-login
-SMTP_PASS=your-brevo-key
-MAIL_FROM=ClinicOS <your@email.com>
-```
-
-**Frontend (`frontEnd/.env`):**
-```env
-NEXT_PUBLIC_API_URL=http://localhost:5000/api
-```
-
----
-
-## 📁 Project Structure
-
-```
-clinicos-platform/
-├── backEnd/                 # Node.js + Express API
-│   ├── src/
-│   │   ├── config/          # Database & plans config
-│   │   ├── controllers/     # Route handlers
-│   │   ├── middleware/      # Auth, error handling
-│   │   ├── models/          # Mongoose schemas
-│   │   ├── routes/          # API routes
-│   │   ├── services/        # Email service
-│   │   ├── types/           # TypeScript definitions
-│   │   └── index.ts         # Entry point
-│   ├── .env.example
-│   └── package.json
-│
-├── frontEnd/                # Next.js 14 App
-│   ├── src/
-│   │   ├── app/             # App Router pages
-│   │   │   ├── (dashboard)/ # Protected dashboard routes
-│   │   │   ├── book/        # Public booking pages
-│   │   │   ├── signin/      # Authentication
-│   │   │   ├── signup/
-│   │   │   ├── forgot-password/
-│   │   │   ├── reset-password/
-│   │   │   └── verify-email/
-│   │   ├── components/      # Reusable components
-│   │   ├── lib/             # Utilities (api, i18n, theme)
-│   │   └── store/           # Zustand stores
-│   ├── .env.example
-│   └── package.json
-│
-└── README.md
-```
-
----
-
-## 🌍 Deployment
-
-The platform is deployed on:
-
-- **Frontend:** [Vercel](https://vercel.com) → `https://clinicos-platform.vercel.app`
-- **Backend:** [Render](https://render.com) → `https://clinicos-api-72ff.onrender.com`
-- **Database:** [MongoDB Atlas](https://mongodb.com/atlas)
-- **Email:** [Brevo SMTP](https://brevo.com)
-
-Both frontend and backend automatically redeploy on every push to `main`.
-
----
-
-## 🎯 Roadmap
-
-### ✅ Completed
-- [x] Multi-tenant architecture
-- [x] Full authentication system with email verification
-- [x] Appointment management with public booking
-- [x] Patient records
-- [x] Invoicing system
-- [x] Subscription plans (Trial, Basic, Pro)
-- [x] Bilingual UI (EN/AR) with RTL
-- [x] Dark/Light theme
-- [x] Password reset flow
-- [x] Data export
-- [x] Toast notifications & confirm dialogs
-- [x] Production deployment
-
-### 🚧 In Progress
-- [ ] Promotional video and marketing content
-- [ ] First customer onboarding
-
-### 📅 Planned
-- [ ] Subscription lifecycle automation (grace period, expiry handling)
-- [ ] Admin dashboard for platform management
-- [ ] Automated payment gateway (Stripe/HyperPay)
-- [ ] SMS notifications
-- [ ] Custom domain support for clinics
-- [ ] Mobile app (React Native)
-- [ ] Analytics dashboard for clinic owners
-- [ ] Prescription management
-- [ ] Lab results integration
+- **Email Service:** Resend
+- **Database Hosting:** MongoDB Atlas 
 
 ---
 
 ## 🌐 Live Demo
 
-Try ClinicOS live: **[clinicos-platform.vercel.app](https://clinicos-platform.vercel.app)**
+Try ClinicOS live: **[clinicos](https://www.clinicosjo.com/)**
 
 Sign up for a 7-day free trial — no credit card required.
 
@@ -286,7 +138,7 @@ For clinic owners interested in subscribing or requesting a demo, please reach o
 ## 👨‍💻 Author
 
 **Amjad Aboshawer**
-Software Engineering Student at The Hashemite University
+Software Engineering graduate from The Hashemite University
 Building modern SaaS solutions for the MENA region.
 
 ---
