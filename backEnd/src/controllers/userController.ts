@@ -5,13 +5,18 @@ import { Clinic } from "../models/Clinic";
 import { asyncHandler } from "../middleware/errorHandler";
 import { PLANS, type Plan } from "../config/plans";
 
-const createStaffSchema = z.object({
-  name: z.string().min(2).max(100),
-  email: z.string().email(),
-  password: z.string().min(6).max(100),
-  role: z.enum(["doctor", "receptionist"]),
-  phone: z.string().optional(),
-});
+const createStaffSchema = z
+  .object({
+    name: z.string().min(2).max(100),
+    email: z.string().email(),
+    password: z.string().min(6).max(100),
+    role: z.enum(["doctor", "receptionist"]),
+    phone: z.string().max(20).optional(),
+  })
+  .refine((data) => data.role !== "doctor" || !!data.phone?.trim(), {
+    message: "Phone number is required for doctors — used to send WhatsApp appointment reminders",
+    path: ["phone"],
+  });
 
 export const createStaff = asyncHandler(async (req: Request, res: Response) => {
   const data = createStaffSchema.parse(req.body);
@@ -111,6 +116,19 @@ export const editStaff = asyncHandler(async (req: Request, res: Response) => {
   if (data.role) staff.role = data.role;
   if (data.phone !== undefined) staff.phone = data.phone;
   if (data.password) staff.password = data.password; // pre-save hook will hash it
+
+  // Guard: a doctor must have a phone number (used for WhatsApp appointment
+  // reminders). Only blocks the edit if this specific request touched the
+  // phone or role and the result would leave a doctor with none — it does
+  // NOT retroactively force existing doctors (who predate this rule) to
+  // fill it in before saving an unrelated change.
+  const touchedPhoneOrRole = data.phone !== undefined || data.role !== undefined;
+  if (touchedPhoneOrRole && staff.role === "doctor" && !staff.phone?.trim()) {
+    return res.status(400).json({
+      message: "Phone number is required for doctors — used to send WhatsApp appointment reminders",
+      code: "PHONE_REQUIRED_FOR_DOCTOR",
+    });
+  }
 
   await staff.save();
 

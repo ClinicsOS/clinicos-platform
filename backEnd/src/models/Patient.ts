@@ -10,6 +10,7 @@ export interface IPatient extends Document {
   birthDate?: Date;
   medicalNotes?: string;
   isArchived: boolean;
+  whatsappOptIn?: boolean; // NEW — WhatsApp appointment reminders opt-in/out
   createdAt: Date;
   updatedAt: Date;
 }
@@ -30,6 +31,11 @@ const patientSchema = new Schema<IPatient>(
     birthDate: { type: Date },
     medicalNotes: { type: String },
     isArchived: { type: Boolean, default: false },
+    // NEW — defaults to true so every existing patient (where this field
+    // doesn't exist yet in Mongo) is treated as opted-in without a
+    // migration. Only an explicit `false` (set later from a patient-facing
+    // toggle) opts someone out.
+    whatsappOptIn: { type: Boolean, default: true },
   },
   { timestamps: true }
 );

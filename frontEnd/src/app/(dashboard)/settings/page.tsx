@@ -77,6 +77,7 @@ export default function SettingsPage() {
   const [sEmail, setSEmail] = useState("");
   const [sPass, setSPass] = useState("");
   const [sRole, setSRole] = useState<"doctor" | "receptionist">("doctor");
+  const [sPhone, setSPhone] = useState("");
 
   // --- edit staff modal ---
   const [editingStaff, setEditingStaff] = useState<Staff | null>(null);
@@ -182,13 +183,22 @@ export default function SettingsPage() {
 
   const addStaff = useMutation({
     mutationFn: async () =>
-      (await api.post("/users", { name: sName, email: sEmail, password: sPass, role: sRole })).data,
+      (
+        await api.post("/users", {
+          name: sName,
+          email: sEmail,
+          password: sPass,
+          role: sRole,
+          phone: sPhone || undefined,
+        })
+      ).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["staff"] });
       setAddingStaff(false);
       setSName("");
       setSEmail("");
       setSPass("");
+      setSPhone("");
       setError("");
     },
     onError: (e) => setError(errMsg(e, t("common.error"))),
@@ -725,6 +735,17 @@ export default function SettingsPage() {
           <input className="inp mb-3" value={sName} onChange={(e) => setSName(e.target.value)} />
           <label className="lbl">{t("auth.email")}</label>
           <input className="inp mb-3" type="email" value={sEmail} onChange={(e) => setSEmail(e.target.value)} />
+          <label className="lbl">
+            {t("st.staffPhone")}
+            {sRole === "doctor" && <span className="text-red-400"> *</span>}
+          </label>
+          <input
+            className="inp mb-3"
+            value={sPhone}
+            onChange={(e) => setSPhone(e.target.value)}
+            dir="ltr"
+            placeholder="07XXXXXXXX"
+          />
           <label className="lbl">{t("st.tempPass")}</label>
           <input className="inp mb-3" value={sPass} onChange={(e) => setSPass(e.target.value)} />
           <label className="lbl">{t("st.role")}</label>
@@ -749,7 +770,13 @@ export default function SettingsPage() {
           {error && <p className="mb-2 text-xs text-red-400">{error}</p>}
           <button
             className="btn-teal w-full"
-            disabled={!sName || !sEmail || sPass.length < 6 || addStaff.isPending}
+            disabled={
+              !sName ||
+              !sEmail ||
+              sPass.length < 6 ||
+              (sRole === "doctor" && !sPhone.trim()) ||
+              addStaff.isPending
+            }
             onClick={() => addStaff.mutate()}
           >
             {addStaff.isPending ? t("common.loading") : t("st.addStaff")}
@@ -769,12 +796,16 @@ export default function SettingsPage() {
             value={eEmail}
             onChange={(e) => setEEmail(e.target.value)}
           />
-          <label className="lbl">{t("su.phone")}</label>
+          <label className="lbl">
+            {t("st.staffPhone")}
+            {eRole === "doctor" && <span className="text-red-400"> *</span>}
+          </label>
           <input
             className="inp mb-3"
             value={ePhone}
             onChange={(e) => setEPhone(e.target.value)}
             dir="ltr"
+            placeholder="07XXXXXXXX"
           />
           <label className="lbl">{t("st.role")}</label>
           <div className="mb-3 flex gap-2">
@@ -806,7 +837,12 @@ export default function SettingsPage() {
           {error && <p className="mb-2 text-xs text-red-400">{error}</p>}
           <button
             className="btn-teal w-full"
-            disabled={!eName || !eEmail || editStaffMut.isPending}
+            disabled={
+              !eName ||
+              !eEmail ||
+              (eRole === "doctor" && !ePhone.trim()) ||
+              editStaffMut.isPending
+            }
             onClick={() => editStaffMut.mutate()}
           >
             {editStaffMut.isPending ? t("common.loading") : t("st.saveChanges")}
