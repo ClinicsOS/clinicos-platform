@@ -1,11 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type {
-  AIProvider,
-  AISendParams,
-  AIResponse,
-  AIMessage,
-  AIToolCall,
-} from "./AIProvider";
+import type { AIProvider, AISendParams, AIResponse, AIMessage, AIToolCall } from "./AIProvider";
 
 const apiKey = process.env.ANTHROPIC_API_KEY || "";
 // Haiku is the default on purpose — this is a cost-sensitive, high-volume
@@ -17,12 +11,19 @@ const MODEL = process.env.ANTHROPIC_CHAT_MODEL || "claude-haiku-4-5-20251001";
 const client = apiKey ? new Anthropic({ apiKey }) : null;
 
 /**
- * Claude implementation of AIProvider, following the same
- * dev-mode-fallback spirit as services/mailer.ts and
- * services/whatsappService.ts — but for a chat request there's no sane
- * fallback response to fake, so we fail loudly and clearly instead.
+ * Claude implementation of AIProvider.
  *
- * NEW FILE — does not touch any existing service.
+ * NOTE on the liberal use of `any` below: the exact request-side type
+ * names in @anthropic-ai/sdk (e.g. the shape of a tool's input_schema,
+ * or a content block inside a request message) have changed across SDK
+ * versions and don't perfectly match our provider-agnostic AIToolDefinition
+ * shape. Rather than pin this file to one SDK version's exact internal
+ * types (which breaks on the next `npm install` elsewhere, as happened
+ * here — this compiled fine locally under ts-node-dev's --transpile-only,
+ * which skips type-checking entirely, and only failed on Render's real
+ * `tsc` build), we loosen typing at the SDK request boundary only. Our
+ * own exported types (AIMessage, AIResponse, etc.) stay fully typed —
+ * this loosening is isolated to this one file's internals.
  */
 export class ClaudeProvider implements AIProvider {
   async sendMessage(params: AISendParams): Promise<AIResponse> {
@@ -40,7 +41,7 @@ export class ClaudeProvider implements AIProvider {
       tools: params.tools?.map((t) => ({
         name: t.name,
         description: t.description,
-        input_schema: t.inputSchema,
+        input_schema: t.inputSchema as any,
       })),
     });
 
@@ -54,13 +55,12 @@ export class ClaudeProvider implements AIProvider {
  * - "user" -> a plain user message.
  * - "assistant" -> a plain assistant message, or (if toolCalls is set) an
  *   assistant message containing a text block (if any) plus one tool_use
- *   block per call — this is what lets Claude "remember" which tool_use
- *   ids it issued, so the tool_result below can reference them correctly.
+ *   block per call.
  * - "tool" -> Claude expects tool results back as a "user" message
  *   containing a tool_result block.
  */
-function toClaudeMessages(messages: AIMessage[]): Anthropic.MessageParam[] {
-  const result: Anthropic.MessageParam[] = [];
+function toClaudeMessages(messages: AIMessage[]): any[] {
+  const result: any[] = [];
 
   for (const m of messages) {
     if (m.role === "user") {
@@ -73,7 +73,7 @@ function toClaudeMessages(messages: AIMessage[]): Anthropic.MessageParam[] {
         result.push({ role: "assistant", content: m.content });
         continue;
       }
-      const blocks: Anthropic.ContentBlockParam[] = [];
+      const blocks: any[] = [];
       if (m.content) blocks.push({ type: "text", text: m.content });
       for (const call of m.toolCalls) {
         blocks.push({
