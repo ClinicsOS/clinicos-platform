@@ -15,6 +15,7 @@ export interface PlanLimits {
   exports: boolean;               // Excel / PDF exports
   whiteLabel: boolean;            // hide "Powered by ClinicOS"
   customBookingColor: boolean;    // brand colour on booking page
+  aiAssistant: boolean;           // "نبض" dashboard chatbot (Pro-only)
   supportSlaHours: number;
   trialDays: number;
 }
@@ -30,6 +31,7 @@ export const PLANS: Record<Plan, PlanLimits> = {
     exports: false,
     whiteLabel: false,
     customBookingColor: false,
+    aiAssistant: false,
     supportSlaHours: 0,
     trialDays: 7,
   },
@@ -43,6 +45,7 @@ export const PLANS: Record<Plan, PlanLimits> = {
     exports: false,
     whiteLabel: false,
     customBookingColor: false,
+    aiAssistant: false,
     supportSlaHours: 48,
     trialDays: 0,
   },
@@ -56,6 +59,7 @@ export const PLANS: Record<Plan, PlanLimits> = {
     exports: true,
     whiteLabel: true,
     customBookingColor: true,
+    aiAssistant: true,
     supportSlaHours: 24,
     trialDays: 0,
   },

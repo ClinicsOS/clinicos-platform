@@ -17,6 +17,7 @@ import reportsRoutes from "./routes/reportsRoutes";
 import publicRoutes from "./routes/publicRoutes";
 import adminRoutes from "./routes/adminRoutes";
 import reminderRoutes from "./routes/reminderRoutes"; // NEW — WhatsApp appointment reminders
+import chatRoutes from "./routes/chatRoutes"; // NEW — "معك" chatbot
 
 const app = express();
 app.set("trust proxy", 1);
@@ -45,6 +46,7 @@ app.use("/api/reports", reportsRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/reminders", reminderRoutes); // NEW — WhatsApp appointment reminders
+app.use("/api/chat", chatRoutes); // NEW — "معك" chatbot
 
 app.use(errorHandler);
 

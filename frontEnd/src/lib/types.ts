@@ -18,6 +18,7 @@ export interface PlanLimits {
   exports: boolean;
   whiteLabel: boolean;
   customBookingColor: boolean;
+  aiAssistant: boolean;
   supportSlaHours: number;
   trialDays: number;
 }
