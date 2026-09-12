@@ -5,12 +5,16 @@ import { User } from "../../../../models/User";
 import { Clinic } from "../../../../models/Clinic";
 import type { AIToolDefinition } from "../../AIProvider";
 import type { ToolContext } from "../types";
+import {
+  checkAppointmentTiming,
+  checkAppointmentPlanCap,
+} from "../../../appointmentRules";
 
-// NOTE (known limitation): unlike controllers/appointmentController.ts's
-// createAppointment, this does NOT re-check working hours, break windows,
-// or the trial plan's appointment cap. It keeps the two checks that
-// prevent real data corruption — past-time and double-booking — and
-// leaves the softer business rules for a follow-up hardening pass.
+// This tool now enforces the SAME business rules as the human dashboard flow
+// (controllers/appointmentController.ts) by calling the shared
+// services/appointmentRules.ts helpers — working hours, break windows, and the
+// trial plan's appointment cap — in addition to the past-time and
+// double-booking guards it already had.
 export const createAppointmentDefinition: AIToolDefinition = {
   name: "createAppointment",
   description:
@@ -47,9 +51,6 @@ export async function createAppointmentExecute(
   const input = inputSchema.parse(rawInput);
 
   const startAt = new Date(input.startAt);
-  if (isNaN(startAt.getTime()) || startAt.getTime() <= Date.now()) {
-    return { error: "Invalid or past appointment time" };
-  }
 
   const [patient, doctor, clinic] = await Promise.all([
     Patient.findOne({ _id: input.patientId, clinicId: ctx.clinicId }),
@@ -59,6 +60,16 @@ export async function createAppointmentExecute(
   if (!patient) return { error: "Patient not found" };
   if (!doctor) return { error: "Doctor not found" };
   if (!clinic) return { error: "Clinic not found" };
+
+  // Same business rules as the human dashboard flow: past-time, closed day,
+  // break window.
+  const timing = checkAppointmentTiming(clinic, startAt);
+  if (timing) return { error: timing.message, code: timing.code };
+
+  // Same trial appointment cap as the human dashboard flow.
+  const count = await Appointment.countDocuments({ clinicId: ctx.clinicId });
+  const cap = checkAppointmentPlanCap(clinic, count);
+  if (cap) return { error: cap.message, code: cap.code };
 
   const conflict = await Appointment.findOne({
     clinicId: ctx.clinicId,

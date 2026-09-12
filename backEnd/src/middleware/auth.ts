@@ -6,6 +6,7 @@ import { PLANS, type Plan, type PlanLimits } from "../config/plans";
 
 interface JwtPayload {
   userId: string;
+  tokenVersion?: number;
 }
 
 export const protect = async (req: Request, res: Response, next: NextFunction) => {
@@ -20,6 +21,13 @@ export const protect = async (req: Request, res: Response, next: NextFunction) =
     const user = await User.findById(decoded.userId);
     if (!user || !user.isActive) {
       return res.status(401).json({ message: "Not authorized" });
+    }
+
+    // Token revocation check: a token signed before a password change / reset /
+    // deactivation / role change carries a stale tokenVersion and is rejected.
+    // `?? 0` keeps pre-existing tokens and users (no tokenVersion yet) working.
+    if ((decoded.tokenVersion ?? 0) !== (user.tokenVersion ?? 0)) {
+      return res.status(401).json({ message: "Session expired, please sign in again" });
     }
 
     req.userId = String(user._id);

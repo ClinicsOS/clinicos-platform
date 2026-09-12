@@ -39,8 +39,10 @@ const uniqueSlug = async (name: string): Promise<string> => {
   return candidate;
 };
 
-const signToken = (userId: string) =>
-  jwt.sign({ userId }, process.env.JWT_SECRET as string, { expiresIn: "7d" });
+const signToken = (userId: string, tokenVersion: number = 0) =>
+  jwt.sign({ userId, tokenVersion }, process.env.JWT_SECRET as string, {
+    expiresIn: "7d",
+  });
 
 // ==================================================================
 // POST /api/auth/register-clinic
@@ -119,7 +121,7 @@ export const registerClinic = asyncHandler(async (req: Request, res: Response) =
     );
 
     return res.status(201).json({
-      token: signToken(userId),
+      token: signToken(userId, 0),
       user: {
         id: userId,
         name: data.ownerName,
@@ -155,7 +157,7 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
   }
 
   return res.json({
-    token: signToken(String(user._id)),
+    token: signToken(String(user._id), user.tokenVersion ?? 0),
     user: {
       id: String(user._id),
       name: user.name,
@@ -223,6 +225,9 @@ export const resetPassword = asyncHandler(async (req: Request, res: Response) =>
   user.password = password;
   user.resetTokenHash = undefined;
   user.resetTokenExpires = undefined;
+  // Invalidate every JWT issued before this reset — if the account was
+  // compromised, a reset must actually lock the attacker out immediately.
+  user.tokenVersion = (user.tokenVersion ?? 0) + 1;
   await user.save();
 
   return res.json({
@@ -306,8 +311,20 @@ export const changePassword = asyncHandler(async (req: Request, res: Response) =
   }
 
   user.password = newPassword;
+  // Revoke all other existing sessions for this user (any stolen/old token
+  // stops working). We then hand back a fresh token below so THIS session —
+  // the one that just proved knowledge of the current password — stays
+  // signed in seamlessly.
+  user.tokenVersion = (user.tokenVersion ?? 0) + 1;
   await user.save();
-  return res.json({ message: "Password changed successfully." });
+
+  return res.json({
+    message: "Password changed successfully.",
+    // The client should replace its stored token with this one. If it doesn't,
+    // the next request will 401 and the user simply signs in again — safe
+    // either way.
+    token: signToken(String(user._id), user.tokenVersion),
+  });
 });
 
 // ==================================================================

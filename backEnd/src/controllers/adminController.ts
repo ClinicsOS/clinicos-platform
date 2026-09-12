@@ -713,10 +713,15 @@ export const impersonateClinic = asyncHandler(
       return res.status(500).json({ message: "Server misconfigured" });
     }
 
-    // Short-lived token so an accidental leak has minimal blast radius
-    const token = jwt.sign({ userId: String(owner._id) }, secret, {
-      expiresIn: "1h",
-    });
+    // Short-lived token so an accidental leak has minimal blast radius.
+    // Must carry the owner's current tokenVersion, otherwise the revocation
+    // check in `protect` would reject it whenever the owner's tokenVersion
+    // has been bumped past 0.
+    const token = jwt.sign(
+      { userId: String(owner._id), tokenVersion: owner.tokenVersion ?? 0 },
+      secret,
+      { expiresIn: "1h" }
+    );
 
     await logActivity({
       action: "clinic.impersonated",
@@ -972,6 +977,9 @@ export const adminResetPassword = asyncHandler(
     user.password = parsed.data.newPassword;
     user.resetTokenHash = undefined;
     user.resetTokenExpires = undefined;
+    // Revoke every token the user currently holds — an admin-forced reset must
+    // lock out any existing session immediately.
+    user.tokenVersion = (user.tokenVersion ?? 0) + 1;
     await user.save();
 
     await logActivity({
@@ -1000,6 +1008,12 @@ export const toggleUserActive = asyncHandler(
     if (!user) return res.status(404).json({ message: "User not found" });
 
     user.isActive = !user.isActive;
+    // When deactivating, also bump tokenVersion so any live session is cut off
+    // on its very next request (the isActive check already blocks it, but this
+    // makes the revocation explicit and consistent with the other flows).
+    if (!user.isActive) {
+      user.tokenVersion = (user.tokenVersion ?? 0) + 1;
+    }
     await user.save();
 
     await logActivity({

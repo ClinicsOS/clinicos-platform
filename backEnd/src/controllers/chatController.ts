@@ -13,6 +13,31 @@ import { asyncHandler } from "../middleware/errorHandler";
 
 const provider = new ClaudeProvider();
 
+// How long a proposed sensitive action stays "pending confirmation" before the
+// user has to ask for it again.
+const CONFIRMATION_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * Deterministic signature for a tool call, so a re-emitted call after the user
+ * confirms can be matched against the previously-proposed one. Keys are sorted
+ * so argument order never changes the signature.
+ */
+function actionSignature(toolName: string, input: Record<string, unknown>): string {
+  const stable = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(stable);
+    if (value && typeof value === "object") {
+      return Object.keys(value as Record<string, unknown>)
+        .sort()
+        .reduce((acc, k) => {
+          acc[k] = stable((value as Record<string, unknown>)[k]);
+          return acc;
+        }, {} as Record<string, unknown>);
+    }
+    return value;
+  };
+  return `${toolName}|${JSON.stringify(stable(input))}`;
+}
+
 const sendMessageSchema = z.object({
   message: z.string().min(1).max(2000),
   conversationId: z.string().optional(),
@@ -87,10 +112,28 @@ export const sendMessage = asyncHandler(async (req: Request, res: Response) => {
   const conversationId = data.conversationId || randomUUID();
 
   let conversation = await Conversation.findOne({ conversationId });
-  if (!conversation) {
+
+  // --- Conversation ownership enforcement --------------------------------
+  // A conversationId alone must NOT grant access. If a conversation already
+  // exists, the requester must be the same principal that owns it:
+  //   - authenticated conversation  -> only its owning user may continue it
+  //   - anonymous conversation      -> only an anonymous requester may continue
+  // Mismatches are rejected rather than silently served, which is what closes
+  // the cross-user / cross-clinic history-disclosure hole.
+  if (conversation) {
+    const ownerId = conversation.userId ? String(conversation.userId) : null;
+    const requesterId = req.userId ? String(req.userId) : null;
+    if (ownerId !== requesterId) {
+      return res.status(403).json({
+        message: "This conversation belongs to a different session.",
+        code: "CONVERSATION_FORBIDDEN",
+      });
+    }
+  } else {
     conversation = new Conversation({ conversationId, messages: [], summarizedUpTo: 0 });
   }
 
+  // Bind ownership on first authenticated message of a brand-new conversation.
   if (req.userId && !conversation.userId) {
     conversation.userId = req.userId as unknown as typeof conversation.userId;
     conversation.clinicId = req.clinicId as unknown as typeof conversation.clinicId;
@@ -165,6 +208,22 @@ export const sendMessage = asyncHandler(async (req: Request, res: Response) => {
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
 
+  // Snapshot any confirmation that was pending BEFORE this turn started. A
+  // sensitive action only executes if it matches a confirmation the user set
+  // up on an earlier turn — never one proposed within this same turn. This is
+  // what prevents the model from "self-confirming" in one shot.
+  const priorPending =
+    conversation.pendingAction &&
+    conversation.pendingAction.expiresAt > new Date()
+      ? {
+          signature: conversation.pendingAction.signature,
+          toolName: conversation.pendingAction.toolName,
+        }
+      : null;
+  // Clear it now; if the model proposes something this turn we'll set a fresh
+  // one below, and a matched confirmation is single-use.
+  conversation.pendingAction = undefined;
+
   try {
     let round = 0;
     let workingMessages = recentMessages;
@@ -202,6 +261,41 @@ export const sendMessage = asyncHandler(async (req: Request, res: Response) => {
       let result: Record<string, unknown>;
       if (!tool) {
         result = { error: `Unknown tool: ${call.name}` };
+      } else if (tool.requiresConfirmation) {
+        // Server-enforced confirmation gate. The LLM's prompt-level "ask first"
+        // rule is NOT trusted here — this code decides whether the write runs.
+        const signature = actionSignature(call.name, call.input);
+        const isConfirmed =
+          priorPending !== null &&
+          priorPending.signature === signature &&
+          priorPending.toolName === call.name;
+
+        if (isConfirmed) {
+          // The user confirmed this exact action on a previous turn — run it.
+          try {
+            result = await tool.execute(call.input, toolContext);
+          } catch (err) {
+            result = { error: (err as Error).message };
+          }
+          conversation.pendingAction = undefined; // single-use
+        } else {
+          // First time we're seeing this action (or the args changed): do NOT
+          // execute. Record it as pending and tell the model to get an explicit
+          // confirmation from the user, who must then re-issue the request.
+          conversation.pendingAction = {
+            signature,
+            toolName: call.name,
+            input: call.input,
+            expiresAt: new Date(Date.now() + CONFIRMATION_TTL_MS),
+          };
+          result = {
+            needsConfirmation: true,
+            action: call.name,
+            details: call.input,
+            message:
+              "This action was NOT performed. It changes clinic data and requires the user's explicit confirmation. Summarize exactly what you're about to do (patient, doctor, time, amounts as relevant) and ask the user to confirm. Only when they clearly confirm on their next message, call this same tool again with the same arguments.",
+          };
+        }
       } else {
         try {
           result = await tool.execute(call.input, toolContext);

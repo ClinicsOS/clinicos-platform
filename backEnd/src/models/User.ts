@@ -11,6 +11,14 @@ export interface IUser extends Document {
   phone?: string;
   isActive: boolean;
   emailVerified: boolean;
+  // Bumped whenever we need to invalidate every previously-issued JWT for this
+  // user (password change, password reset, admin reset, deactivation, role
+  // change). The value is embedded in the JWT at sign time and re-checked on
+  // every authenticated request — a token whose tokenVersion no longer matches
+  // the user's current tokenVersion is rejected. Defaults to 0; existing
+  // users (created before this field) read back as undefined and are treated
+  // as 0, so this change never force-logs-out anyone on deploy.
+  tokenVersion: number;
   verifyTokenHash?: string;
   verifyTokenExpires?: Date;
   resetTokenHash?: string;
@@ -45,6 +53,7 @@ const userSchema = new Schema<IUser>(
     phone: { type: String },
     isActive: { type: Boolean, default: true },
     emailVerified: { type: Boolean, default: false },
+    tokenVersion: { type: Number, default: 0 },
     verifyTokenHash: { type: String, select: false },
     verifyTokenExpires: { type: Date, select: false },
     resetTokenHash: { type: String, select: false },

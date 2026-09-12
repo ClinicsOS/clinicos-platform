@@ -6,6 +6,10 @@ import { User } from "../models/User";
 import { Clinic } from "../models/Clinic";
 import { asyncHandler } from "../middleware/errorHandler";
 import { PLANS, type Plan } from "../config/plans";
+import {
+  checkAppointmentTiming,
+  checkAppointmentPlanCap,
+} from "../services/appointmentRules";
 
 const createAppointmentSchema = z
   .object({
@@ -32,55 +36,26 @@ const createBlockSchema = z.object({
 export const createAppointment = asyncHandler(async (req: Request, res: Response) => {
   const data = createAppointmentSchema.parse(req.body);
 
-  // ==== Layer 1 defence: reject any past time ====
   const startAt = new Date(data.startAt);
-  if (startAt.getTime() <= Date.now()) {
-    return res.status(400).json({
-      message: "Cannot book a time in the past",
-      code: "PAST_TIME",
-    });
-  }
 
   const clinic = await Clinic.findById(req.clinicId);
   if (!clinic) return res.status(404).json({ message: "Clinic not found" });
 
-  // ==== Layer 2 defence: reject appointments on closed days ====
-  const dow = startAt.getUTCDay();
-  const wh = clinic.workingHours.find((w) => w.day === dow);
-  if (!wh || !wh.isOpen) {
-    return res.status(400).json({
-      message: "The clinic is closed on this day",
-      code: "DAY_CLOSED",
-    });
+  // ==== Shared business rules: past-time, closed day, break window ====
+  const timing = checkAppointmentTiming(clinic, startAt);
+  if (timing) {
+    return res.status(400).json({ message: timing.message, code: timing.code });
   }
 
-  // ==== Layer 2.5 defence: reject appointments inside the break window ====
-  if (wh.breakFrom && wh.breakTo) {
-    const parts = new Intl.DateTimeFormat("en-GB", {
-      timeZone: "Asia/Amman",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).formatToParts(startAt);
-    const wallTime = `${parts.find((p) => p.type === "hour")!.value}:${
-      parts.find((p) => p.type === "minute")!.value
-    }`;
-    if (wallTime >= wh.breakFrom && wallTime < wh.breakTo) {
-      return res.status(400).json({
-        message: "This time falls within the clinic's break — please pick another slot",
-        code: "BREAK_TIME",
-      });
-    }
-  }
-
-  // Enforce trial appointment cap
+  // ==== Enforce trial appointment cap (shared) ====
   const limits = PLANS[clinic.plan as Plan];
   if (limits.maxAppointments !== -1) {
     const count = await Appointment.countDocuments({ clinicId: req.clinicId });
-    if (count >= limits.maxAppointments) {
+    const cap = checkAppointmentPlanCap(clinic, count);
+    if (cap) {
       return res.status(402).json({
-        message: `Trial limit reached (${limits.maxAppointments} appointments) — upgrade to continue`,
-        code: "PLAN_LIMIT",
+        message: cap.message,
+        code: cap.code,
         feature: "maxAppointments",
       });
     }

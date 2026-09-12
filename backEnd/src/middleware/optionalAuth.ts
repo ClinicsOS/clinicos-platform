@@ -4,6 +4,7 @@ import { User } from "../models/User";
 
 interface JwtPayload {
   userId: string;
+  tokenVersion?: number;
 }
 
 /**
@@ -27,6 +28,10 @@ export const optionalAuth = async (req: Request, _res: Response, next: NextFunct
     const user = await User.findById(decoded.userId);
     if (!user || !user.isActive) {
       return next(); // invalid/stale token — treat as anonymous, don't error
+    }
+    // Revoked token (password change / reset / deactivation) — treat as anonymous.
+    if ((decoded.tokenVersion ?? 0) !== (user.tokenVersion ?? 0)) {
+      return next();
     }
 
     req.userId = String(user._id);

@@ -113,9 +113,18 @@ export const editStaff = asyncHandler(async (req: Request, res: Response) => {
   }
 
   if (data.name) staff.name = data.name;
+  const roleChanged = !!data.role && data.role !== staff.role;
   if (data.role) staff.role = data.role;
   if (data.phone !== undefined) staff.phone = data.phone;
   if (data.password) staff.password = data.password; // pre-save hook will hash it
+
+  // If the owner changed this staff member's password or role, invalidate any
+  // token that staff member is currently holding — a role change must take
+  // effect immediately, and a password change by the owner should log the
+  // staff member out of existing sessions.
+  if (data.password || roleChanged) {
+    staff.tokenVersion = (staff.tokenVersion ?? 0) + 1;
+  }
 
   // Guard: a doctor must have a phone number (used for WhatsApp appointment
   // reminders). Only blocks the edit if this specific request touched the

@@ -24,6 +24,18 @@ export interface IConversation extends Document {
   // what keeps token cost from growing with the conversation's whole
   // history instead of just its recent tail.
   summarizedUpTo: number;
+  // Server-side confirmation gate for sensitive AI tools. When the model
+  // proposes a requiresConfirmation action, we store it here (instead of
+  // executing) and only run it once the user confirms on a *later* turn and
+  // the model re-emits the exact same tool call. This is what makes the
+  // "ask before acting" rule real — it no longer depends on the LLM obeying
+  // its prompt. See controllers/chatController.ts.
+  pendingAction?: {
+    signature: string;
+    toolName: string;
+    input: Record<string, unknown>;
+    expiresAt: Date;
+  };
   lastMessageAt: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -51,6 +63,19 @@ const conversationSchema = new Schema<IConversation>(
     messages: { type: [chatMessageSchema], default: [] },
     summary: { type: String },
     summarizedUpTo: { type: Number, default: 0 },
+    pendingAction: {
+      type: new Schema(
+        {
+          signature: { type: String, required: true },
+          toolName: { type: String, required: true },
+          input: { type: Schema.Types.Mixed, default: {} },
+          expiresAt: { type: Date, required: true },
+        },
+        { _id: false }
+      ),
+      required: false,
+      default: undefined,
+    },
     lastMessageAt: { type: Date, default: Date.now, index: true },
   },
   { timestamps: true }

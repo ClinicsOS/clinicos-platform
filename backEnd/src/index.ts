@@ -4,6 +4,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import { connectDB } from "./config/db";
 import { errorHandler } from "./middleware/errorHandler";
+import { securityHeaders } from "./middleware/securityHeaders";
 
 import authRoutes from "./routes/authRoutes";
 import userRoutes from "./routes/userRoutes";
@@ -21,6 +22,10 @@ import chatRoutes from "./routes/chatRoutes"; // NEW — "معك" chatbot
 
 const app = express();
 app.set("trust proxy", 1);
+app.disable("x-powered-by");
+
+// Security headers on every response (must run before the routes).
+app.use(securityHeaders);
 
 const frontendUrl = process.env.FRONTEND_URL;
 app.use(

@@ -1098,6 +1098,7 @@ function SecurityTab({ isOwner }: { isOwner: boolean }) {
   const user = useAuth((s) => s.user);
   const logout = useAuth((s) => s.logout);
   const patchUser = useAuth((s) => s.patchUser);
+  const setAuth = useAuth((s) => s.setAuth);
 
   // Change password
   const [currentPw, setCurrentPw] = useState("");
@@ -1116,7 +1117,13 @@ function SecurityTab({ isOwner }: { isOwner: boolean }) {
   const changePw = useMutation({
     mutationFn: async () =>
       (await api.post("/auth/change-password", { currentPassword: currentPw, newPassword: newPw })).data,
-    onSuccess: () => {
+    onSuccess: (data) => {
+      // The backend now bumps the user's tokenVersion on password change (so any
+      // other/old session is revoked) and returns a fresh token for THIS
+      // session. Persist it so the current tab stays signed in seamlessly.
+      if (data?.token && user) {
+        setAuth(data.token, user);
+      }
       toast.success(t("sec.pwChanged"), t("sec.pwChangedSub"));
       setCurrentPw("");
       setNewPw("");
