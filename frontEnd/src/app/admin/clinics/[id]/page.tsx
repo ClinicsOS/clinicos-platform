@@ -25,6 +25,8 @@ import {
   IconAlertTriangle,
   IconX,
   IconCheck,
+  IconNotes,
+  IconSend,
 } from "@tabler/icons-react";
 
 type Plan = "trial" | "basic" | "pro";
@@ -66,6 +68,12 @@ interface ClinicDetails {
     status: string;
     createdAt: string;
     processedAt?: string;
+  }[];
+  notes: {
+    _id: string;
+    text: string;
+    authorEmail: string;
+    createdAt: string;
   }[];
 }
 
@@ -134,6 +142,19 @@ export default function ClinicDetailsPage() {
     onError: (e) => showToast("error", adminErrMsg(e, "Impersonation failed")),
   });
 
+  // Notes (internal admin log — never shown to the clinic)
+  const [newNote, setNewNote] = useState("");
+  const addNoteMutation = useMutation({
+    mutationFn: async () =>
+      (await adminApi.post(`/admin/clinics/${clinicId}/notes`, { text: newNote })).data,
+    onSuccess: () => {
+      setNewNote("");
+      qc.invalidateQueries({ queryKey: ["admin", "clinic", clinicId] });
+      showToast("success", "Note added");
+    },
+    onError: (e) => showToast("error", adminErrMsg(e, "Failed to add note")),
+  });
+
   if (isLoading) {
     return (
       <div className="p-6 text-[12px] text-red-200/50">Loading clinic details...</div>
@@ -144,7 +165,7 @@ export default function ClinicDetailsPage() {
     return <div className="p-6 text-[12px] text-red-200/50">Clinic not found.</div>;
   }
 
-  const { clinic, users, stats, recentInvoices, subscriptionHistory } = data;
+  const { clinic, users, stats, recentInvoices, subscriptionHistory, notes } = data;
 
   return (
     <div className="p-6">
@@ -389,6 +410,54 @@ export default function ClinicDetailsPage() {
             </div>
           </div>
         )}
+        {/* Internal notes (admin-only — never shown to the clinic) */}
+        <div className="rounded-lg border border-red-900/30 bg-[#150606]/60 p-4 lg:col-span-3">
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
+            <IconNotes size={14} /> Internal Notes
+          </h2>
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (newNote.trim()) addNoteMutation.mutate();
+            }}
+            className="mb-3 flex gap-2"
+          >
+            <textarea
+              value={newNote}
+              onChange={(e) => setNewNote(e.target.value)}
+              rows={2}
+              placeholder="e.g. Called 15/9, said they'd get back to us in a week"
+              className="flex-1 rounded-md border border-red-900/40 bg-black/30 px-3 py-2 text-[12px] text-white placeholder:text-red-300/30 focus:border-red-500 focus:outline-none"
+            />
+            <button
+              type="submit"
+              disabled={!newNote.trim() || addNoteMutation.isPending}
+              className="flex items-center gap-1.5 self-start rounded-md bg-red-600 px-3 py-2 text-[11px] font-medium text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <IconSend size={13} /> Add
+            </button>
+          </form>
+
+          <div className="max-h-72 space-y-2 overflow-y-auto">
+            {notes.map((n) => (
+              <div
+                key={n._id}
+                className="rounded-md border border-red-900/20 bg-black/20 p-2.5 text-[11px]"
+              >
+                <p className="whitespace-pre-wrap text-red-100/90">{n.text}</p>
+                <p className="mt-1 text-[10px] text-red-200/40" dir="ltr">
+                  {n.authorEmail} · {new Date(n.createdAt).toLocaleString()}
+                </p>
+              </div>
+            ))}
+            {notes.length === 0 && (
+              <p className="py-4 text-center text-[11px] text-red-200/40">
+                No notes yet — add one above to start tracking this clinic.
+              </p>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Modals */}

@@ -10,6 +10,7 @@ import {
   IconCopy,
   IconCheck,
   IconInfoCircle,
+  IconDeviceMobile,
 } from "@tabler/icons-react";
 
 export default function SettingsPage() {
@@ -53,6 +54,46 @@ export default function SettingsPage() {
     currentPassword.length > 0 &&
     newPassword.length >= 8 &&
     newPassword === confirmPassword;
+
+  // ===== Two-factor auth (TOTP) setup =====
+  const [totpSetup, setTotpSetup] = useState<{ secret: string; qrCodeDataUrl: string } | null>(null);
+  const [totpTestCode, setTotpTestCode] = useState("");
+  const [totpVerified, setTotpVerified] = useState(false);
+  const [totpSecretCopied, setTotpSecretCopied] = useState(false);
+
+  const startTotpSetup = useMutation({
+    mutationFn: async () => (await adminApi.get("/admin/settings/totp/setup")).data,
+    onSuccess: (data) => {
+      setTotpSetup(data);
+      setTotpTestCode("");
+      setTotpVerified(false);
+    },
+    onError: (e) => showToast("error", adminErrMsg(e, "Failed to start 2FA setup")),
+  });
+
+  const verifyTotpCode = useMutation({
+    mutationFn: async () =>
+      (await adminApi.post("/admin/settings/totp/verify", {
+        secret: totpSetup?.secret,
+        code: totpTestCode,
+      })).data,
+    onSuccess: (data) => {
+      if (data.valid) {
+        setTotpVerified(true);
+        showToast("success", "Code verified — now save the secret to Render.");
+      } else {
+        showToast("error", "That code didn't match. Double-check the app and try again.");
+      }
+    },
+    onError: (e) => showToast("error", adminErrMsg(e, "Verification failed")),
+  });
+
+  const copyTotpSecret = async () => {
+    if (!totpSetup) return;
+    await navigator.clipboard.writeText(totpSetup.secret);
+    setTotpSecretCopied(true);
+    setTimeout(() => setTotpSecretCopied(false), 2000);
+  };
 
   return (
     <div className="p-6">
@@ -222,6 +263,139 @@ export default function SettingsPage() {
 
               <button
                 onClick={() => setGeneratedHash(null)}
+                className="w-full rounded-md border border-red-900/40 bg-black/30 py-2 text-[11px] text-red-100 hover:bg-red-900/20"
+              >
+                Done
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Two-factor authentication (TOTP) */}
+        <div className="rounded-lg border border-red-900/30 bg-[#150606]/60 p-5 lg:col-span-2">
+          <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-white">
+            <IconDeviceMobile size={14} /> Two-Factor Authentication
+          </h2>
+
+          <div className="mb-4 flex items-start gap-2 rounded-md border border-sky-500/40 bg-sky-500/10 p-3 text-[11px] text-sky-200">
+            <IconInfoCircle size={14} className="mt-0.5 shrink-0" />
+            <div>
+              Same philosophy as the password above: the 2FA secret is never stored in
+              the database — only in an <span className="font-mono">ADMIN_TOTP_SECRET</span>{" "}
+              environment variable on Render. Once it&apos;s set, every login will ask for a
+              6-digit code from your authenticator app (Google Authenticator, Authy, etc.)
+              in addition to your password.
+            </div>
+          </div>
+
+          {!totpSetup && (
+            <button
+              onClick={() => startTotpSetup.mutate()}
+              disabled={startTotpSetup.isPending}
+              className="rounded-md bg-red-600 px-4 py-2 text-[12px] font-medium text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {startTotpSetup.isPending ? "Generating..." : "Set Up 2FA"}
+            </button>
+          )}
+
+          {totpSetup && !totpVerified && (
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <p className="mb-2 text-[11px] text-red-100/80">
+                  1. Scan this QR code with Google Authenticator, Authy, or Microsoft
+                  Authenticator:
+                </p>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={totpSetup.qrCodeDataUrl}
+                  alt="2FA QR code"
+                  className="mb-3 h-40 w-40 rounded-md border border-red-900/40 bg-white p-1"
+                />
+                <p className="mb-1 text-[10px] uppercase tracking-wider text-red-200/50">
+                  Can&apos;t scan? Enter this manually:
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={totpSetup.secret}
+                    readOnly
+                    className="flex-1 rounded-md border border-red-900/40 bg-black/30 px-3 py-2 font-mono text-[10px] text-white"
+                    dir="ltr"
+                  />
+                  <button
+                    onClick={copyTotpSecret}
+                    className="flex items-center gap-1 rounded-md border border-red-800/50 bg-red-900/20 px-3 py-2 text-[11px] text-red-100 hover:bg-red-900/40"
+                  >
+                    {totpSecretCopied ? <IconCheck size={13} /> : <IconCopy size={13} />}
+                    {totpSecretCopied ? "Copied" : "Copy"}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-2 text-[11px] text-red-100/80">
+                  2. Enter the 6-digit code your app is showing right now, to confirm the
+                  scan worked before you save anything:
+                </p>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={totpTestCode}
+                  onChange={(e) => setTotpTestCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="000000"
+                  className="mb-3 w-full rounded-md border border-red-900/40 bg-black/30 px-3 py-2 text-center text-lg tracking-[0.4em] text-white focus:border-red-500 focus:outline-none"
+                  dir="ltr"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => verifyTotpCode.mutate()}
+                    disabled={totpTestCode.length !== 6 || verifyTotpCode.isPending}
+                    className="flex-1 rounded-md bg-red-600 py-2 text-[12px] font-medium text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {verifyTotpCode.isPending ? "Checking..." : "Verify Code"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setTotpSetup(null);
+                      setTotpTestCode("");
+                    }}
+                    className="rounded-md border border-red-900/40 bg-black/30 px-3 py-2 text-[11px] text-red-100 hover:bg-red-900/20"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {totpSetup && totpVerified && (
+            <div>
+              <div className="mb-3 flex items-start gap-2 rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-[11px] text-emerald-200">
+                <IconCheck size={14} className="mt-0.5 shrink-0" />
+                <span>Code verified! Now finish setup on Render.</span>
+              </div>
+
+              <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-[11px] text-amber-200">
+                <IconAlertTriangle size={14} className="mt-0.5 shrink-0" />
+                <div>
+                  <div className="mb-1 font-medium">To turn on 2FA for good:</div>
+                  <ol className="list-inside list-decimal space-y-0.5">
+                    <li>Open your Render dashboard → clinicos-api → Environment</li>
+                    <li>Add a new variable: ADMIN_TOTP_SECRET</li>
+                    <li>Paste the secret value shown above as-is</li>
+                    <li>Save changes (Render will redeploy automatically)</li>
+                    <li>From your next login, you&apos;ll be asked for a code</li>
+                  </ol>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  setTotpSetup(null);
+                  setTotpVerified(false);
+                  setTotpTestCode("");
+                }}
                 className="w-full rounded-md border border-red-900/40 bg-black/30 py-2 text-[11px] text-red-100 hover:bg-red-900/20"
               >
                 Done

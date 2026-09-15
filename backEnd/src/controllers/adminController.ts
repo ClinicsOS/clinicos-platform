@@ -10,9 +10,16 @@ import { Appointment } from "../models/Appointment";
 import { Invoice } from "../models/Invoice";
 import { SubscriptionRequest } from "../models/SubscriptionRequest";
 import { ActivityLog } from "../models/ActivityLog";
+import { ClinicNote } from "../models/ClinicNote";
 import { asyncHandler } from "../middleware/errorHandler";
 import { PLANS, PLAN_PRICES, type Plan } from "../config/plans";
 import { logActivity } from "../services/activityLogger";
+import {
+  generateTotpSecret,
+  buildTotpUri,
+  generateQrCodeDataUrl,
+  verifyTotpToken,
+} from "../services/totp";
 
 /* ============================================================
  * DASHBOARD — high-level stats and charts
@@ -347,6 +354,7 @@ export const getClinicDetails = asyncHandler(
       appointmentCount,
       invoices,
       subscriptionHistory,
+      notes,
     ] = await Promise.all([
       User.find({ clinicId: id })
         .select("-password -verifyTokenHash -resetTokenHash")
@@ -358,6 +366,7 @@ export const getClinicDetails = asyncHandler(
         .sort("-createdAt")
         .limit(20)
         .lean(),
+      ClinicNote.find({ clinicId: id }).sort("-createdAt").limit(50).lean(),
     ]);
 
     const invoiceTotal = invoices.reduce(
@@ -386,6 +395,7 @@ export const getClinicDetails = asyncHandler(
       },
       recentInvoices: invoices,
       subscriptionHistory,
+      notes,
     });
   },
 );
@@ -1204,3 +1214,90 @@ export const changeAdminPassword = asyncHandler(
     });
   },
 );
+
+/* ============================================================
+ * CLINIC NOTES — internal admin notes / lightweight CRM log
+ * ============================================================ */
+
+const addNoteSchema = z.object({
+  text: z.string().min(1).max(5000),
+});
+
+/**
+ * POST /api/admin/clinics/:id/notes
+ * Appends a timestamped internal note to a clinic — used to track sales
+ * outreach, follow-ups, and anything else worth remembering between visits
+ * to this clinic's page. Notes are never shown to the clinic itself.
+ */
+export const addClinicNote = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { id } = req.params;
+    if (!Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid clinic id" });
+    }
+    const parsed = addNoteSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: "Invalid input" });
+    }
+
+    const clinic = await Clinic.findById(id);
+    if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+
+    const note = await ClinicNote.create({
+      clinicId: clinic._id,
+      authorEmail: req.admin?.email || "unknown",
+      text: parsed.data.text,
+    });
+
+    await logActivity({
+      action: "clinic.note_added",
+      actorEmail: req.admin?.email || "unknown",
+      targetType: "clinic",
+      targetId: clinic._id as Types.ObjectId,
+      targetLabel: clinic.name,
+    });
+
+    return res.status(201).json({ note });
+  },
+);
+
+/* ============================================================
+ * TWO-FACTOR AUTH (TOTP) — one-time setup for the admin login
+ * ============================================================ */
+
+/**
+ * GET /api/admin/settings/totp/setup
+ * Generates a brand-new TOTP secret + QR code for the admin to scan into
+ * Google Authenticator / Authy / Microsoft Authenticator. The secret is NOT
+ * persisted anywhere on the server — same philosophy as the password hash
+ * flow above: the admin copies it into ADMIN_TOTP_SECRET on Render
+ * themselves. Calling this endpoint again always produces a fresh, unrelated
+ * secret, so refreshing the page before saving is always safe.
+ */
+export const setupTotp = asyncHandler(async (req: Request, res: Response) => {
+  const secret = generateTotpSecret();
+  const uri = buildTotpUri(secret, req.admin?.email || "admin");
+  const qrCodeDataUrl = await generateQrCodeDataUrl(uri);
+  return res.json({ secret, qrCodeDataUrl });
+});
+
+const verifyTotpSetupSchema = z.object({
+  secret: z.string().min(1),
+  code: z.string().min(6).max(6),
+});
+
+/**
+ * POST /api/admin/settings/totp/verify
+ * Confirms the admin's authenticator app produces a matching code for the
+ * secret returned by /setup, BEFORE they go paste it into Render as
+ * ADMIN_TOTP_SECRET. Doesn't persist anything either way — purely a
+ * "did the QR scan actually work?" sanity check.
+ */
+export const verifyTotpSetup = asyncHandler(async (req: Request, res: Response) => {
+  const parsed = verifyTotpSetupSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ message: "Invalid input" });
+  }
+  const valid = await verifyTotpToken(parsed.data.secret, parsed.data.code);
+  return res.json({ valid });
+});

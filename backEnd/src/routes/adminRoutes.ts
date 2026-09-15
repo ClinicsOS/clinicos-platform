@@ -1,6 +1,6 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
-import { adminLogin, adminMe } from "../controllers/adminAuthController";
+import { adminLogin, adminMe, adminVerifyTotp } from "../controllers/adminAuthController";
 import { requireAdmin } from "../middleware/adminAuth";
 import {
   getDashboardStats,
@@ -15,6 +15,7 @@ import {
   deleteClinic,
   exportClinic,
   impersonateClinic,
+  addClinicNote,
   listUpgradeRequests,
   approveUpgradeRequest,
   rejectUpgradeRequest,
@@ -25,6 +26,8 @@ import {
   getActivityLog,
   sendEmailToClinic,
   changeAdminPassword,
+  setupTotp,
+  verifyTotpSetup,
 } from "../controllers/adminController";
 
 const router = Router();
@@ -41,6 +44,10 @@ const loginLimiter = rateLimit({
 
 // Public admin login (no auth required to reach it, but it does its own auth)
 router.post("/auth/login", loginLimiter, adminLogin);
+// Second step of login when 2FA is configured — also public (the caller
+// doesn't have a full admin token yet), but protected by the same limiter
+// plus the short-lived pendingToken + 6-digit code.
+router.post("/auth/verify-totp", loginLimiter, adminVerifyTotp);
 
 // Everything below requires a valid admin JWT
 router.use(requireAdmin);
@@ -48,6 +55,8 @@ router.use(requireAdmin);
 // Session
 router.get("/auth/me", adminMe);
 router.post("/settings/change-password", changeAdminPassword);
+router.get("/settings/totp/setup", setupTotp);
+router.post("/settings/totp/verify", verifyTotpSetup);
 
 // Dashboard
 router.get("/stats", getDashboardStats);
@@ -64,6 +73,7 @@ router.patch("/clinics/:id/status", changeClinicStatus);
 router.delete("/clinics/:id", deleteClinic);
 router.get("/clinics/:id/export", exportClinic);
 router.post("/clinics/:id/impersonate", impersonateClinic);
+router.post("/clinics/:id/notes", addClinicNote);
 
 // Upgrade requests
 router.get("/upgrade-requests", listUpgradeRequests);
