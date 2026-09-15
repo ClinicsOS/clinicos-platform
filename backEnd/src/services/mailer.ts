@@ -18,11 +18,20 @@ const apiKey = process.env.RESEND_API_KEY || "";
 const mailFromEmail = process.env.MAIL_FROM_EMAIL || "no-reply@clinicosjo.com";
 const mailFromName = process.env.MAIL_FROM_NAME || "ClinicOS";
 const appUrl = process.env.APP_URL || "http://localhost:3000";
+// Where replies to our outgoing emails should land, since MAIL_FROM_EMAIL
+// (no-reply@clinicosjo.com) is not a real inbox — no MX record exists for it.
+// Intentionally NOT hardcoded with a fallback: this repo is public, so the
+// only place this address should live is the Render dashboard (Environment
+// tab), not in source code anyone can read or change via a PR.
+const mailReplyTo = process.env.MAIL_REPLY_TO || "";
 
 if (apiKey) {
   console.log(`[MAILER] Resend API ready — sending as ${mailFromName} <${mailFromEmail}>`);
 } else {
   console.log("[MAILER] No RESEND_API_KEY set — running in dev/console mode");
+}
+if (!mailReplyTo) {
+  console.warn("[MAILER] ⚠ MAIL_REPLY_TO is not set — replies to outgoing emails will bounce. Set it in Render → Environment.");
 }
 
 interface SendArgs {
@@ -55,6 +64,7 @@ async function send({ to, subject, html }: SendArgs): Promise<void> {
         to: [to],
         subject,
         html,
+        ...(mailReplyTo ? { reply_to: mailReplyTo } : {}),
       }),
     });
     if (!res.ok) {

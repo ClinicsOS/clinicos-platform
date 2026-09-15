@@ -8,6 +8,15 @@
 const apiKey = process.env.RESEND_API_KEY || "";
 const mailFromEmail = process.env.MAIL_FROM_EMAIL || "no-reply@clinicosjo.com";
 const mailFromName = process.env.MAIL_FROM_NAME || "ClinicOS";
+// Where replies to our outgoing emails should land, since MAIL_FROM_EMAIL
+// (no-reply@clinicosjo.com) is not a real inbox — no MX record exists for it.
+// Intentionally NOT hardcoded with a fallback: this repo is public, so the
+// only place this address should live is the Render dashboard (Environment
+// tab), not in source code anyone can read or change via a PR.
+const mailReplyTo = process.env.MAIL_REPLY_TO || "";
+if (!mailReplyTo) {
+  console.warn("[ADMIN MAILER] ⚠ MAIL_REPLY_TO is not set — replies to outgoing emails will bounce. Set it in Render → Environment.");
+}
 
 const wrap = (title: string, bodyText: string) => {
   // Convert plain-text line breaks into <p> tags without breaking on empty lines
@@ -76,6 +85,7 @@ export async function sendAdminCustomEmail(
         to: [to],
         subject,
         html,
+        ...(mailReplyTo ? { reply_to: mailReplyTo } : {}),
       }),
     });
     if (!res.ok) {
