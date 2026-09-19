@@ -6,7 +6,11 @@ import { Clinic } from "../models/Clinic";
 import { User, generateToken, hashToken } from "../models/User";
 import { asyncHandler } from "../middleware/errorHandler";
 import { PLANS } from "../config/plans";
-import { sendVerificationEmail, sendPasswordResetEmail } from "../services/mailer";
+import {
+  sendVerificationEmail,
+  sendPasswordResetEmail,
+  sendNewClinicRegistrationNotification,
+} from "../services/mailer";
 
 const registerSchema = z.object({
   clinicName: z.string().min(2).max(100),
@@ -118,6 +122,20 @@ export const registerClinic = asyncHandler(async (req: Request, res: Response) =
     // Fire-and-forget: don't block the sign-up response on the email delivery
     sendVerificationEmail(data.email, data.ownerName, verifyPlain).catch((err) =>
       console.error("[registerClinic] failed to send verification email:", err)
+    );
+
+    // Fire-and-forget: let the platform admin know a new clinic just signed up
+    sendNewClinicRegistrationNotification({
+      clinicId,
+      clinicName: data.clinicName,
+      specialty: data.specialty,
+      ownerName: data.ownerName,
+      ownerEmail: data.email,
+      phone: data.phone,
+      slug,
+      trialExpiresAt: planExp,
+    }).catch((err) =>
+      console.error("[registerClinic] failed to send admin notification:", err)
     );
 
     return res.status(201).json({

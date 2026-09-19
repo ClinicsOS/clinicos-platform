@@ -24,6 +24,14 @@ const appUrl = process.env.APP_URL || "http://localhost:3000";
 // only place this address should live is the Render dashboard (Environment
 // tab), not in source code anyone can read or change via a PR.
 const mailReplyTo = process.env.MAIL_REPLY_TO || "";
+// Where platform-admin notifications (new clinic sign-up, new subscription
+// request) are delivered. Intentionally NOT hardcoded with a fallback: this
+// repo is public, so the address lives only in the Render dashboard
+// (Environment tab → ADMIN_NOTIFY_EMAIL).
+const adminNotifyEmail = process.env.ADMIN_NOTIFY_EMAIL || "";
+if (!adminNotifyEmail) {
+  console.warn("[MAILER] ⚠ ADMIN_NOTIFY_EMAIL is not set — admin notifications will NOT be sent. Set it in Render → Environment.");
+}
 
 if (apiKey) {
   console.log(`[MAILER] Resend API ready — sending as ${mailFromName} <${mailFromEmail}>`);
@@ -79,6 +87,16 @@ async function send({ to, subject, html }: SendArgs): Promise<void> {
 }
 
 /** ================ Email templates ================ */
+
+// User-supplied values (clinic name, owner name...) end up inside HTML emails,
+// so escape them to avoid HTML injection in the admin's inbox.
+const esc = (v: unknown): string =>
+  String(v ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 
 const wrap = (title: string, body: string, cta?: { url: string; label: string }) => `
 <!doctype html>
@@ -187,9 +205,10 @@ export async function sendNewSubscriptionRequestNotification(opts: {
   billingPhone: string;
   paymentMethod: string;
 }) {
+  if (!adminNotifyEmail) return;
   const adminUrl = `${appUrl}/admin/upgrade-requests`;
   await send({
-    to: "clinicos.system@gmail.com",
+    to: adminNotifyEmail,
     subject: `طلب اشتراك جديد — ${opts.clinicName}`,
     html: wrap(
       `طلب اشتراك جديد بانتظار الموافقة`,
@@ -199,6 +218,42 @@ export async function sendNewSubscriptionRequestNotification(opts: {
        <b>الهاتف:</b> ${opts.billingPhone}<br/>
        <b>طريقة الدفع:</b> ${opts.paymentMethod}</p>`,
       { url: adminUrl, label: "افتح صفحة الطلبات" }
+    ),
+  });
+}
+
+/**
+ * Notifies the platform admin whenever a new clinic registers on ClinicOS.
+ */
+export async function sendNewClinicRegistrationNotification(opts: {
+  clinicId: string;
+  clinicName: string;
+  specialty: string;
+  ownerName: string;
+  ownerEmail: string;
+  phone?: string;
+  slug: string;
+  trialExpiresAt: Date;
+}) {
+  if (!adminNotifyEmail) return;
+  const adminUrl = `${appUrl}/admin/clinics/${opts.clinicId}`;
+  const trialEnds = opts.trialExpiresAt.toLocaleString("en-GB", {
+    timeZone: "Asia/Amman",
+    dateStyle: "medium",
+  });
+  await send({
+    to: adminNotifyEmail,
+    subject: `عيادة جديدة سجّلت — ${opts.clinicName}`,
+    html: wrap(
+      `عيادة جديدة سجّلت على ClinicOS 🎉`,
+      `<p><b>العيادة:</b> ${esc(opts.clinicName)}<br/>
+       <b>التخصص:</b> ${esc(opts.specialty)}<br/>
+       <b>المالك:</b> ${esc(opts.ownerName)}<br/>
+       <b>الإيميل:</b> ${esc(opts.ownerEmail)}<br/>
+       <b>الهاتف:</b> ${esc(opts.phone || "—")}<br/>
+       <b>الرابط (slug):</b> ${esc(opts.slug)}<br/>
+       <b>الخطة:</b> trial — تنتهي ${esc(trialEnds)}</p>`,
+      { url: adminUrl, label: "افتح العيادة في لوحة الأدمن" }
     ),
   });
 }
