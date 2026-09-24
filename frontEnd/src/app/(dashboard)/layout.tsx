@@ -23,6 +23,7 @@ import {
   IconAlertTriangle,
   IconArrowRight,
   IconChartBar,
+  IconWallet,
 } from "@tabler/icons-react";
 
 const planLabel = (plan: string | undefined, t: (k: string) => string) => {
@@ -70,6 +71,18 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     refetchInterval: 5_000,
   });
 
+  // NEW — owner-only: how many bills are overdue / due soon (sidebar dot)
+  const isOwner = user?.role === "owner";
+  const { data: expenseAlerts } = useQuery({
+    queryKey: ["expense-alerts"],
+    queryFn: async () =>
+      (await api.get<{ overdue: number; dueSoon: number; count: number }>("/expenses/alerts")).data,
+    enabled: hydrated && !!token && isOwner && clinic?.status === "active",
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+    retry: false,
+  });
+
   const pendingCount = (allAppts ?? []).filter(
     (a) =>
       a.source === "public" &&
@@ -90,6 +103,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     { href: "/appointments", label: t("nav.appointments"), icon: IconCalendar },
     { href: "/patients", label: t("nav.patients"), icon: IconUsers },
     { href: "/invoices", label: t("nav.invoices"), icon: IconReceipt },
+    ...(isOwner ? [{ href: "/expenses", label: t("nav.expenses"), icon: IconWallet }] : []),
     ...(clinic?.planInfo?.limits.reports
       ? [{ href: "/reports", label: t("nav.reports"), icon: IconChartBar }]
       : []),
@@ -153,7 +167,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
         {nav.map((n) => {
           const active = pathname.startsWith(n.href);
-          const showDot = n.href === "/appointments" && pendingCount > 0;
+          const showDot =
+            (n.href === "/appointments" && pendingCount > 0) ||
+            (n.href === "/expenses" && (expenseAlerts?.count ?? 0) > 0);
+          const dotRed = n.href === "/expenses" && (expenseAlerts?.overdue ?? 0) > 0;
           return (
             <Link
               key={n.href}
@@ -167,8 +184,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               <n.icon size={16} /> {n.label}
               {showDot && (
                 <span className="ms-auto flex h-2 w-2">
-                  <span className="absolute inline-flex h-2 w-2 animate-ping rounded-full bg-amber-400 opacity-75" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-500" />
+                  <span className={`absolute inline-flex h-2 w-2 animate-ping rounded-full opacity-75 ${dotRed ? "bg-red-400" : "bg-amber-400"}`} />
+                  <span className={`relative inline-flex h-2 w-2 rounded-full ${dotRed ? "bg-red-500" : "bg-amber-500"}`} />
                 </span>
               )}
             </Link>

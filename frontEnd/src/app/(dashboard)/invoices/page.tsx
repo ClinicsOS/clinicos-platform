@@ -1,11 +1,13 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, errMsg } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { useToast } from "@/components/Toast";
 import DepthIcon from "@/components/DepthIcon";
 import Modal from "@/components/Modal";
+import { useSelectedPatient } from "@/store/patient";
 import { paidOf, type Invoice, type Patient } from "@/lib/types";
 import {
   IconCoin,
@@ -15,6 +17,10 @@ import {
   IconTrash,
   IconCreditCard,
   IconPencil,
+  IconSearch,
+  IconX,
+  IconTrophy,
+  IconFolderOpen,
 } from "@tabler/icons-react";
 
 const statusPill: Record<string, string> = {
@@ -33,6 +39,8 @@ export default function InvoicesPage() {
   const { t } = useI18n();
   const qc = useQueryClient();
   const toast = useToast();
+  const router = useRouter();
+  const selectPatient = useSelectedPatient((s) => s.select);
   const [creating, setCreating] = useState(false);
   const [paying, setPaying] = useState<Invoice | null>(null);
   const [editing, setEditing] = useState<Invoice | null>(null);
@@ -54,12 +62,36 @@ export default function InvoicesPage() {
   const [method, setMethod] = useState("cash");
 
   // --- list filters ---
-  const [period, setPeriod] = useState<"day" | "week" | "month">("month");
+  const [period, setPeriod] = useState<"day" | "week" | "month" | "all">("month");
   const [statusFilter, setStatusFilter] = useState<"all" | "paid" | "partially_paid" | "unpaid">("all");
 
-  // Compute the [from, to) date range for the selected period
+  // --- NEW: search + sort ---
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<"newest" | "total" | "balance">("newest");
+
+  // Debounced (350ms) — same feel as the patients search.
+  useEffect(() => {
+    const id = window.setTimeout(() => setSearch(searchInput.trim()), 350);
+    return () => window.clearTimeout(id);
+  }, [searchInput]);
+
+  const onSearchChange = (value: string) => {
+    // Looking for a person's invoice almost always means "any date" —
+    // widen the period once, when a new search starts.
+    if (!searchInput.trim() && value.trim() && period !== "all") setPeriod("all");
+    setSearchInput(value);
+  };
+
+  const clearSearch = () => {
+    setSearchInput("");
+    setSearch("");
+  };
+
+  // Compute the [from, to) date range for the selected period (null = all time)
   const dateRange = useMemo(() => {
     const now = new Date();
+    if (period === "all") return null;
     if (period === "day") {
       const from = new Date(now);
       from.setHours(0, 0, 0, 0);
@@ -81,16 +113,55 @@ export default function InvoicesPage() {
     return { from, to };
   }, [period]);
 
-  const { data: invoices } = useQuery({
-    queryKey: ["invoices", period, statusFilter],
+  const { data: rawInvoices, isFetching } = useQuery({
+    queryKey: ["invoices", period, statusFilter, search, sort === "total" ? "total" : "newest"],
     queryFn: async () => {
       const params = new URLSearchParams();
-      params.set("from", dateRange.from.toISOString());
-      params.set("to", dateRange.to.toISOString());
+      if (dateRange) {
+        params.set("from", dateRange.from.toISOString());
+        params.set("to", dateRange.to.toISOString());
+      }
       if (statusFilter !== "all") params.set("status", statusFilter);
+      if (search) params.set("search", search);
+      if (sort === "total") params.set("sort", "total");
       return (await api.get<Invoice[]>(`/invoices?${params.toString()}`)).data;
     },
+    placeholderData: (prev) => prev,
   });
+
+  // "Biggest balance" is sorted here — it depends on payments, not a stored field.
+  const invoices = useMemo(() => {
+    if (!rawInvoices) return rawInvoices;
+    if (sort !== "balance") return rawInvoices;
+    return [...rawInvoices].sort((a, b) => b.total - paidOf(b) - (a.total - paidOf(a)));
+  }, [rawInvoices, sort]);
+
+  // When a search lands on exactly one patient, show their totals up top.
+  const searchPatient = useMemo(() => {
+    if (!search || !invoices?.length) return null;
+    const first = invoices[0].patientId;
+    if (!first?._id || !invoices.every((i) => i.patientId?._id === first._id)) return null;
+    const billed = invoices.reduce((s, i) => s + i.total, 0);
+    const paid = invoices.reduce((s, i) => s + paidOf(i), 0);
+    return { patient: first, count: invoices.length, billed, paid, balance: Math.max(0, billed - paid) };
+  }, [search, invoices]);
+
+  // Crown the biggest invoice in the search results.
+  const largestId = useMemo(() => {
+    if (!search || !invoices || invoices.length < 2) return null;
+    return invoices.reduce((m, i) => (i.total > m.total ? i : m), invoices[0])._id;
+  }, [search, invoices]);
+
+  // Invoice rows only carry name/phone/file number — load the full file first.
+  const openPatientFile = async (p: Patient) => {
+    try {
+      const full = (await api.get<Patient>(`/patients/${p._id}`)).data;
+      selectPatient(full);
+      router.push("/patients/profile");
+    } catch (e) {
+      toast.error(t("common.error"), errMsg(e, t("common.error")));
+    }
+  };
 
   const { data: patientResults } = useQuery({
     queryKey: ["patients", patientSearch, 1],
@@ -249,10 +320,67 @@ export default function InvoicesPage() {
         ))}
       </div>
 
-      {/* Filters: period + payment status */}
+      {/* ===== NEW — Search ===== */}
+      <div className="relative mb-2">
+        <IconSearch size={15} className="absolute start-3 top-1/2 -translate-y-1/2 text-mute" />
+        <input
+          className="inp !bg-card pe-9 ps-9"
+          placeholder={t("inv.searchPh")}
+          value={searchInput}
+          onChange={(e) => onSearchChange(e.target.value)}
+          aria-label={t("inv.searchPh")}
+        />
+        {searchInput && (
+          <button
+            onClick={clearSearch}
+            className="absolute end-2.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-mute hover:text-ink"
+            aria-label={t("inv.clearSearch")}
+          >
+            <IconX size={14} />
+          </button>
+        )}
+        {isFetching && searchInput && (
+          <span className="absolute bottom-0 start-3 end-3 h-px overflow-hidden">
+            <span className="block h-full w-1/3 animate-pulse bg-sky" />
+          </span>
+        )}
+      </div>
+
+      {/* ===== NEW — one-patient summary when the search finds a single person ===== */}
+      {searchPatient && (
+        <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-sky/40 bg-hero px-4 py-3">
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium text-[#F2F7FC]">{searchPatient.patient.fullName}</div>
+            <div className="font-mono text-[10px] text-[#8FB3CC]" dir="ltr">
+              #{String(searchPatient.patient.fileNumber ?? 0).padStart(4, "0")} · {searchPatient.patient.phone}
+            </div>
+          </div>
+          {[
+            [t("inv.ps.invoices"), String(searchPatient.count)],
+            [t("inv.ps.billed"), `${searchPatient.billed} JD`],
+            [t("inv.ps.paid"), `${searchPatient.paid} JD`],
+            [t("inv.ps.balance"), `${searchPatient.balance} JD`],
+          ].map(([l, v], i) => (
+            <div key={l}>
+              <div className="text-[9px] text-[#7FA3BE]">{l}</div>
+              <div className={`text-sm font-medium ${i === 3 && searchPatient.balance > 0 ? "text-amber-300" : "text-[#F2F7FC]"}`} dir="ltr">
+                {v}
+              </div>
+            </div>
+          ))}
+          <button
+            onClick={() => openPatientFile(searchPatient.patient)}
+            className="btn-ghost ms-auto !bg-sky/10 !border-[#8FB3CC]/50 !px-3 !py-1.5 text-[11px] !text-[#DCEBF7]"
+          >
+            <IconFolderOpen size={13} /> {t("inv.ps.open")}
+          </button>
+        </div>
+      )}
+
+      {/* Filters: period + payment status + sort */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="flex gap-1 rounded-lg border border-edge bg-card2 p-1">
-          {(["day", "week", "month"] as const).map((p) => (
+          {(["day", "week", "month", "all"] as const).map((p) => (
             <button
               key={p}
               onClick={() => setPeriod(p)}
@@ -260,7 +388,13 @@ export default function InvoicesPage() {
                 period === p ? "bg-teal text-navy" : "text-mute hover:text-ink"
               }`}
             >
-              {p === "day" ? t("inv.periodDay") : p === "week" ? t("inv.periodWeek") : t("inv.periodMonth")}
+              {p === "day"
+                ? t("inv.periodDay")
+                : p === "week"
+                ? t("inv.periodWeek")
+                : p === "month"
+                ? t("inv.periodMonth")
+                : t("inv.periodAll")}
             </button>
           ))}
         </div>
@@ -275,6 +409,23 @@ export default function InvoicesPage() {
           <option value="partially_paid">{t("inv.partial")}</option>
           <option value="unpaid">{t("inv.unpaid")}</option>
         </select>
+
+        <select
+          className="inp !w-auto !py-1.5 text-[11px]"
+          value={sort}
+          onChange={(e) => setSort(e.target.value as typeof sort)}
+          aria-label={t("inv.sortNewest")}
+        >
+          <option value="newest">{t("inv.sortNewest")}</option>
+          <option value="total">{t("inv.sortTotal")}</option>
+          <option value="balance">{t("inv.sortBalance")}</option>
+        </select>
+
+        {search && invoices && (
+          <span className="ms-auto text-[10px] text-mute">
+            {invoices.length} {t("inv.results")}
+          </span>
+        )}
       </div>
 
       {/* Table */}
@@ -284,9 +435,28 @@ export default function InvoicesPage() {
           <span className="flex-[1.2]">{t("pt.patient")}</span>
           <span className="flex-1">{t("inv.paidTotal")}</span>
           <span className="w-20">{t("inv.status")}</span>
-          <span className="w-32 text-end">{t("pt.actions")}</span>
+          <span className="w-44 text-end">{t("pt.actions")}</span>
         </div>
-        {invoices && invoices.length === 0 && (
+        {invoices && invoices.length === 0 && search && (
+          <div className="py-14 text-center">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-soft text-blue">
+              <IconSearch size={24} />
+            </div>
+            <p className="text-sm font-medium text-ink">{t("inv.noMatch").replace("{q}", search)}</p>
+            <p className="mx-auto mt-1.5 max-w-xs text-[11px] leading-relaxed text-mute">{t("inv.noMatchSub")}</p>
+            <div className="mt-4 flex justify-center gap-2">
+              {period !== "all" && (
+                <button onClick={() => setPeriod("all")} className="btn-teal !px-3 !py-1.5 text-[11px]">
+                  {t("inv.searchAllTime")}
+                </button>
+              )}
+              <button onClick={clearSearch} className="btn-ghost !px-3 !py-1.5 text-[11px]">
+                {t("inv.clearSearch")}
+              </button>
+            </div>
+          </div>
+        )}
+        {invoices && invoices.length === 0 && !search && (
           <div className="py-16 text-center">
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-soft text-blue">
               <IconReceipt size={24} />
@@ -305,8 +475,22 @@ export default function InvoicesPage() {
               <span className="w-24 font-mono text-[10px] text-blue">
                 INV-{String(inv.invoiceNumber).padStart(4, "0")}
               </span>
-              <span className="flex-[1.2] truncate text-[11px] font-medium text-ink">
-                {inv.patientId?.fullName}
+              <span className="min-w-0 flex-[1.2] pe-2">
+                <span className="flex items-center gap-1.5">
+                  <span className="truncate text-[11px] font-medium text-ink">
+                    <Highlight text={inv.patientId?.fullName ?? ""} query={search} />
+                  </span>
+                  {inv._id === largestId && (
+                    <span className="pill shrink-0 items-center gap-0.5 !px-1.5 !py-0 !text-[9px] bg-amber-500/15 text-amber-400">
+                      <IconTrophy size={9} /> {t("inv.largest")}
+                    </span>
+                  )}
+                </span>
+                {search && inv.patientId?.phone && (
+                  <span className="block truncate font-mono text-[9px] text-mute" dir="ltr">
+                    {inv.patientId.phone}
+                  </span>
+                )}
               </span>
               <span className="flex-1 pe-3">
                 <span className="font-mono text-[10px] text-ink">
@@ -321,7 +505,7 @@ export default function InvoicesPage() {
                   {inv.status === "paid" ? t("inv.paid") : inv.status === "partially_paid" ? t("inv.partial") : t("inv.unpaid")}
                 </span>
               </span>
-              <span className="flex w-32 justify-end gap-1.5">
+              <span className="flex w-44 shrink-0 justify-end gap-1.5">
                 <button
                   onClick={() => {
                     setEditing(inv);
@@ -335,7 +519,7 @@ export default function InvoicesPage() {
                     setEditDiscount(String(inv.discount));
                     setEditError("");
                   }}
-                  className="btn-ghost !px-2.5 !py-1 text-[10px]"
+                  className="btn-ghost whitespace-nowrap !px-2.5 !py-1 text-[10px]"
                 >
                   <IconPencil size={12} /> {t("inv.edit")}
                 </button>
@@ -346,7 +530,7 @@ export default function InvoicesPage() {
                       setAmount("");
                       setError("");
                     }}
-                    className="btn-ghost !px-2.5 !py-1 text-[10px]"
+                    className="btn-ghost whitespace-nowrap !px-2.5 !py-1 text-[10px]"
                   >
                     <IconCreditCard size={12} /> {t("inv.addPayment")}
                   </button>
@@ -574,5 +758,19 @@ export default function InvoicesPage() {
         </Modal>
       )}
     </div>
+  );
+}
+
+/** Marks the part of a name that matches the search, so the eye lands on it. */
+function Highlight({ text, query }: { text: string; query: string }) {
+  if (!query) return <>{text}</>;
+  const i = text.toLowerCase().indexOf(query.toLowerCase());
+  if (i < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, i)}
+      <mark className="rounded bg-sky/25 px-0.5 text-ink">{text.slice(i, i + query.length)}</mark>
+      {text.slice(i + query.length)}
+    </>
   );
 }

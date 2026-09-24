@@ -1,12 +1,13 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, errMsg } from "@/lib/api";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
-import { useToast } from "@/components/Toast";
 import { useSelectedPatient } from "@/store/patient";
 import Modal from "@/components/Modal";
+import PatientForm from "@/components/patients/PatientForm";
+import { activeFlags, severityPill } from "@/lib/medical";
 import type { Patient } from "@/lib/types";
 import { IconSearch, IconUserPlus, IconEye } from "@tabler/icons-react";
 
@@ -89,10 +90,12 @@ export default function PatientsPage() {
               </span>
               <span className="min-w-0">
                 <span className="block truncate text-xs font-medium text-ink">{p.fullName}</span>
-                {p.medicalNotes && <span className="text-[9px] text-amber-500">⚠ {p.medicalNotes.slice(0, 40)}</span>}
+                <MedicalBadges p={p} />
               </span>
             </span>
-            <span className="flex-1 font-mono text-[11px] text-mute" dir="ltr">{p.phone}</span>
+            <span className="flex-1 pe-3 font-mono text-[11px] text-mute">
+              <span dir="ltr">{p.phone}</span>
+            </span>
             <span className="hidden flex-1 text-[10px] text-mute sm:block">
               {new Date(p.createdAt).toLocaleDateString()}
             </span>
@@ -112,70 +115,44 @@ export default function PatientsPage() {
       </div>
 
       {adding && (
-        <AddPatientModal
-          onClose={() => setAdding(false)}
-          onDone={() => { setAdding(false); qc.invalidateQueries({ queryKey: ["patients"] }); }}
-        />
+        <Modal title={t("pt.add")} size="lg" onClose={() => setAdding(false)}>
+          <PatientForm
+            mode="create"
+            onSaved={(p) => {
+              setAdding(false);
+              qc.invalidateQueries({ queryKey: ["patients"] });
+              // Jump straight into the new file so the doctor can see it.
+              open(p);
+            }}
+          />
+        </Modal>
       )}
     </div>
   );
 }
 
-function AddPatientModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+/**
+ * Up to two of the most important "yes" answers from the medical history,
+ * so the receptionist sees an allergy or a pregnancy right in the list.
+ * Falls back to the old free-text note for patients without a checklist.
+ */
+function MedicalBadges({ p }: { p: Patient }) {
   const { t } = useI18n();
-  const toast = useToast();
-  const [form, setForm] = useState({ fullName: "", phone: "", gender: "", birthDate: "", medicalNotes: "" });
-  const [error, setError] = useState("");
-
-  const create = useMutation({
-    mutationFn: async () => {
-      const body: Record<string, string> = { fullName: form.fullName, phone: form.phone };
-      if (form.gender) body.gender = form.gender;
-      if (form.birthDate) body.birthDate = form.birthDate;
-      if (form.medicalNotes) body.medicalNotes = form.medicalNotes;
-      await api.post("/patients", body);
-    },
-    onSuccess: () => {
-      toast.success(t("tst.savedTitle"), t("tst.savedBody"));
-      onDone();
-    },
-    onError: (e) => {
-      const msg = errMsg(e, t("common.error"));
-      setError(msg);
-      toast.error(t("common.error"), msg);
-    },
-  });
-
-  return (
-    <Modal title={t("pt.add")} onClose={onClose}>
-      <label className="lbl">{t("pt.name")}</label>
-      <input className="inp mb-3" value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
-      <label className="lbl">{t("pt.phone")}</label>
-      <input className="inp mb-3" dir="ltr" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="079 000 0000" />
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <label className="lbl">{t("pt.gender")}</label>
-          <select className="inp" value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })}>
-            <option value="">—</option>
-            <option value="male">{t("pt.male")}</option>
-            <option value="female">{t("pt.female")}</option>
-          </select>
-        </div>
-        <div>
-          <label className="lbl">{t("pt.birth")}</label>
-          <input type="date" className="inp" value={form.birthDate} onChange={(e) => setForm({ ...form, birthDate: e.target.value })} />
-        </div>
-      </div>
-      <label className="lbl mt-3">{t("pt.notes")}</label>
-      <textarea className="inp min-h-16" value={form.medicalNotes} onChange={(e) => setForm({ ...form, medicalNotes: e.target.value })} />
-      {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
-      <button
-        onClick={() => { setError(""); create.mutate(); }}
-        disabled={!form.fullName || !form.phone || create.isPending}
-        className="btn-teal mt-4 w-full"
-      >
-        {create.isPending ? t("common.loading") : t("pt.save")}
-      </button>
-    </Modal>
-  );
+  const flags = activeFlags(p);
+  if (flags.length) {
+    return (
+      <span className="mt-0.5 flex flex-wrap items-center gap-1">
+        {flags.slice(0, 2).map((f) => (
+          <span key={f.key} className={`pill !px-1.5 !py-0 !text-[9px] ${severityPill[f.severity]}`}>
+            {t(`med.${f.key}`)}
+          </span>
+        ))}
+        {flags.length > 2 && <span className="text-[9px] text-mute">+{flags.length - 2}</span>}
+      </span>
+    );
+  }
+  if (p.medicalNotes) {
+    return <span className="block truncate text-[9px] text-amber-500">⚠ {p.medicalNotes.slice(0, 40)}</span>;
+  }
+  return null;
 }

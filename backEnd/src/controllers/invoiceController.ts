@@ -93,6 +93,19 @@ export const updateInvoice = asyncHandler(async (req: Request, res: Response) =>
   return res.json(invoice);
 });
 
+/** Escapes user input so it can be used safely inside a RegExp. */
+const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * GET /api/invoices
+ * Query params (all optional):
+ *   status     unpaid | partially_paid | paid
+ *   patientId  only this patient's invoices
+ *   from / to  createdAt range (ISO)
+ *   search     NEW — patient name, phone number, file number, or invoice number
+ *              ("INV-0012", "#12", "12")
+ *   sort       NEW — "total" = biggest invoice first (default: newest first)
+ */
 export const listInvoices = asyncHandler(async (req: Request, res: Response) => {
   const filter: Record<string, any> = { clinicId: req.clinicId };
   if (req.query.status) filter.status = String(req.query.status);
@@ -103,8 +116,46 @@ export const listInvoices = asyncHandler(async (req: Request, res: Response) => 
     if (req.query.to) filter.createdAt.$lt = new Date(String(req.query.to));
   }
 
+  const search = String(req.query.search || "").trim().slice(0, 60);
+  if (search) {
+    const or: Record<string, unknown>[] = [];
+
+    // Invoice number: "INV-0012", "inv12", "#12", or just "12".
+    // With an explicit "INV" prefix it's an invoice number ONLY; a bare
+    // number / "#12" can also be a patient's file number.
+    const numMatch = search.match(/^(inv[-\s]?)?#?0*(\d{1,9})$/i);
+    const explicitInvoice = !!numMatch?.[1];
+    if (numMatch) or.push({ invoiceNumber: Number(numMatch[2]) });
+
+    // Patients matching by name, phone (spaces ignored) or file number.
+    // Archived patients are included on purpose — their invoices still exist.
+    if (!explicitInvoice) {
+      const patientOr: Record<string, unknown>[] = [
+        { fullName: new RegExp(escapeRegex(search), "i") },
+      ];
+      const digits = search.replace(/\D/g, "");
+      if (digits.length >= 3) patientOr.push({ phone: new RegExp(digits.split("").join("\\D*")) });
+      if (numMatch) patientOr.push({ fileNumber: Number(numMatch[2]) });
+
+      const patients = await Patient.find({ clinicId: req.clinicId, $or: patientOr })
+        .select("_id")
+        .limit(500)
+        .lean();
+      if (patients.length) or.push({ patientId: { $in: patients.map((p) => p._id) } });
+    }
+
+    // Nothing can match — skip the invoice query entirely.
+    if (!or.length) return res.json([]);
+
+    // If a patientId filter was also sent, keep it as a hard constraint.
+    filter.$or = or;
+  }
+
+  const sort: Record<string, 1 | -1> =
+    req.query.sort === "total" ? { total: -1, createdAt: -1 } : { createdAt: -1 };
+
   const invoices = await Invoice.find(filter)
-    .sort({ createdAt: -1 })
+    .sort(sort)
     .limit(300)
     .populate("patientId", "fullName phone fileNumber");
 
