@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuth } from "@/store/auth";
 import { useI18n } from "@/lib/i18n";
+import { todayLocal } from "@/lib/dates";
 import DepthIcon from "@/components/DepthIcon";
 import type { Stats, Appointment, Patient } from "@/lib/types";
 import {
@@ -13,8 +14,6 @@ import {
   IconUserX,
   IconPlus,
 } from "@tabler/icons-react";
-
-const todayStr = () => new Date().toISOString().slice(0, 10);
 
 const pillClass: Record<string, string> = {
   scheduled: "bg-blue/15 text-sky",
@@ -34,10 +33,10 @@ export default function DashboardPage() {
     refetchInterval: 60_000,
   });
 
-  const { data: today } = useQuery({
-    queryKey: ["appointments", todayStr()],
+  const { data: today, isLoading: todayLoading } = useQuery({
+    queryKey: ["appointments", todayLocal()],
     queryFn: async () =>
-      (await api.get<Appointment[]>(`/appointments?date=${todayStr()}`)).data,
+      (await api.get<Appointment[]>(`/appointments?date=${todayLocal()}`)).data,
     refetchInterval: 60_000,
   });
 
@@ -46,7 +45,7 @@ export default function DashboardPage() {
   const cards = [
     { icon: <IconCalendarEvent size={16} />, v: stats?.today.total ?? "—", l: t("dash.visits"), d: 0 },
     { icon: <IconCircleCheck size={16} />, v: stats?.today.completed ?? "—", l: t("dash.completed"), d: 0.8 },
-    { icon: <IconCoin size={16} />, v: stats ? `${stats.today.revenue} JD` : "—", l: t("dash.revenue"), d: 1.6 },
+    { icon: <IconCoin size={16} />, v: stats ? `${stats.today.revenue.toFixed(2)} JD` : "—", l: t("dash.revenue"), d: 1.6 },
     { icon: <IconUserX size={16} />, v: stats?.today.noShow ?? "—", l: t("dash.noshow"), d: 2.4 },
   ];
 
@@ -107,7 +106,7 @@ export default function DashboardPage() {
             <h2 className="text-xs font-medium text-ink">{t("dash.today")}</h2>
             <Link href="/appointments" className="text-[10px] text-blue hover:underline">{t("ap.title")} →</Link>
           </div>
-          {!today?.length && (
+          {!todayLoading && !today?.length && (
             <div className="py-8 text-center">
               <p className="text-sm font-medium text-ink">{t("empty.noAppointments.title")}</p>
               <p className="mx-auto mt-1 max-w-xs text-[10px] leading-relaxed text-mute">

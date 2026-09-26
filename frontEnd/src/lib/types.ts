@@ -88,7 +88,7 @@ export interface Appointment {
 }
 
 export interface InvoiceItem { description: string; price: number; qty: number; }
-export interface Payment { amount: number; method: string; paidAt: string; }
+export interface Payment { amount: number; method: string; paidAt: string; note?: string; }
 export interface Invoice {
   _id: string; invoiceNumber: number; patientId: Patient;
   items: InvoiceItem[]; discount: number; total: number;

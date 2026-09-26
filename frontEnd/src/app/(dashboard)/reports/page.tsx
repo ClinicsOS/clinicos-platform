@@ -136,7 +136,7 @@ export default function ReportsPage() {
             <KpiCard
               icon={<IconCash size={18} className="text-teal" />}
               label={t("reports.revenue")}
-              value={`${data.revenue} JD`}
+              value={`${data.revenue.toFixed(2)} JD`}
               accent="teal"
             />
             <KpiCard
@@ -168,7 +168,7 @@ export default function ReportsPage() {
                   const pct = maxDaily > 0 ? (d.revenue / maxDaily) * 100 : 0;
                   const day = new Date(d.date + "T00:00:00").getDate();
                   return (
-                    <div key={d.date} className="group flex flex-1 flex-col items-center justify-end" title={`${d.date}: ${d.revenue} JD`}>
+                    <div key={d.date} className="group flex flex-1 flex-col items-center justify-end" title={`${d.date}: ${d.revenue.toFixed(2)} JD`}>
                       <div
                         className="w-full min-h-[1px] rounded-t bg-teal transition-all group-hover:bg-blue"
                         style={{ height: `${pct}%` }}

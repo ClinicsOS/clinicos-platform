@@ -75,6 +75,17 @@ export const toggleActive = asyncHandler(async (req: Request, res: Response) => 
     return res.status(400).json({ message: "You cannot deactivate yourself" });
   }
 
+  // FIX #11 (F-07) — same owner-protection guard editStaff already has.
+  // Not reachable today (single-owner-per-clinic, and the self-check above
+  // already blocks the only owner from targeting themselves), but this is
+  // the correct explicit defense-in-depth rather than relying on that
+  // being true forever.
+  const target = await User.findOne({ _id: req.params.id, clinicId: req.clinicId }).select("role");
+  if (!target) return res.status(404).json({ message: "Staff member not found" });
+  if (target.role === "owner") {
+    return res.status(400).json({ message: "The owner account cannot be deactivated" });
+  }
+
   const staff = await User.findOneAndUpdate(
     { _id: req.params.id, clinicId: req.clinicId },
     { $set: { isActive: data.isActive } },

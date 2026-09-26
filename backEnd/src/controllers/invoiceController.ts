@@ -11,8 +11,12 @@ const createInvoiceSchema = z.object({
     .array(
       z.object({
         description: z.string().min(1).max(200),
-        price: z.number().min(0),
-        qty: z.number().min(1).default(1),
+        // Upper bounds are a data-sanity guard, not a business rule: without
+        // them a malformed/extreme request (e.g. price: 1e21) is accepted
+        // as a valid number and corrupts the invoice total. 100,000 JD per
+        // line item and 1,000 units are far beyond any real clinic charge.
+        price: z.number().min(0).max(100000),
+        qty: z.number().min(1).max(1000).default(1),
       })
     )
     .min(1),
@@ -52,8 +56,8 @@ const updateInvoiceSchema = z.object({
     .array(
       z.object({
         description: z.string().min(1).max(200),
-        price: z.number().min(0),
-        qty: z.number().min(1).default(1),
+        price: z.number().min(0).max(100000),
+        qty: z.number().min(1).max(1000).default(1),
       })
     )
     .min(1),
@@ -165,6 +169,7 @@ export const listInvoices = asyncHandler(async (req: Request, res: Response) => 
 const paymentSchema = z.object({
   amount: z.number().positive(),
   method: z.enum(["cash", "cliq", "card", "other"]).default("cash"),
+  note: z.string().trim().max(300).optional(),
 });
 
 export const addPayment = asyncHandler(async (req: Request, res: Response) => {
@@ -185,14 +190,44 @@ export const addPayment = asyncHandler(async (req: Request, res: Response) => {
     });
   }
 
-  invoice.payments.push({
-    amount: data.amount,
-    method: data.method,
-    paidAt: new Date(),
-  });
-  const newPaid = paidSoFar + data.amount;
-  invoice.status = newPaid >= invoice.total ? "paid" : "partially_paid";
+  // Guard against two "Add Payment" requests for the SAME invoice landing
+  // at nearly the same time (a double-click that slips past the disabled
+  // button, or two staff members adding a payment from different screens
+  // at once): the check above reads a snapshot that can already be stale
+  // by the time this write happens. This re-applies the same "does not
+  // exceed the total" rule as part of the SAME atomic database operation
+  // that appends the payment — if another payment landed in between, the
+  // filter no longer matches and this one is safely rejected instead of
+  // silently overpaying the invoice.
+  const updated = await Invoice.findOneAndUpdate(
+    {
+      _id: req.params.id,
+      clinicId: req.clinicId,
+      $expr: {
+        $lte: [{ $add: [{ $sum: "$payments.amount" }, data.amount] }, "$total"],
+      },
+    },
+    {
+      $push: {
+        payments: { amount: data.amount, method: data.method, paidAt: new Date(), note: data.note || undefined },
+      },
+    },
+    { new: true, runValidators: true }
+  );
 
-  await invoice.save();
-  return res.json(invoice);
+  if (!updated) {
+    return res.status(409).json({
+      message: "This invoice's balance just changed — please refresh and try again",
+      code: "INVOICE_CHANGED",
+    });
+  }
+
+  const newPaid = updated.payments.reduce((sum, p) => sum + p.amount, 0);
+  const newStatus = newPaid >= updated.total ? "paid" : "partially_paid";
+  if (updated.status !== newStatus) {
+    await Invoice.updateOne({ _id: updated._id }, { $set: { status: newStatus } });
+    updated.status = newStatus;
+  }
+
+  return res.json(updated);
 });

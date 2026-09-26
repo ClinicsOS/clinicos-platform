@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, errMsg } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
@@ -40,6 +40,7 @@ export default function InvoicesPage() {
   const qc = useQueryClient();
   const toast = useToast();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const selectPatient = useSelectedPatient((s) => s.select);
   const [creating, setCreating] = useState(false);
   const [paying, setPaying] = useState<Invoice | null>(null);
@@ -60,6 +61,7 @@ export default function InvoicesPage() {
   // --- payment form state ---
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState("cash");
+  const [paymentNote, setPaymentNote] = useState("");
 
   // --- list filters ---
   const [period, setPeriod] = useState<"day" | "week" | "month" | "all">("month");
@@ -87,6 +89,20 @@ export default function InvoicesPage() {
     setSearchInput("");
     setSearch("");
   };
+
+  // "View Invoice" from Patient Profile links here as
+  // /invoices?invoice=INV-0012 — land straight on that one invoice by
+  // reusing the existing search (an "INV-" prefixed number matches ONLY
+  // that invoice number, never a patient's file number), instead of
+  // building a second invoice-lookup UI.
+  useEffect(() => {
+    const invoiceParam = searchParams.get("invoice");
+    if (invoiceParam) {
+      setSearchInput(invoiceParam);
+      setSearch(invoiceParam);
+      setPeriod("all");
+    }
+  }, [searchParams]);
 
   // Compute the [from, to) date range for the selected period (null = all time)
   const dateRange = useMemo(() => {
@@ -248,6 +264,7 @@ export default function InvoicesPage() {
         await api.post<Invoice>(`/invoices/${paying!._id}/payments`, {
           amount: Number(amount),
           method,
+          note: paymentNote.trim() || undefined,
         })
       ).data;
     },
@@ -255,6 +272,7 @@ export default function InvoicesPage() {
       qc.invalidateQueries({ queryKey: ["invoices"] });
       setPaying(null);
       setAmount("");
+      setPaymentNote("");
       setError("");
       toast.success(t("tst.savedTitle"), t("tst.savedBody"));
     },
@@ -293,8 +311,8 @@ export default function InvoicesPage() {
   });
 
   const cards = [
-    { icon: <IconCoin size={16} />, v: `${summary.month} JD`, l: t("inv.month"), d: 0 },
-    { icon: <IconHourglass size={16} />, v: `${summary.outstanding} JD`, l: t("inv.out"), d: 0.8 },
+    { icon: <IconCoin size={16} />, v: `${summary.month.toFixed(2)} JD`, l: t("inv.month"), d: 0 },
+    { icon: <IconHourglass size={16} />, v: `${summary.outstanding.toFixed(2)} JD`, l: t("inv.out"), d: 0.8 },
     { icon: <IconReceipt size={16} />, v: summary.count, l: t("inv.count"), d: 1.6 },
   ];
 
@@ -302,7 +320,7 @@ export default function InvoicesPage() {
     <div>
       <div className="mb-3 flex items-center gap-2.5">
         <h1 className="text-lg font-medium text-ink">{t("inv.title")}</h1>
-        <button onClick={() => setCreating(true)} className="btn-teal ms-auto !py-2 text-xs">
+        <button onClick={() => { setError(""); setCreating(true); }} className="btn-teal ms-auto !py-2 text-xs">
           <IconPlus size={14} /> {t("inv.new")}
         </button>
       </div>
@@ -357,9 +375,9 @@ export default function InvoicesPage() {
           </div>
           {[
             [t("inv.ps.invoices"), String(searchPatient.count)],
-            [t("inv.ps.billed"), `${searchPatient.billed} JD`],
-            [t("inv.ps.paid"), `${searchPatient.paid} JD`],
-            [t("inv.ps.balance"), `${searchPatient.balance} JD`],
+            [t("inv.ps.billed"), `${searchPatient.billed.toFixed(2)} JD`],
+            [t("inv.ps.paid"), `${searchPatient.paid.toFixed(2)} JD`],
+            [t("inv.ps.balance"), `${searchPatient.balance.toFixed(2)} JD`],
           ].map(([l, v], i) => (
             <div key={l}>
               <div className="text-[9px] text-[#7FA3BE]">{l}</div>
@@ -429,13 +447,13 @@ export default function InvoicesPage() {
       </div>
 
       {/* Table */}
-      <div className="card overflow-hidden">
-        <div className="flex border-b border-edge bg-card2 px-4 py-2 text-[9px] font-medium tracking-widest text-mute">
-          <span className="w-24">{t("inv.invoice")}</span>
+      <div className="card overflow-x-auto">
+        <div className="flex min-w-[640px] border-b border-edge bg-card2 px-4 py-2 text-[9px] font-medium tracking-widest text-mute">
+          <span className="w-24 shrink-0">{t("inv.invoice")}</span>
           <span className="flex-[1.2]">{t("pt.patient")}</span>
           <span className="flex-1">{t("inv.paidTotal")}</span>
-          <span className="w-20">{t("inv.status")}</span>
-          <span className="w-44 text-end">{t("pt.actions")}</span>
+          <span className="w-20 shrink-0">{t("inv.status")}</span>
+          <span className="w-44 shrink-0 text-end">{t("pt.actions")}</span>
         </div>
         {invoices && invoices.length === 0 && search && (
           <div className="py-14 text-center">
@@ -471,8 +489,8 @@ export default function InvoicesPage() {
           const paid = paidOf(inv);
           const pct = inv.total ? Math.min(100, Math.round((paid / inv.total) * 100)) : 100;
           return (
-            <div key={inv._id} className="flex items-center border-b border-edge px-4 py-2.5 last:border-0">
-              <span className="w-24 font-mono text-[10px] text-blue">
+            <div key={inv._id} className="flex min-w-[640px] items-center border-b border-edge px-4 py-2.5 last:border-0">
+              <span className="w-24 shrink-0 font-mono text-[10px] text-blue">
                 INV-{String(inv.invoiceNumber).padStart(4, "0")}
               </span>
               <span className="min-w-0 flex-[1.2] pe-2">
@@ -494,13 +512,13 @@ export default function InvoicesPage() {
               </span>
               <span className="flex-1 pe-3">
                 <span className="font-mono text-[10px] text-ink">
-                  {paid} / {inv.total} JD
+                  {paid.toFixed(2)} / {inv.total.toFixed(2)} JD
                 </span>
                 <span className="mt-1 block h-1 overflow-hidden rounded-full bg-soft">
                   <span className="block h-full rounded-full bg-teal" style={{ width: `${pct}%` }} />
                 </span>
               </span>
-              <span className="w-20">
+              <span className="w-20 shrink-0">
                 <span className={`pill ${statusPill[inv.status] ?? "bg-soft text-mute"}`}>
                   {inv.status === "paid" ? t("inv.paid") : inv.status === "partially_paid" ? t("inv.partial") : t("inv.unpaid")}
                 </span>
@@ -528,6 +546,7 @@ export default function InvoicesPage() {
                     onClick={() => {
                       setPaying(inv);
                       setAmount("");
+                      setPaymentNote("");
                       setError("");
                     }}
                     className="btn-ghost whitespace-nowrap !px-2.5 !py-1 text-[10px]"
@@ -630,7 +649,7 @@ export default function InvoicesPage() {
               <input className="inp" type="number" min={0} value={discount} onChange={(e) => setDiscount(e.target.value)} />
             </div>
             <div className="pb-1 text-sm font-medium text-ink" dir="ltr">
-              = {grandTotal} JD
+              = {grandTotal.toFixed(2)} JD
             </div>
           </div>
 
@@ -717,7 +736,7 @@ export default function InvoicesPage() {
               className={`pb-1 text-sm font-medium ${editGrandTotal < editPaidSoFar ? "text-red-400" : "text-ink"}`}
               dir="ltr"
             >
-              = {editGrandTotal} JD
+              = {editGrandTotal.toFixed(2)} JD
             </div>
           </div>
 
@@ -740,7 +759,7 @@ export default function InvoicesPage() {
       {paying && (
         <Modal title={`${t("inv.addPayment")} — INV-${String(paying.invoiceNumber).padStart(4, "0")}`} onClose={() => setPaying(null)}>
           <p className="mb-3 text-xs text-mute" dir="ltr">
-            {paidOf(paying)} / {paying.total} JD
+            {paidOf(paying).toFixed(2)} / {paying.total.toFixed(2)} JD
           </p>
           <label className="lbl">{t("inv.amount")}</label>
           <input className="inp mb-3" type="number" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
@@ -751,8 +770,17 @@ export default function InvoicesPage() {
             <option value="card">Card</option>
             <option value="other">Other</option>
           </select>
+          <label className="lbl">{t("inv.paymentNote")}</label>
+          <input
+            dir="auto"
+            className="inp mb-4"
+            placeholder={t("inv.paymentNotePh")}
+            value={paymentNote}
+            maxLength={300}
+            onChange={(e) => setPaymentNote(e.target.value)}
+          />
           {error && <p className="mb-2 text-xs text-red-400">{error}</p>}
-          <button className="btn-teal w-full" disabled={!Number(amount) || pay.isPending} onClick={() => pay.mutate()}>
+          <button className="btn-teal w-full" disabled={!(Number(amount) > 0) || pay.isPending} onClick={() => pay.mutate()}>
             {pay.isPending ? t("common.loading") : t("ap.save")}
           </button>
         </Modal>

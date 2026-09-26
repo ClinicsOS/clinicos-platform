@@ -63,10 +63,20 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     },
   });
 
-  // Poll appointments for pending public bookings — every 30s
+  // Poll for pending public bookings — every 5s. FIX #11 (F-02): scoped to
+  // just future, still-pending public bookings (source=public&status=
+  // scheduled&from=now) instead of the clinic's entire appointment history,
+  // which this previously downloaded in full on every single poll. The
+  // query KEY stays "appointments-all" on purpose — NotificationBell's
+  // mark-as-read mutations already invalidate that exact key.
   const { data: allAppts } = useQuery({
     queryKey: ["appointments-all"],
-    queryFn: async () => (await api.get<Appointment[]>("/appointments")).data,
+    queryFn: async () =>
+      (
+        await api.get<Appointment[]>(
+          `/appointments?source=public&status=scheduled&from=${encodeURIComponent(new Date().toISOString())}`
+        )
+      ).data,
     enabled: hydrated && !!token && clinic?.status === "active",
     refetchInterval: 5_000,
   });

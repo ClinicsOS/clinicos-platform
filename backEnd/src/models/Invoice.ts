@@ -9,6 +9,7 @@ interface IPayment {
   amount: number;
   method: "cash" | "cliq" | "card" | "other";
   paidAt: Date;
+  note?: string;
 }
 
 export interface IInvoice extends Document {
@@ -49,6 +50,10 @@ const invoiceSchema = new Schema<IInvoice>(
           default: "cash",
         },
         paidAt: { type: Date, default: Date.now },
+        // Optional — what the payment was for (e.g. "New tooth procedure").
+        // Every existing payment document is still valid with no migration:
+        // it simply has no note.
+        note: { type: String, trim: true, maxlength: 300 },
       },
     ],
     status: {

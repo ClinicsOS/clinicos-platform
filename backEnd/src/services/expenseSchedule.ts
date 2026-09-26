@@ -104,20 +104,23 @@ export interface DueItem {
 
 /**
  * Everything still unpaid for a clinic "now": this month's monthly bills,
- * last month's monthly bills that were never marked paid, and one-time
- * bills saved as "pending". Sorted most urgent first.
+ * last month's monthly bills that were never marked paid, NEXT month's
+ * bills whose reminder window has already opened (e.g. rent due on the
+ * 1st with a 3-day reminder must remind on the 28th/29th/30th of this
+ * month), and one-time bills saved as "pending". Most urgent first.
  */
 export async function getDueItems(clinicId: string | Types.ObjectId): Promise<DueItem[]> {
   const today = todayStr();
   const current = today.slice(0, 7);
   const previous = shiftPeriod(current, -1);
+  const next = shiftPeriod(current, 1);
 
   const bills = await RecurringExpense.find({ clinicId, isActive: true }).lean();
   const billIds = bills.map((b) => b._id);
 
   const [payments, pending] = await Promise.all([
     billIds.length
-      ? Expense.find({ clinicId, recurringId: { $in: billIds }, period: { $in: [current, previous] } })
+      ? Expense.find({ clinicId, recurringId: { $in: billIds }, period: { $in: [previous, current, next] } })
           .select("recurringId period")
           .lean()
       : Promise.resolve([]),
@@ -128,14 +131,16 @@ export async function getDueItems(clinicId: string | Types.ObjectId): Promise<Du
   const items: DueItem[] = [];
 
   for (const b of bills) {
-    for (const period of [previous, current]) {
+    for (const period of [previous, current, next]) {
       if (b.startPeriod > period) continue;
       if (paidKey.has(`${String(b._id)}|${period}`)) continue;
       const dueDate = dueDateStr(period, b.dueDay);
       const daysUntil = daysBetween(today, dueDate);
       const status = statusFor(daysUntil, b.remindDaysBefore, false);
-      // Last month's bill only matters if it's still unpaid AND past due.
+      // Last month's bill only matters if it's still unpaid AND past due;
+      // next month's only once its reminder window has opened.
       if (period === previous && status !== "overdue") continue;
+      if (period === next && status !== "due_soon") continue;
       items.push({
         kind: "bill",
         id: String(b._id),

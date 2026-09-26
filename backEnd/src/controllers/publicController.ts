@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import crypto from "crypto";
 import { z } from "zod";
 import { Clinic } from "../models/Clinic";
 import { User } from "../models/User";
@@ -7,6 +8,9 @@ import { Patient } from "../models/Patient";
 import { asyncHandler } from "../middleware/errorHandler";
 import { PLANS, type Plan } from "../config/plans";
 import { sendNewBookingNotification } from "../services/mailer";
+import { timeToMinutes, intervalsOverlap } from "../utils/workingHoursTime";
+import { checkAppointmentTiming } from "../services/appointmentRules";
+import { findOverlappingAppointment } from "../services/appointmentAvailability";
 
 // ===== GET /api/public/clinics/search?q= =====
 // Added for mobile clinic discovery (patient no longer needs a direct link).
@@ -172,20 +176,29 @@ export const getAvailableSlots = asyncHandler(
     }
 
     const slotMinutes = clinic.slotDuration;
-    const [fromH, fromM] = hours.from.split(":").map(Number);
-    const [toH, toM] = hours.to.split(":").map(Number);
-    const openMinutes = fromH * 60 + fromM;
-    const closeMinutes = toH * 60 + toM;
+    const openMinutes = timeToMinutes(hours.from);
+    const closeMinutes = timeToMinutes(hours.to, { endOfDay: true });
 
-    // Optional break window (e.g. lunch break) — slots starting inside
-    // [breakStart, breakEnd) are excluded, same as closed-day handling.
+    // Optional break window (e.g. lunch break) — a candidate slot is
+    // excluded when its FULL occupied interval [m, m+slotMinutes) overlaps
+    // the break, not just when its start instant falls inside the break
+    // (FIX #8: a break that isn't grid-aligned, e.g. "12:15"-"12:45" with
+    // 30-minute slots, was previously letting the 12:00 slot show as
+    // available even though it actually runs 15 minutes into the break —
+    // the authoritative check in publicBook already rejected it at booking
+    // time, but the preview list shouldn't offer a slot that can never
+    // succeed). A malformed reversed/zero-length break (breakStart >=
+    // breakEnd) is ignored defensively rather than risk excluding slots it
+    // was never meant to.
     let breakStart = -1;
     let breakEnd = -1;
     if (hours.breakFrom && hours.breakTo) {
-      const [bfH, bfM] = hours.breakFrom.split(":").map(Number);
-      const [btH, btM] = hours.breakTo.split(":").map(Number);
-      breakStart = bfH * 60 + bfM;
-      breakEnd = btH * 60 + btM;
+      const bStart = timeToMinutes(hours.breakFrom);
+      const bEnd = timeToMinutes(hours.breakTo);
+      if (bStart < bEnd) {
+        breakStart = bStart;
+        breakEnd = bEnd;
+      }
     }
 
     // Build slot list as wall-clock times (matched to the clinic's local timezone).
@@ -198,7 +211,7 @@ export const getAvailableSlots = asyncHandler(
       m + slotMinutes <= closeMinutes;
       m += slotMinutes
     ) {
-      if (breakStart !== -1 && m >= breakStart && m < breakEnd) continue; // skip break slots
+      if (breakStart !== -1 && intervalsOverlap(m, m + slotMinutes, breakStart, breakEnd)) continue; // skip break slots
       const h = String(Math.floor(m / 60)).padStart(2, "0");
       const mm = String(m % 60).padStart(2, "0");
       const time = `${h}:${mm}`;
@@ -215,31 +228,39 @@ export const getAvailableSlots = asyncHandler(
       doctorId,
       startAt: { $gte: day, $lt: nextDay },
       status: { $in: ["scheduled", "confirmed"] },
-    }).select("startAt");
+    }).select("startAt duration");
 
-    // Build a set of booked wall-clock times ("HH:mm" in clinic local time).
+    // Build each booked appointment's OCCUPIED INTERVAL as minute-of-day
+    // (clinic local time), using its own duration — not just its exact start
+    // time. A public slot must be rejected if it overlaps ANY of these, even
+    // one created on the dashboard with a longer (e.g. 60-minute) duration
+    // whose exact start time this slot never matches.
     // IMPORTANT: appointment.startAt is stored as UTC, and the server process
     // itself may run in UTC (Render) — so we must explicitly convert to
     // Asia/Amman here rather than using .getHours()/.getMinutes(), which
     // return time in whatever timezone the SERVER happens to run in.
-    const bookedTimes = new Set(
-      booked.map((a) => {
-        const parts = new Intl.DateTimeFormat("en-GB", {
-          timeZone: "Asia/Amman",
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false,
-        }).formatToParts(a.startAt);
-        const h = parts.find((p) => p.type === "hour")!.value;
-        const m = parts.find((p) => p.type === "minute")!.value;
-        return `${h}:${m}`;
-      }),
-    );
+    const occupied = booked.map((a) => {
+      const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Asia/Amman",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }).formatToParts(a.startAt);
+      const h = parts.find((p) => p.type === "hour")!.value;
+      const m = parts.find((p) => p.type === "minute")!.value;
+      const start = timeToMinutes(`${h}:${m}`);
+      return { start, end: start + a.duration };
+    });
 
     const now = Date.now();
-    const available = allSlots.filter(
-      (s) => !bookedTimes.has(s.time) && s.local.getTime() > now,
-    );
+    const available = allSlots.filter((s) => {
+      const slotStart = timeToMinutes(s.time);
+      const slotEnd = slotStart + slotMinutes;
+      const overlapsExisting = occupied.some((o) =>
+        intervalsOverlap(slotStart, slotEnd, o.start, o.end),
+      );
+      return !overlapsExisting && s.local.getTime() > now;
+    });
 
     const slots = available.map((s) => s.time);
 
@@ -263,8 +284,46 @@ const publicBookSchema = z
     { message: "Please specify the procedure", path: ["procedureNote"] },
   );
 
-const makeRefCode = () =>
-  "BK-" + Math.random().toString(36).slice(2, 7).toUpperCase();
+// FIX #11 (F-05) — cryptographically random, collision-checked booking
+// reference. Uses the standard Crockford Base32 alphabet (excludes I/L/O/U,
+// which are easily confused with 1/1/0/V) so a patient reading it aloud or
+// typing it on the tracking page can't mistake similar-looking characters.
+// 8 characters from this 32-symbol alphabet is 2^40 (~1.1 trillion)
+// combinations — a large increase over the previous 5 base-36 characters
+// (~60 million) — generated with crypto.randomBytes, not Math.random().
+// Old "BK-XXXXX" codes already stored keep working exactly as before: this
+// only changes how NEW codes are generated, never how an existing one is
+// looked up.
+const REF_CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"; // Crockford Base32, 32 chars
+const REF_CODE_LENGTH = 8;
+
+function makeRefCode(): string {
+  const bytes = crypto.randomBytes(REF_CODE_LENGTH);
+  let code = "";
+  // 256 (byte range) is an exact multiple of 32 (alphabet length), so this
+  // mapping is uniform — no modulo bias.
+  for (let i = 0; i < bytes.length; i++) {
+    code += REF_CODE_ALPHABET[bytes[i] % REF_CODE_ALPHABET.length];
+  }
+  return "BK-" + code;
+}
+
+/**
+ * Generates a refCode and confirms it isn't already in use before handing
+ * it back — belt-and-suspenders alongside the new sparse unique index on
+ * Appointment.refCode (see models/Appointment.ts), so a collision can never
+ * silently create two bookings sharing the same reference.
+ */
+async function generateUniqueRefCode(): Promise<string> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const code = makeRefCode();
+    const exists = await Appointment.exists({ refCode: code });
+    if (!exists) return code;
+  }
+  // Effectively unreachable at this entropy level — fail loudly rather than
+  // ever risk returning a colliding code.
+  throw new Error("Could not generate a unique booking reference — please try again");
+}
 
 export const publicBook = asyncHandler(async (req: Request, res: Response) => {
   const data = publicBookSchema.parse(req.body);
@@ -288,35 +347,13 @@ export const publicBook = asyncHandler(async (req: Request, res: Response) => {
     return res.status(400).json({ message: "Cannot book a time in the past" });
   }
 
-  // Reject bookings on closed days (extra safety — client already blocks this)
-  const dow = startAt.getUTCDay();
-  const wh = clinic.workingHours.find((w) => w.day === dow);
-  if (!wh || !wh.isOpen) {
-    return res.status(400).json({
-      message: "The clinic is closed on this day",
-      code: "DAY_CLOSED",
-    });
-  }
-
-  // Reject bookings that fall inside the clinic's break window (extra
-  // safety — client already blocks this, same as day-closed above).
-  if (wh.breakFrom && wh.breakTo) {
-    const parts = new Intl.DateTimeFormat("en-GB", {
-      timeZone: "Asia/Amman",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).formatToParts(startAt);
-    const wallTime = `${parts.find((p) => p.type === "hour")!.value}:${
-      parts.find((p) => p.type === "minute")!.value
-    }`;
-    if (wallTime >= wh.breakFrom && wallTime < wh.breakTo) {
-      return res.status(400).json({
-        message:
-          "This time falls within the clinic's break — please pick another slot",
-        code: "BREAK_TIME",
-      });
-    }
+  // Same business rules as the dashboard flow — closed day, working-hours
+  // fit (including FIX #1's end-of-day midnight boundary), and break-window
+  // overlap — using the single shared source of truth instead of a second,
+  // separately-maintained copy of this logic.
+  const timing = checkAppointmentTiming(clinic, startAt, clinic.slotDuration);
+  if (timing) {
+    return res.status(400).json({ message: timing.message, code: timing.code });
   }
 
   // Enforce trial appointment cap on public bookings too
@@ -365,19 +402,23 @@ export const publicBook = asyncHandler(async (req: Request, res: Response) => {
   }
 
   // Guard against double-booking the same doctor/slot (race conditions,
-  // stale client cache, or the client sending an already-taken time).
-  const conflict = await Appointment.findOne({
-    clinicId: clinic._id,
-    doctorId: data.doctorId,
+  // stale client cache, or the client sending an already-taken time) — a
+  // real interval-overlap check, so this also catches landing inside an
+  // existing LONGER appointment/block that doesn't start at this exact time.
+  const conflict = await findOverlappingAppointment(
+    clinic._id,
+    data.doctorId,
     startAt,
-    status: { $in: ["scheduled", "confirmed"] },
-  });
+    clinic.slotDuration,
+  );
   if (conflict) {
     return res.status(409).json({
       message: "This time slot was just booked. Please pick another one.",
       code: "SLOT_TAKEN",
     });
   }
+
+  const refCode = await generateUniqueRefCode();
 
   const appointment = await Appointment.create({
     clinicId: clinic._id,
@@ -386,7 +427,7 @@ export const publicBook = asyncHandler(async (req: Request, res: Response) => {
     startAt,
     duration: clinic.slotDuration,
     source: "public",
-    refCode: makeRefCode(),
+    refCode,
     visitType: data.visitType,
     procedureNote:
       data.visitType === "procedure" ? data.procedureNote?.trim() : undefined,

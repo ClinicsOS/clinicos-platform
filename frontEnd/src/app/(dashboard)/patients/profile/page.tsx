@@ -26,6 +26,7 @@ import {
   IconId,
   IconCalendarPlus,
   IconReceipt,
+  IconCreditCard,
   IconPhone,
   IconPencil,
   IconHeartbeat,
@@ -42,6 +43,14 @@ const pillClass: Record<string, string> = {
   completed: "bg-teal/15 text-teal",
   cancelled: "bg-red-500/15 text-red-400",
   no_show: "bg-amber-500/15 text-amber-400",
+};
+
+// Same values as the main Invoices page's statusPill, so an invoice looks
+// the same everywhere it's shown.
+const invoiceStatusPill: Record<string, string> = {
+  paid: "bg-teal/15 text-teal",
+  partially_paid: "bg-amber-500/15 text-amber-400",
+  unpaid: "bg-red-500/15 text-red-400",
 };
 
 type EditTab = "personal" | "medical" | "contact";
@@ -63,9 +72,14 @@ export default function PatientProfilePage() {
   });
   const patient = fresh ?? selected;
 
-  const { data: allAppts } = useQuery({
-    queryKey: ["appointments-all"],
-    queryFn: async () => (await api.get<Appointment[]>("/appointments")).data,
+  // Patient Profile's Visit History — scoped server-side by patientId (the
+  // backend always combines this with clinicId, so this can never pull in
+  // another clinic's data), instead of fetching every appointment in the
+  // whole clinic and filtering client-side.
+  const { data: patientAppts } = useQuery({
+    queryKey: ["patient-appointments", patient?._id],
+    queryFn: async () =>
+      (await api.get<Appointment[]>(`/appointments?patientId=${patient!._id}`)).data,
     enabled: !!patient,
   });
   const { data: invoices } = useQuery({
@@ -83,16 +97,37 @@ export default function PatientProfilePage() {
     );
   }
 
-  const visits = (allAppts ?? [])
-    .filter((a) => {
-      const pid = typeof a.patientId === "string" ? a.patientId : a.patientId?._id;
-      return pid === patient._id;
-    })
+  const visits = (patientAppts ?? [])
+    .slice()
     .sort((a, b) => new Date(b.startAt).getTime() - new Date(a.startAt).getTime());
+
+  // Keep the current/upcoming appointment clearly separate from Visit
+  // History, so a scheduled visit that hasn't happened yet is never read as
+  // "what I did last time".
+  const now = Date.now();
+  const isUpcoming = (v: Appointment) =>
+    new Date(v.startAt).getTime() > now && (v.status === "scheduled" || v.status === "confirmed");
+  const upcomingVisits = visits.filter(isUpcoming);
+  const historyVisits = visits.filter((v) => !isUpcoming(v));
 
   const noShows = visits.filter((v) => v.status === "no_show").length;
   const totalPaid = (invoices ?? []).reduce((s, i) => s + paidOf(i), 0);
+  const totalBilled = (invoices ?? []).reduce((s, i) => s + i.total, 0);
   const balance = (invoices ?? []).reduce((s, i) => s + Math.max(0, i.total - paidOf(i)), 0);
+
+  // Invoice History — newest first, using the real createdAt date (never
+  // sort by a formatted date string).
+  const sortedInvoices = (invoices ?? [])
+    .slice()
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  // Payment History — every individual payment transaction across every
+  // invoice, flattened into one newest-first list. This is the SAME
+  // invoice/payment data used by the main Invoices page — nothing is
+  // duplicated or recalculated independently.
+  const paymentTransactions = sortedInvoices
+    .flatMap((inv) => inv.payments.map((p) => ({ ...p, invoice: inv })))
+    .sort((a, b) => new Date(b.paidAt).getTime() - new Date(a.paidAt).getTime());
   const since = new Date(patient.createdAt).getFullYear();
   const age = patient.birthDate ? Math.floor((Date.now() - new Date(patient.birthDate).getTime()) / 3.15576e10) : null;
   const initials = patient.fullName.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
@@ -103,7 +138,7 @@ export default function PatientProfilePage() {
   const stats = [
     { icon: <IconStethoscope size={15} />, v: visits.length, l: t("pp.visits"), d: 0 },
     { icon: <IconUserX size={15} />, v: noShows, l: t("pp.noshows"), d: 0.7 },
-    { icon: <IconCoin size={15} />, v: `${totalPaid} JD`, l: t("pp.paid"), d: 1.4 },
+    { icon: <IconCoin size={15} />, v: `${totalPaid.toFixed(2)} JD`, l: t("pp.paid"), d: 1.4 },
     { icon: <IconHeart size={15} />, v: since, l: t("pp.since"), d: 2.1 },
   ];
 
@@ -256,11 +291,106 @@ export default function PatientProfilePage() {
             )}
           </div>
 
-          {/* Floating balance card — bobs in 3D like the prototype */}
+          {/* Financial summary — bobs in 3D like the prototype. Reuses the
+              exact same labels/values as the Invoices page's single-patient
+              summary panel, so the numbers read the same everywhere. */}
           <div className="bob mt-3 rounded-xl border border-sky/40 bg-hero p-3.5">
-            <div className="text-[8px] tracking-widest text-[#7FA3BE]">{t("pp.balance")}</div>
-            <div className="mt-0.5 text-lg font-medium text-[#F2F7FC]">{balance.toFixed(2)} JD</div>
-            <Link href="/invoices" className="btn-teal mt-2 !px-3 !py-1.5 text-[10px]">{t("pp.pay")}</Link>
+            <div className="flex flex-wrap gap-x-5 gap-y-2">
+              <div>
+                <div className="text-[8px] tracking-widest text-[#7FA3BE]">{t("inv.ps.billed")}</div>
+                <div className="mt-0.5 text-sm font-medium text-[#F2F7FC]" dir="ltr">{totalBilled.toFixed(2)} JD</div>
+              </div>
+              <div>
+                <div className="text-[8px] tracking-widest text-[#7FA3BE]">{t("inv.ps.paid")}</div>
+                <div className="mt-0.5 text-sm font-medium text-[#F2F7FC]" dir="ltr">{totalPaid.toFixed(2)} JD</div>
+              </div>
+              <div>
+                <div className="text-[8px] tracking-widest text-[#7FA3BE]">{t("pp.balance")}</div>
+                <div
+                  className={`mt-0.5 text-sm font-medium ${balance > 0 ? "text-amber-300" : "text-[#F2F7FC]"}`}
+                  dir="ltr"
+                >
+                  {balance.toFixed(2)} JD
+                </div>
+              </div>
+            </div>
+            <Link href="/invoices" className="btn-teal mt-2.5 !px-3 !py-1.5 text-[10px]">{t("pp.pay")}</Link>
+          </div>
+
+          {/* ===== Invoice history ===== */}
+          <div className="card mt-3 p-4">
+            <h2 className="mb-3 flex items-center gap-1.5 text-xs font-medium text-ink">
+              <IconReceipt size={14} className="text-blue" /> {t("pp.invoiceHistory")}
+            </h2>
+            {sortedInvoices.length === 0 ? (
+              <p className="py-4 text-xs text-mute">{t("pp.noFinancialRecords")}</p>
+            ) : (
+              <div className="grid gap-1.5">
+                {sortedInvoices.map((inv) => {
+                  const paid = paidOf(inv);
+                  return (
+                    <div
+                      key={inv._id}
+                      className="flex flex-wrap items-center gap-2 rounded-lg border border-edge bg-card2 px-3 py-2"
+                    >
+                      <span className="font-mono text-[10px] text-blue" dir="ltr">
+                        INV-{String(inv.invoiceNumber).padStart(4, "0")}
+                      </span>
+                      <span className="text-[10px] text-mute">{new Date(inv.createdAt).toLocaleDateString()}</span>
+                      <span className={`pill ${invoiceStatusPill[inv.status] ?? "bg-soft text-mute"}`}>
+                        {inv.status === "paid" ? t("inv.paid") : inv.status === "partially_paid" ? t("inv.partial") : t("inv.unpaid")}
+                      </span>
+                      <span className="ms-auto font-mono text-[10px] text-ink" dir="ltr">
+                        {paid.toFixed(2)} / {inv.total.toFixed(2)} JD
+                      </span>
+                      <Link
+                        href={`/invoices?invoice=INV-${String(inv.invoiceNumber).padStart(4, "0")}`}
+                        className="btn-ghost !px-2 !py-1 text-[9px]"
+                      >
+                        {t("pp.viewInvoice")}
+                      </Link>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* ===== Payment history — individual transactions across every invoice ===== */}
+          <div className="card mt-3 p-4">
+            <h2 className="mb-3 flex items-center gap-1.5 text-xs font-medium text-ink">
+              <IconCreditCard size={14} className="text-teal" /> {t("pp.paymentHistory")}
+            </h2>
+            {paymentTransactions.length === 0 ? (
+              <p className="py-4 text-xs text-mute">{t("pp.noFinancialRecords")}</p>
+            ) : (
+              <div className="grid gap-1.5">
+                {paymentTransactions.map((p, i) => (
+                  <div
+                    key={`${p.invoice._id}-${i}`}
+                    className="rounded-lg border border-edge bg-card2 px-3 py-2"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[10px] text-mute">{new Date(p.paidAt).toLocaleDateString()}</span>
+                      <span className="font-mono text-[11px] font-medium text-teal" dir="ltr">{p.amount.toFixed(2)} JD</span>
+                      <span className="pill bg-soft text-mute">{t(`pay.method.${p.method}`)}</span>
+                      <Link
+                        href={`/invoices?invoice=INV-${String(p.invoice.invoiceNumber).padStart(4, "0")}`}
+                        className="ms-auto font-mono text-[9px] text-blue hover:underline"
+                        dir="ltr"
+                      >
+                        INV-{String(p.invoice.invoiceNumber).padStart(4, "0")}
+                      </Link>
+                    </div>
+                    {p.note && (
+                      <div dir="auto" className="mt-1 text-start text-[10px] leading-relaxed text-mute">
+                        {p.note}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -329,13 +459,41 @@ export default function PatientProfilePage() {
             )}
           </div>
 
+          {/* ===== Upcoming — kept clearly separate so a scheduled visit that
+               hasn't happened yet is never read as "what I did last time" ===== */}
+          {upcomingVisits.length > 0 && (
+            <div className="card mt-3 p-4">
+              <h2 className="mb-3 flex items-center gap-1.5 text-xs font-medium text-ink">
+                <IconCalendarPlus size={14} className="text-blue" /> {t("pp.upcoming")}
+              </h2>
+              <div className="grid gap-1.5">
+                {upcomingVisits.map((v) => {
+                  const doc = v.doctorId as { name?: string };
+                  return (
+                    <div
+                      key={v._id}
+                      className="flex flex-wrap items-center gap-2 rounded-lg border border-blue/30 bg-blue/10 px-3 py-2"
+                    >
+                      <span className="text-[11px] font-medium text-ink" dir="ltr">
+                        {new Date(v.startAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })} ·{" "}
+                        {new Date(v.startAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true })}
+                      </span>
+                      <span className={`pill ${pillClass[v.status] ?? "bg-soft text-mute"}`}>{t(`status.${v.status}`)}</span>
+                      <span className="ms-auto text-[9px] text-mute">{doc?.name}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* ===== Visit timeline with spinning cube nodes ===== */}
           <div className="card mt-3 p-4">
             <h2 className="mb-3 text-xs font-medium text-ink">{t("pp.history")}</h2>
             <div className="relative ps-7">
               <span className="absolute inset-y-1 start-2 border-s border-dashed border-edge" />
-              {visits.length === 0 && <p className="py-4 text-xs text-mute">{t("dash.empty")}</p>}
-              {visits.map((v) => {
+              {historyVisits.length === 0 && <p className="py-4 text-xs text-mute">{t("pp.noHistory")}</p>}
+              {historyVisits.map((v) => {
                 const doc = v.doctorId as { name?: string };
                 return (
                   <div key={v._id} className="relative mb-3 last:mb-0">
@@ -354,12 +512,20 @@ export default function PatientProfilePage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-[11px] font-medium text-ink">
                           {new Date(v.startAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })} ·{" "}
-                          {new Date(v.startAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true })}
+                          {new Date(v.startAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true })} ·{" "}
+                          {v.duration} {t("ap.min")}
                         </span>
                         <span className={`pill ${pillClass[v.status] ?? "bg-soft text-mute"}`}>{t(`status.${v.status}`)}</span>
+                        {v.visitType === "procedure" && (
+                          <span className="pill bg-purple-500/15 text-[8px] text-purple-300">{t("visit.procedureBadge")}</span>
+                        )}
                         <span className="ms-auto text-[9px] text-mute">{doc?.name}</span>
                       </div>
-                      {v.visitNote && <p className="mt-1 text-[10px] leading-relaxed text-mute">&ldquo;{v.visitNote}&rdquo;</p>}
+                      {v.visitNote ? (
+                        <p className="mt-1 text-[10px] leading-relaxed text-mute">&ldquo;{v.visitNote}&rdquo;</p>
+                      ) : (
+                        <p className="mt-1 text-[10px] italic text-mute/70">{t("pp.noVisitNote")}</p>
+                      )}
                     </div>
                   </div>
                 );

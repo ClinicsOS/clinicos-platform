@@ -9,6 +9,7 @@ import {
   checkAppointmentTiming,
   checkAppointmentPlanCap,
 } from "../../../appointmentRules";
+import { findOverlappingAppointment } from "../../../appointmentAvailability";
 
 // This tool now enforces the SAME business rules as the human dashboard flow
 // (controllers/appointmentController.ts) by calling the shared
@@ -61,9 +62,11 @@ export async function createAppointmentExecute(
   if (!doctor) return { error: "Doctor not found" };
   if (!clinic) return { error: "Clinic not found" };
 
+  const duration = input.duration ?? clinic.slotDuration;
+
   // Same business rules as the human dashboard flow: past-time, closed day,
-  // break window.
-  const timing = checkAppointmentTiming(clinic, startAt);
+  // working-hours fit, break window.
+  const timing = checkAppointmentTiming(clinic, startAt, duration);
   if (timing) return { error: timing.message, code: timing.code };
 
   // Same trial appointment cap as the human dashboard flow.
@@ -71,12 +74,9 @@ export async function createAppointmentExecute(
   const cap = checkAppointmentPlanCap(clinic, count);
   if (cap) return { error: cap.message, code: cap.code };
 
-  const conflict = await Appointment.findOne({
-    clinicId: ctx.clinicId,
-    doctorId: input.doctorId,
-    startAt,
-    status: { $in: ["scheduled", "confirmed"] },
-  });
+  // Same real interval-overlap conflict check as the human dashboard flow —
+  // catches landing inside an existing longer appointment/block too.
+  const conflict = await findOverlappingAppointment(ctx.clinicId, input.doctorId, startAt, duration);
   if (conflict) return { error: "This time slot is already taken for this doctor" };
 
   const appointment = await Appointment.create({
@@ -84,7 +84,7 @@ export async function createAppointmentExecute(
     patientId: input.patientId,
     doctorId: input.doctorId,
     startAt,
-    duration: input.duration ?? clinic.slotDuration,
+    duration,
     source: "dashboard",
     visitType: input.visitType,
     procedureNote: input.visitType === "procedure" ? input.procedureNote : undefined,

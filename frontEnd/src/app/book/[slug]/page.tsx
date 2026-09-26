@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import { api, errMsg } from "@/lib/api";
 import { to12h } from "@/lib/dates";
+import { timeToMinutes, intervalsOverlap } from "@/lib/workingHoursTime";
 import { useI18n } from "@/lib/i18n";
 import { useTheme } from "@/lib/theme";
 import Cube3D from "@/components/Cube3D";
@@ -126,20 +127,16 @@ export default function PublicBookingPage() {
     const wh = clinic.workingHours.find((w: WorkingHour) => w.day === dow);
     if (!wh || !wh.isOpen) return { slots: [], closed: true, noHours: false };
 
-    const [fromH, fromM] = wh.from.split(":").map(Number);
-    const [toH, toM] = wh.to.split(":").map(Number);
-    const openM = fromH * 60 + fromM;
-    const closeM = toH * 60 + toM;
+    const openM = timeToMinutes(wh.from);
+    const closeM = timeToMinutes(wh.to, { endOfDay: true });
     const step = clinic.slotDuration || 30;
 
     // Optional break window (e.g. lunch break)
     let breakStart = -1;
     let breakEnd = -1;
     if (wh.breakFrom && wh.breakTo) {
-      const [bfH, bfM] = wh.breakFrom.split(":").map(Number);
-      const [btH, btM] = wh.breakTo.split(":").map(Number);
-      breakStart = bfH * 60 + bfM;
-      breakEnd = btH * 60 + btM;
+      breakStart = timeToMinutes(wh.breakFrom);
+      breakEnd = timeToMinutes(wh.breakTo);
     }
 
     // Available times from the API is the ground truth for "not booked and not past"
@@ -158,7 +155,9 @@ export default function PublicBookingPage() {
       // Create a local Date (no Z) so JS interprets it in the user's timezone
       const slotDate = new Date(`${date}T${time}:00`);
       const isPast = slotDate.getTime() < nowStamp;
-      const isBreak = breakStart !== -1 && m >= breakStart && m < breakEnd;
+      // Interval overlap, not a point check — a slot that STARTS before the
+      // break but would run into it is still a break slot.
+      const isBreak = breakStart !== -1 && intervalsOverlap(m, m + step, breakStart, breakEnd);
 
       let status: "available" | "booked" | "past" | "break";
       if (isPast) status = "past";

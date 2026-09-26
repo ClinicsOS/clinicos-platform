@@ -37,8 +37,8 @@ const inputSchema = z.object({
     .array(
       z.object({
         description: z.string().min(1).max(200),
-        price: z.number().min(0),
-        qty: z.number().min(1).default(1),
+        price: z.number().min(0).max(100000),
+        qty: z.number().min(1).max(1000).default(1),
       })
     )
     .min(1),

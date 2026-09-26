@@ -8,6 +8,7 @@ import { Invoice } from "../models/Invoice";
 import { SubscriptionRequest } from "../models/SubscriptionRequest";
 import { asyncHandler } from "../middleware/errorHandler";
 import { PLANS, PLAN_PRICES, daysUntil, type Plan } from "../config/plans";
+import { isValidWorkingRange, timeToMinutes } from "../utils/workingHoursTime";
 
 /** Attach plan info (limits, price, days remaining) to a clinic response. */
 const enrich = (clinic: any) => {
@@ -56,10 +57,39 @@ export const updateMyClinic = asyncHandler(async (req: Request, res: Response) =
 
   if (data.workingHours) {
     for (const wh of data.workingHours) {
-      if (wh.isOpen && wh.from >= wh.to) {
+      if (wh.isOpen && !isValidWorkingRange(wh.from, wh.to)) {
         return res.status(400).json({
           message: `Invalid hours for day ${wh.day}: 'from' must be before 'to'`,
         });
+      }
+
+      // A partial break (only one of the two times set) is never a valid
+      // configuration on its own — reject it regardless of isOpen, so a
+      // dangling half-set break can never be persisted.
+      if ((wh.breakFrom && !wh.breakTo) || (!wh.breakFrom && wh.breakTo)) {
+        return res.status(400).json({
+          message: `Invalid break for day ${wh.day}: both break start and break end are required`,
+        });
+      }
+
+      // A fully-specified break must fall inside that day's working hours:
+      // workingStart <= breakStart < breakEnd <= workingEnd. Mirrors the
+      // working-hours `to` semantics for the break's own end — a breakTo of
+      // "00:00" means "runs to the end of this day" (e.g. "23:30" -> "00:00"
+      // on a clinic that closes at midnight), not "the start of the day" —
+      // so a clinic that closes at midnight can still validly configure a
+      // break that runs right up to closing.
+      if (wh.isOpen && wh.breakFrom && wh.breakTo) {
+        const workingStart = timeToMinutes(wh.from);
+        const workingEnd = timeToMinutes(wh.to, { endOfDay: true });
+        const breakStart = timeToMinutes(wh.breakFrom);
+        const breakEnd = timeToMinutes(wh.breakTo, { endOfDay: true });
+
+        if (!(workingStart <= breakStart && breakStart < breakEnd && breakEnd <= workingEnd)) {
+          return res.status(400).json({
+            message: `Invalid break for day ${wh.day}: break must fall within working hours`,
+          });
+        }
       }
     }
   }

@@ -28,10 +28,20 @@ app.disable("x-powered-by");
 // Security headers on every response (must run before the routes).
 app.use(securityHeaders);
 
+// FIX #11 (F-03) — CORS must fail CLOSED, never reflect every origin.
+// Production: only the configured FRONTEND_URL is allowed; localhost is
+// never automatically trusted, and a missing FRONTEND_URL means NO origin
+// is allowed (rather than the previous `true`, which reflected any origin).
+// Development: the local Next.js dev server is also allowed, so local work
+// keeps working without needing FRONTEND_URL set.
 const frontendUrl = process.env.FRONTEND_URL;
+const isProduction = process.env.NODE_ENV === "production";
+const corsOrigin: string[] | false = isProduction
+  ? (frontendUrl ? [frontendUrl] : false)
+  : (frontendUrl ? [frontendUrl, "http://localhost:3000"] : ["http://localhost:3000"]);
 app.use(
   cors({
-    origin: frontendUrl ? [frontendUrl, "http://localhost:3000"] : true,
+    origin: corsOrigin,
     credentials: true,
   }),
 );
