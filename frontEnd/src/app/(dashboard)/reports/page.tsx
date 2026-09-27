@@ -28,6 +28,16 @@ interface MonthlyReport {
   newPatients: number;
   topDoctors: { id: string; name: string; count: number }[];
   daily: { date: string; revenue: number; appointments: number }[];
+  // FIX #4 — Scheduled vs Walk-in visit sources for the same period.
+  visitSources: {
+    total: number;
+    scheduled: number;
+    walkIn: number;
+    scheduledPct: number;
+    walkInPct: number;
+    clinicScheduled: number;
+    onlineBooking: number;
+  };
 }
 
 export default function ReportsPage() {
@@ -212,6 +222,59 @@ export default function ReportsPage() {
                 );
               })}
             </div>
+          </div>
+
+          {/* Visit sources — Scheduled vs Walk-in (FIX #4) */}
+          <div className="mb-4 card p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="text-xs font-medium text-ink">{t("reports.visitSources")}</div>
+              <div className="text-end">
+                <div className="text-lg font-medium text-ink">{data.visitSources.total}</div>
+                <div className="text-[9px] tracking-widest text-mute">{t("reports.totalVisits")}</div>
+              </div>
+            </div>
+
+            <div className="mb-2">
+              <div className="mb-0.5 flex justify-between text-[10px] text-mute">
+                <span>{t("reports.scheduledVisits")}</span>
+                <span className="text-ink">
+                  {data.visitSources.scheduled} · {data.visitSources.scheduledPct}%
+                </span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-soft">
+                <div className="h-full bg-teal" style={{ width: `${data.visitSources.scheduledPct}%` }} />
+              </div>
+            </div>
+
+            <div className="mb-3">
+              <div className="mb-0.5 flex justify-between text-[10px] text-mute">
+                <span>{t("reports.walkInVisits")}</span>
+                <span className="text-ink">
+                  {data.visitSources.walkIn} · {data.visitSources.walkInPct}%
+                </span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-soft">
+                <div className="h-full bg-sky" style={{ width: `${data.visitSources.walkInPct}%` }} />
+              </div>
+            </div>
+
+            {/* Secondary breakdown — only shown when there's something to
+                break down; Clinic Scheduled vs Online Booking is reliably
+                distinguishable via the existing `source` field, so this is
+                a safe, non-fabricated extra layer of detail. */}
+            {(data.visitSources.clinicScheduled > 0 || data.visitSources.onlineBooking > 0) && (
+              <div className="rounded-lg border border-edge bg-card2 px-3 py-2">
+                <div className="mb-1.5 text-[9px] tracking-widest text-mute">{t("reports.scheduledBreakdown")}</div>
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="text-mute">{t("reports.clinicScheduled")}</span>
+                  <span className="text-ink">{data.visitSources.clinicScheduled}</span>
+                </div>
+                <div className="mt-1 flex items-center justify-between text-[10px]">
+                  <span className="text-mute">{t("reports.onlineBooking")}</span>
+                  <span className="text-ink">{data.visitSources.onlineBooking}</span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Top doctors */}

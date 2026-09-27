@@ -448,9 +448,11 @@ export default function InvoicesPage() {
 
       {/* Table */}
       <div className="card overflow-x-auto">
-        <div className="flex min-w-[640px] border-b border-edge bg-card2 px-4 py-2 text-[9px] font-medium tracking-widest text-mute">
+        <div className="flex min-w-[820px] border-b border-edge bg-card2 px-4 py-2 text-[9px] font-medium tracking-widest text-mute">
           <span className="w-24 shrink-0">{t("inv.invoice")}</span>
-          <span className="flex-[1.2]">{t("pt.patient")}</span>
+          <span className="flex-1">{t("pt.patient")}</span>
+          <span className="flex-[1.3]">{t("inv.itemsCol")}</span>
+          <span className="w-20 shrink-0">{t("inv.dateCol")}</span>
           <span className="flex-1">{t("inv.paidTotal")}</span>
           <span className="w-20 shrink-0">{t("inv.status")}</span>
           <span className="w-44 shrink-0 text-end">{t("pt.actions")}</span>
@@ -488,12 +490,13 @@ export default function InvoicesPage() {
         {(invoices ?? []).map((inv) => {
           const paid = paidOf(inv);
           const pct = inv.total ? Math.min(100, Math.round((paid / inv.total) * 100)) : 100;
+          const itemsLabel = inv.items.map((it) => it.description).join(", ");
           return (
-            <div key={inv._id} className="flex min-w-[640px] items-center border-b border-edge px-4 py-2.5 last:border-0">
+            <div key={inv._id} className="flex min-w-[820px] items-center border-b border-edge px-4 py-2.5 last:border-0">
               <span className="w-24 shrink-0 font-mono text-[10px] text-blue">
                 INV-{String(inv.invoiceNumber).padStart(4, "0")}
               </span>
-              <span className="min-w-0 flex-[1.2] pe-2">
+              <span className="min-w-0 flex-1 pe-2">
                 <span className="flex items-center gap-1.5">
                   <span className="truncate text-[11px] font-medium text-ink">
                     <Highlight text={inv.patientId?.fullName ?? ""} query={search} />
@@ -509,6 +512,14 @@ export default function InvoicesPage() {
                     {inv.patientId.phone}
                   </span>
                 )}
+              </span>
+              <span className="min-w-0 flex-[1.3] pe-2">
+                <span className="block truncate text-[11px] text-ink" title={itemsLabel}>
+                  {itemsLabel}
+                </span>
+              </span>
+              <span className="w-20 shrink-0 font-mono text-[10px] text-mute">
+                {new Date(inv.createdAt).toLocaleDateString()}
               </span>
               <span className="flex-1 pe-3">
                 <span className="font-mono text-[10px] text-ink">

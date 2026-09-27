@@ -1,9 +1,10 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
+import { api, errMsg } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { useToast } from "@/components/Toast";
 import { useSelectedPatient } from "@/store/patient";
 import DepthIcon from "@/components/DepthIcon";
 import FloatingPlus from "@/components/FloatingPlus";
@@ -58,9 +59,21 @@ type EditTab = "personal" | "medical" | "contact";
 export default function PatientProfilePage() {
   const { t } = useI18n();
   const qc = useQueryClient();
+  const toast = useToast();
   const selected = useSelectedPatient((s) => s.selected);
   const select = useSelectedPatient((s) => s.select);
   const [editing, setEditing] = useState<EditTab | null>(null);
+
+  // ===== NEW — Add/Edit Visit Note directly from Visit History (Fix #2) =====
+  // Reuses the SAME `PATCH /appointments/:id/status` endpoint the
+  // Appointments page already uses to save visitNote — sending ONLY
+  // `visitNote` (no status/startAt/duration/doctorId) means the backend's
+  // schedule-revalidation branch never runs, so this can never fail just
+  // because the visit is historical, and it can never touch the visit's
+  // date/time/doctor or any invoice/payment data.
+  const [notingVisit, setNotingVisit] = useState<Appointment | null>(null);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [noteError, setNoteError] = useState("");
 
   // NEW — always read the latest version of the file from the server (the
   // stored selection can be stale after an edit from another device).
@@ -71,6 +84,27 @@ export default function PatientProfilePage() {
     initialData: selected ?? undefined,
   });
   const patient = fresh ?? selected;
+
+  const saveNote = useMutation({
+    mutationFn: async () => {
+      if (!notingVisit) return;
+      await api.patch(`/appointments/${notingVisit._id}/status`, {
+        visitNote: noteDraft.trim(),
+      });
+    },
+    onSuccess: () => {
+      toast.success(t("tst.savedTitle"), t("tst.savedBody"));
+      qc.invalidateQueries({ queryKey: ["patient-appointments", patient?._id] });
+      setNotingVisit(null);
+    },
+    onError: (e) => setNoteError(errMsg(e, t("common.error"))),
+  });
+
+  const openNoteEditor = (v: Appointment) => {
+    setNoteDraft(v.visitNote ?? "");
+    setNoteError("");
+    setNotingVisit(v);
+  };
 
   // Patient Profile's Visit History — scoped server-side by patientId (the
   // backend always combines this with clinicId, so this can never pull in
@@ -328,6 +362,7 @@ export default function PatientProfilePage() {
               <div className="grid gap-1.5">
                 {sortedInvoices.map((inv) => {
                   const paid = paidOf(inv);
+                  const items = inv.items.map((it) => it.description).join(", ");
                   return (
                     <div
                       key={inv._id}
@@ -349,6 +384,14 @@ export default function PatientProfilePage() {
                       >
                         {t("pp.viewInvoice")}
                       </Link>
+                      {items && (
+                        <span
+                          className="block w-full truncate text-[10px] text-mute"
+                          title={items}
+                        >
+                          {t("inv.items")}: {items}
+                        </span>
+                      )}
                     </div>
                   );
                 })}
@@ -526,6 +569,26 @@ export default function PatientProfilePage() {
                       ) : (
                         <p className="mt-1 text-[10px] italic text-mute/70">{t("pp.noVisitNote")}</p>
                       )}
+                      {/* ===== NEW — Add/Edit Visit Note from Visit History (Fix #2).
+                           Available on every past visit regardless of status
+                           (completed, cancelled, no-show, or a past-dated
+                           scheduled/confirmed one) — the doctor may still need
+                           to document what happened, and ClinicOS already lets
+                           staff edit visitNote on any status from the
+                           Appointments page, so this doesn't add a new
+                           restriction. Past time alone never blocks this. ===== */}
+                      <button
+                        onClick={() => openNoteEditor(v)}
+                        className="btn-ghost mt-1.5 !px-2 !py-1 text-[9px]"
+                      >
+                        {v.visitNote ? (
+                          <>
+                            <IconPencil size={11} /> {t("pp.editNote")}
+                          </>
+                        ) : (
+                          t("pp.addNote")
+                        )}
+                      </button>
                     </div>
                   </div>
                 );
@@ -533,6 +596,48 @@ export default function PatientProfilePage() {
             </div>
           </div>
         </div>
+
+        {/* ===== NEW — Add/Edit Visit Note modal (Fix #2) ===== */}
+        {notingVisit && (
+          <Modal
+            title={notingVisit.visitNote ? t("pp.editNote") : t("pp.addNote")}
+            subtitle={`${new Date(notingVisit.startAt).toLocaleDateString(undefined, {
+              month: "short",
+              day: "numeric",
+            })} · ${new Date(notingVisit.startAt).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: true,
+            })}`}
+            onClose={() => setNotingVisit(null)}
+          >
+            {noteError && (
+              <p className="mb-2 rounded-lg bg-red-500/10 px-3 py-2 text-[11px] text-red-400">{noteError}</p>
+            )}
+            <label className="lbl">{t("ap.visitNote")}</label>
+            <textarea
+              dir="auto"
+              className="inp min-h-[120px] resize-y"
+              placeholder={t("ap.visitNotePlaceholder")}
+              value={noteDraft}
+              onChange={(e) => setNoteDraft(e.target.value)}
+              maxLength={1000}
+              autoFocus
+            />
+            <div className="mt-3 flex justify-end gap-2">
+              <button onClick={() => setNotingVisit(null)} className="btn-ghost !px-3 !py-1.5 text-[11px]">
+                {t("common.cancel")}
+              </button>
+              <button
+                onClick={() => saveNote.mutate()}
+                disabled={saveNote.isPending}
+                className="btn-teal !px-3 !py-1.5 text-[11px] disabled:opacity-60"
+              >
+                {saveNote.isPending ? t("pp.savingNote") : t("pp.saveNote")}
+              </button>
+            </div>
+          </Modal>
+        )}
       </div>
 
       {/* ===== NEW — Edit the whole file ===== */}

@@ -17,7 +17,11 @@ const createAppointmentSchema = z
   .object({
     patientId: z.string().length(24),
     doctorId: z.string().length(24),
-    startAt: z.string().datetime(),
+    // Required for a normal scheduled/dashboard appointment. Omitted (and
+    // ignored if sent) for a walk-in — FIX #3: a Walk-in's arrival time is
+    // always the server's own "now", never a client-supplied time, so a
+    // stale/replayed/incorrect client clock can never misrecord it.
+    startAt: z.string().datetime().optional(),
     duration: z.number().min(10).max(180).optional(),
     notes: z.string().max(500).optional(),
     visitType: z.enum(["consultation", "procedure"]).default("consultation"),
@@ -28,6 +32,15 @@ const createAppointmentSchema = z
     // request here; "public" is reserved for the public booking endpoint
     // and can never be set through this one.
     source: z.enum(["dashboard", "walk_in"]).optional(),
+    // FIX #3 — optional short note on why a walk-in patient came in.
+    // Reuses the existing `visitNote` field at creation time (see below) —
+    // no separate "Walk-in note" system, so Fix #2's Add/Edit Note keeps
+    // working on it unchanged.
+    reason: z.string().max(300).optional(),
+  })
+  .refine((data) => data.source === "walk_in" || !!data.startAt, {
+    message: "startAt is required",
+    path: ["startAt"],
   })
   .refine(
     (data) => data.visitType !== "procedure" || !!data.procedureNote?.trim(),
@@ -43,21 +56,48 @@ const createBlockSchema = z.object({
 
 export const createAppointment = asyncHandler(async (req: Request, res: Response) => {
   const data = createAppointmentSchema.parse(req.body);
-
-  const startAt = new Date(data.startAt);
+  const isWalkIn = data.source === "walk_in";
 
   const clinic = await Clinic.findById(req.clinicId);
   if (!clinic) return res.status(404).json({ message: "Clinic not found" });
 
-  const duration = data.duration ?? clinic.slotDuration;
+  // FIX #3 — TRUE WALK-IN WORKFLOW.
+  //
+  // A Walk-in documents a patient who has ALREADY physically arrived — it
+  // is a VISIT RECORD, not a schedule reservation ("we squeeze the walk-in
+  // between our appointments"). Its arrival time is always the server's
+  // current Jordan clock time, never a client-supplied or slot-grid-aligned
+  // time, and it deliberately skips the two checks below:
+  //
+  //   - checkAppointmentTiming (past-time / closed-day / working-hours /
+  //     break-window): these all answer "can I reserve this FUTURE slot?",
+  //     which doesn't apply to an event that already happened. Reusing it
+  //     here would in fact reject almost every walk-in outright — "now" is
+  //     already <= Date.now() by the time this request is processed, so
+  //     the past-time guard alone would fail every single one.
+  //   - findOverlappingAppointment (double-booking guard): a walk-in must
+  //     be allowed to coexist with an existing scheduled appointment AND
+  //     with other walk-ins (doctor's own description of the workflow).
+  //
+  // A normal ("dashboard") appointment is completely unaffected — it still
+  // requires startAt/duration and still runs both checks exactly as
+  // before. Walk-ins are also made non-blocking FOR OTHERS centrally, in
+  // findOverlappingAppointment (excluded by source there), so a real
+  // scheduled/public appointment can never be rejected because a walk-in
+  // happens to occupy that time.
+  const startAt = isWalkIn ? new Date() : new Date(data.startAt!);
+  const duration = isWalkIn ? clinic.slotDuration : data.duration ?? clinic.slotDuration;
 
-  // ==== Shared business rules: past-time, closed day, hours fit, break window ====
-  const timing = checkAppointmentTiming(clinic, startAt, duration);
-  if (timing) {
-    return res.status(400).json({ message: timing.message, code: timing.code });
+  if (!isWalkIn) {
+    // ==== Shared business rules: past-time, closed day, hours fit, break window ====
+    const timing = checkAppointmentTiming(clinic, startAt, duration);
+    if (timing) {
+      return res.status(400).json({ message: timing.message, code: timing.code });
+    }
   }
 
-  // ==== Enforce trial appointment cap (shared) ====
+  // ==== Enforce trial appointment cap (shared) — a Walk-in still consumes
+  // the clinic's plan quota exactly like any other appointment record. ====
   const limits = PLANS[clinic.plan as Plan];
   if (limits.maxAppointments !== -1) {
     const count = await Appointment.countDocuments({ clinicId: req.clinicId });
@@ -83,14 +123,16 @@ export const createAppointment = asyncHandler(async (req: Request, res: Response
   if (!patient) return res.status(404).json({ message: "Patient not found" });
   if (!doctor) return res.status(404).json({ message: "Doctor not found" });
 
-  // ==== Real interval-overlap conflict check ====
-  // The DB's unique index only catches an identical startAt — this also
-  // catches landing inside an existing LONGER appointment/block (e.g. a
-  // 60-minute appointment at 10:00 already occupies 10:30, even though no
-  // appointment starts exactly at 10:30).
-  const conflict = await findOverlappingAppointment(req.clinicId!, data.doctorId, startAt, duration);
-  if (conflict) {
-    return res.status(409).json({ message: "This time overlaps another appointment", code: "SLOT_TAKEN" });
+  if (!isWalkIn) {
+    // ==== Real interval-overlap conflict check ====
+    // The DB's unique index only catches an identical startAt — this also
+    // catches landing inside an existing LONGER appointment/block (e.g. a
+    // 60-minute appointment at 10:00 already occupies 10:30, even though no
+    // appointment starts exactly at 10:30).
+    const conflict = await findOverlappingAppointment(req.clinicId!, data.doctorId, startAt, duration);
+    if (conflict) {
+      return res.status(409).json({ message: "This time overlaps another appointment", code: "SLOT_TAKEN" });
+    }
   }
 
   const appointment = await Appointment.create({
@@ -102,6 +144,7 @@ export const createAppointment = asyncHandler(async (req: Request, res: Response
     source: data.source ?? "dashboard",
     visitType: data.visitType,
     procedureNote: data.visitType === "procedure" ? data.procedureNote?.trim() : undefined,
+    visitNote: isWalkIn ? data.reason?.trim() || undefined : undefined,
   });
 
   return res.status(201).json(appointment);

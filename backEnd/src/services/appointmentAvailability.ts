@@ -25,6 +25,15 @@ import { intervalsOverlap } from "../utils/workingHoursTime";
  * `excludeAppointmentId` is for a future "reschedule this appointment" flow
  * to exclude the appointment being edited from the check; unused today but
  * kept so this stays correct if that's ever added.
+ *
+ * FIX #3 — a Walk-in (`source: "walk_in"`) is a VISIT RECORD, not a
+ * schedule reservation: the clinic "squeezes it in" between real
+ * appointments, so it must never be treated as a blocker here. This is the
+ * ONE centralized place that answers "does something else occupy this
+ * time?" for every caller (dashboard create/reschedule, public booking,
+ * blocks, the AI tool) — excluding walk-ins here is what makes them
+ * non-blocking everywhere at once, without scattering source checks across
+ * every call site.
  */
 export async function findOverlappingAppointment(
   clinicId: Types.ObjectId | string,
@@ -47,6 +56,8 @@ export async function findOverlappingAppointment(
     clinicId,
     doctorId,
     status: { $in: ["scheduled", "confirmed"] },
+    // FIX #3 — walk-ins never block; see note above.
+    source: { $ne: "walk_in" },
     startAt: { $gte: windowStart, $lt: windowEnd },
   };
   if (excludeAppointmentId) {

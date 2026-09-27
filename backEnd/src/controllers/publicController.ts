@@ -228,6 +228,9 @@ export const getAvailableSlots = asyncHandler(
       doctorId,
       startAt: { $gte: day, $lt: nextDay },
       status: { $in: ["scheduled", "confirmed"] },
+      // FIX #3 — a Walk-in is a visit record, not a schedule reservation;
+      // it must never make an otherwise-free public slot look taken.
+      source: { $ne: "walk_in" },
     }).select("startAt duration");
 
     // Build each booked appointment's OCCUPIED INTERVAL as minute-of-day
