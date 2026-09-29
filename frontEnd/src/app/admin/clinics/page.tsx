@@ -6,6 +6,7 @@ import { adminApi } from "@/lib/adminApi";
 import PlanBadge from "@/components/admin/PlanBadge";
 import StatusBadge from "@/components/admin/StatusBadge";
 import ExpiryBadge from "@/components/admin/ExpiryBadge";
+import { getSpecialtyLabel } from "@/lib/specialties";
 import { IconSearch, IconEye, IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 
 interface ClinicRow {
@@ -148,7 +149,7 @@ export default function ClinicsPage() {
                     <div className="font-medium text-white">{c.name}</div>
                     <div className="text-[10px] text-red-200/40">/{c.slug}</div>
                   </td>
-                  <td className="px-4 py-3 text-red-100/80">{c.specialty}</td>
+                  <td className="px-4 py-3 text-red-100/80">{getSpecialtyLabel(c.specialty, "en")}</td>
                   <td className="px-4 py-3">
                     <PlanBadge plan={c.plan} />
                   </td>

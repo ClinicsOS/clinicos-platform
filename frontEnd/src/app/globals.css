@@ -111,6 +111,9 @@ body {
   .fade-up {
     animation: fadeup 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
   }
+  .dropdown-in {
+    animation: dropdownin 0.12s ease-out;
+  }
   /* Splash choreography: spin in place ~1s, shrink, fly to top-left */
   .splash-play .sp-cube-wrap {
     animation: spfly 2.4s cubic-bezier(0.6, 0.05, 0.25, 1) forwards;
@@ -138,6 +141,16 @@ body {
   }
   to {
     transform: rotateX(-16deg) rotateY(360deg);
+  }
+}
+@keyframes dropdownin {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 @keyframes bob {
@@ -341,4 +354,17 @@ body {
   background-size: 200px 100%;
   animation: skeleton-shimmer 1.4s ease-in-out infinite;
   border-radius: 0.5rem;
+}
+
+
+/* ===== Dentistry module: entrance / panel motion (disabled for reduced motion) ===== */
+@keyframes dnFadeIn { from { opacity: 0 } to { opacity: 1 } }
+@keyframes dnPanelIn { from { opacity: 0; transform: translateX(16px) } to { opacity: 1; transform: none } }
+@keyframes dnSheetIn { from { opacity: 0; transform: translateY(16px) } to { opacity: 1; transform: none } }
+.dn-fade-in { animation: dnFadeIn 250ms ease-out both; }
+.dn-ui-in { animation: dnFadeIn 600ms ease-out 900ms both; }
+.dn-panel-in { animation: dnPanelIn 350ms ease-out 500ms both; }
+.dn-sheet-in { animation: dnSheetIn 300ms ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .dn-fade-in, .dn-ui-in, .dn-panel-in, .dn-sheet-in { animation: none; }
 }

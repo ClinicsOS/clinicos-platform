@@ -14,6 +14,8 @@
  *   - Set the environment variables below.
  */
 
+import { getSpecialtyLabel } from "../config/specialties";
+
 const apiKey = process.env.RESEND_API_KEY || "";
 const mailFromEmail = process.env.MAIL_FROM_EMAIL || "no-reply@clinicosjo.com";
 const mailFromName = process.env.MAIL_FROM_NAME || "ClinicOS";
@@ -247,7 +249,7 @@ export async function sendNewClinicRegistrationNotification(opts: {
     html: wrap(
       `عيادة جديدة سجّلت على ClinicOS 🎉`,
       `<p><b>العيادة:</b> ${esc(opts.clinicName)}<br/>
-       <b>التخصص:</b> ${esc(opts.specialty)}<br/>
+       <b>التخصص:</b> ${esc(getSpecialtyLabel(opts.specialty, "ar"))}<br/>
        <b>المالك:</b> ${esc(opts.ownerName)}<br/>
        <b>الإيميل:</b> ${esc(opts.ownerEmail)}<br/>
        <b>الهاتف:</b> ${esc(opts.phone || "—")}<br/>

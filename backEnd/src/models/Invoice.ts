@@ -4,6 +4,10 @@ interface IInvoiceItem {
   description: string;
   price: number;
   qty: number;
+  // Optional provenance: set ONLY by trusted server code (e.g. dental billing), never from a client payload.
+  // Every existing invoice item simply has neither field.
+  sourceType?: "dental_treatment";
+  sourceId?: Types.ObjectId;
 }
 interface IPayment {
   amount: number;
@@ -37,6 +41,8 @@ const invoiceSchema = new Schema<IInvoice>(
         description: { type: String, required: true },
         price: { type: Number, required: true, min: 0 },
         qty: { type: Number, required: true, min: 1, default: 1 },
+        sourceType: { type: String, enum: ["dental_treatment"] },
+        sourceId: { type: Schema.Types.ObjectId },
       },
     ],
     discount: { type: Number, default: 0, min: 0 },

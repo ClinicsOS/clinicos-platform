@@ -6,7 +6,8 @@ import { useAuth } from "@/store/auth";
 import { useI18n } from "@/lib/i18n";
 import { todayLocal } from "@/lib/dates";
 import DepthIcon from "@/components/DepthIcon";
-import type { Stats, Appointment, Patient } from "@/lib/types";
+import dynamic from "next/dynamic";
+import type { Stats, Appointment, Patient, Clinic } from "@/lib/types";
 import {
   IconCalendarEvent,
   IconCircleCheck,
@@ -23,9 +24,18 @@ const pillClass: Record<string, string> = {
   no_show: "bg-amber-500/15 text-amber-400",
 };
 
+// Dentistry-only cockpit (Today/Treatment Overview/Active/Needs Billing/Recent Activity/Quick Actions). Loaded on
+// demand so a non-dentistry clinic's dashboard bundle and requests are completely unaffected.
+const DentalDashboard = dynamic(() => import("@/components/dental/treatment/DentalDashboard"), { ssr: false });
+
 export default function DashboardPage() {
   const { t } = useI18n();
   const user = useAuth((s) => s.user);
+
+  // Same query key the layout/appointments pages already use for the clinic — react-query dedupes it, so this
+  // adds no extra request. specialty decides whether the Dentistry cockpit renders; nothing else here changes it.
+  const { data: clinic } = useQuery({ queryKey: ["clinic"], queryFn: async () => (await api.get<Clinic>("/clinic")).data });
+  const isDental = clinic?.specialty === "dentistry";
 
   const { data: stats } = useQuery({
     queryKey: ["stats"],
@@ -51,6 +61,7 @@ export default function DashboardPage() {
 
   return (
     <div>
+      {isDental && <DentalDashboard />}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-medium text-ink">
@@ -76,7 +87,7 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+      <div className={`mt-3 grid gap-3 ${isDental ? "" : "lg:grid-cols-2"}`}>
         {/* Week chart — pure CSS bars, same as the prototype */}
         <div className="card p-4">
           <h2 className="mb-4 text-xs font-medium text-ink">{t("dash.week")}</h2>
@@ -100,8 +111,8 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Today's schedule */}
-        <div className="card p-4">
+        {/* Today's schedule — superseded by the Dentistry cockpit's own Today section above (same appointment data, plus treatment context), so it's hidden there instead of showing the same list twice. */}
+        {!isDental && <div className="card p-4">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-xs font-medium text-ink">{t("dash.today")}</h2>
             <Link href="/appointments" className="text-[10px] text-blue hover:underline">{t("ap.title")} →</Link>
@@ -140,7 +151,7 @@ export default function DashboardPage() {
               </div>
             );
           })}
-        </div>
+        </div>}
       </div>
     </div>
   );

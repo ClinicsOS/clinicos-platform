@@ -8,12 +8,12 @@ import { useI18n } from "@/lib/i18n";
 import { useTheme } from "@/lib/theme";
 import Cube3D from "@/components/Cube3D";
 import FloatingPlus from "@/components/FloatingPlus";
+import SpecialtySelector from "@/components/SpecialtySelector";
 import {
   IconMail,
   IconLock,
   IconUser,
   IconBuildingHospital,
-  IconStethoscope,
   IconArrowRight,
   IconArrowLeft,
   IconCircleCheck,
@@ -58,6 +58,10 @@ export default function SignUpPage() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!specialty) {
+      setError(t("su.specialtyRequired"));
+      return;
+    }
     if (!agree) {
       setError(t("su.mustAgree"));
       return;
@@ -184,20 +188,7 @@ export default function SignUpPage() {
 
             <div>
               <label className="lbl">{t("su.specialty")}</label>
-              <div className="relative">
-                <IconStethoscope
-                  size={14}
-                  className="pointer-events-none absolute top-1/2 -translate-y-1/2 text-mute ltr:left-3 rtl:right-3"
-                />
-                <input
-                  required
-                  minLength={2}
-                  className="inp ltr:pl-9 rtl:pr-9"
-                  placeholder={t("su.specialtyHint")}
-                  value={specialty}
-                  onChange={(e) => setSpecialty(e.target.value)}
-                />
-              </div>
+              <SpecialtySelector value={specialty} onChange={setSpecialty} />
             </div>
 
             <div>

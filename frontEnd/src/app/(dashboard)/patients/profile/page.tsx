@@ -1,16 +1,19 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
-import { api, errMsg } from "@/lib/api";
+import dynamic from "next/dynamic";
+import { useAuth } from "@/store/auth";
+import { useTreatmentPlan } from "@/lib/dental/hooks";
+import { StatusPill as TxStatusPill, TargetText as TxTargetText } from "@/components/dental/treatment/shared";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
-import { useToast } from "@/components/Toast";
 import { useSelectedPatient } from "@/store/patient";
 import DepthIcon from "@/components/DepthIcon";
 import FloatingPlus from "@/components/FloatingPlus";
 import Modal from "@/components/Modal";
 import PatientForm from "@/components/patients/PatientForm";
-import { paidOf, type Appointment, type Invoice, type Patient } from "@/lib/types";
+import { paidOf, type Appointment, type Clinic, type Invoice, type Patient } from "@/lib/types";
 import {
   MEDICAL_GROUPS,
   activeFlags,
@@ -56,24 +59,41 @@ const invoiceStatusPill: Record<string, string> = {
 
 type EditTab = "personal" | "medical" | "contact";
 
+// Dentistry module — code-split: the 3D bundle is only downloaded when a dentistry
+// clinic opens the Dental Chart tab (never for other specialties / other tabs).
+function DentalLoading() {
+  const { t } = useI18n();
+  return <div className="card flex h-[420px] items-center justify-center text-sm text-mute animate-pulse">{t("dn.loading")}</div>;
+}
+// Treatment Plan workspace — same rule: loaded only when a dentistry clinic opens the tab.
+const PrintExportMenu = dynamic(() => import("@/components/dental/treatment/PrintExportMenu"), { ssr: false });
+const DentalOverviewCard = dynamic(() => import("@/components/dental/treatment/DentalOverviewCard"), { ssr: false });
+const TreatmentPlanTab = dynamic(() => import("@/components/dental/treatment/TreatmentPlanTab"), {
+  ssr: false,
+  loading: () => <DentalLoading />,
+});
+const DentalChartTab = dynamic(() => import("@/components/dental/DentalChartTab"), {
+  ssr: false,
+  loading: () => <DentalLoading />,
+});
+
 export default function PatientProfilePage() {
   const { t } = useI18n();
   const qc = useQueryClient();
-  const toast = useToast();
   const selected = useSelectedPatient((s) => s.selected);
   const select = useSelectedPatient((s) => s.select);
   const [editing, setEditing] = useState<EditTab | null>(null);
 
-  // ===== NEW — Add/Edit Visit Note directly from Visit History (Fix #2) =====
-  // Reuses the SAME `PATCH /appointments/:id/status` endpoint the
-  // Appointments page already uses to save visitNote — sending ONLY
-  // `visitNote` (no status/startAt/duration/doctorId) means the backend's
-  // schedule-revalidation branch never runs, so this can never fail just
-  // because the visit is historical, and it can never touch the visit's
-  // date/time/doctor or any invoice/payment data.
-  const [notingVisit, setNotingVisit] = useState<Appointment | null>(null);
-  const [noteDraft, setNoteDraft] = useState("");
-  const [noteError, setNoteError] = useState("");
+  // Dentistry module: enabled ONLY for the stable specialty id "dentistry" (never a translated label).
+  // Same ["clinic"] query the dashboard layout already runs, so this is a cache hit, not a new request.
+  // The server independently enforces this on every /dental API call.
+  const { data: clinic } = useQuery({
+    queryKey: ["clinic"],
+    queryFn: async () => (await api.get<Clinic>("/clinic")).data,
+    staleTime: 60_000,
+  });
+  const isDental = clinic?.specialty === "dentistry";
+  const [tab, setTab] = useState<"overview" | "dental" | "plan">("overview");
 
   // NEW — always read the latest version of the file from the server (the
   // stored selection can be stale after an edit from another device).
@@ -84,27 +104,6 @@ export default function PatientProfilePage() {
     initialData: selected ?? undefined,
   });
   const patient = fresh ?? selected;
-
-  const saveNote = useMutation({
-    mutationFn: async () => {
-      if (!notingVisit) return;
-      await api.patch(`/appointments/${notingVisit._id}/status`, {
-        visitNote: noteDraft.trim(),
-      });
-    },
-    onSuccess: () => {
-      toast.success(t("tst.savedTitle"), t("tst.savedBody"));
-      qc.invalidateQueries({ queryKey: ["patient-appointments", patient?._id] });
-      setNotingVisit(null);
-    },
-    onError: (e) => setNoteError(errMsg(e, t("common.error"))),
-  });
-
-  const openNoteEditor = (v: Appointment) => {
-    setNoteDraft(v.visitNote ?? "");
-    setNoteError("");
-    setNotingVisit(v);
-  };
 
   // Patient Profile's Visit History — scoped server-side by patientId (the
   // backend always combines this with clinicId, so this can never pull in
@@ -121,6 +120,12 @@ export default function PatientProfilePage() {
     queryFn: async () => (await api.get<Invoice[]>(`/invoices?patientId=${patient!._id}`)).data,
     enabled: !!patient,
   });
+
+  // Dentistry only: treatment sessions performed in each existing visit (shown inside Visit History) + write permission
+  // for the Treatment Plan tab. Same roles as every other dental clinical action.
+  const role = useAuth((s) => s.user?.role);
+  const canWriteDental = role === "owner" || role === "doctor";
+  const treatQ = useTreatmentPlan(patient?._id ?? "", isDental && !!patient);
 
   if (!patient) {
     return (
@@ -257,8 +262,42 @@ export default function PatientProfilePage() {
           </button>
           <Link href="/appointments" className="btn-teal !py-2 text-xs"><IconCalendarPlus size={14} /> {t("pp.book")}</Link>
           <Link href="/invoices" className="btn-ghost !bg-sky/10 !text-[#DCEBF7] !border-[#8FB3CC]/50 !py-2 text-xs"><IconReceipt size={14} /> {t("pp.invoice")}</Link>
+          {isDental && <PrintExportMenu patientId={patient._id} />}
         </div>
       </div>
+
+      {/* ===== Dentistry module: tabs (dentistry clinics only) ===== */}
+      {isDental && (
+        <div className="mt-3 flex gap-1 border-b border-edge" role="tablist">
+          {(["overview", "dental", "plan"] as const).map((k) => (
+            <button
+              key={k}
+              type="button"
+              role="tab"
+              aria-selected={tab === k}
+              onClick={() => setTab(k)}
+              className={`-mb-px border-b-2 px-3 py-2 text-xs font-medium transition-colors ${
+                tab === k ? "border-teal text-teal" : "border-transparent text-mute hover:text-ink"
+              }`}
+            >
+              {k === "overview" ? t("dn.tab.overview") : k === "dental" ? t("dn.tab.chart") : t("dn.tab.plan")}
+            </button>
+          ))}
+        </div>
+      )}
+      {isDental && tab === "dental" && (
+        <div className="mt-3">
+          <DentalChartTab patientId={patient._id} patientName={patient.fullName} onOpenPlan={() => setTab("plan")} />
+        </div>
+      )}
+      {isDental && tab === "plan" && (
+        <div className="mt-3">
+          <TreatmentPlanTab patientId={patient._id} patientName={patient.fullName} canWrite={canWriteDental} visits={visits} />
+        </div>
+      )}
+      {!(isDental && tab !== "overview") && (<>
+
+      {isDental && <DentalOverviewCard patientId={patient._id} onOpenChart={() => setTab("dental")} onOpenPlan={() => setTab("plan")} />}
 
       {/* ===== Stats with rotating depth icons ===== */}
       <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -362,7 +401,6 @@ export default function PatientProfilePage() {
               <div className="grid gap-1.5">
                 {sortedInvoices.map((inv) => {
                   const paid = paidOf(inv);
-                  const items = inv.items.map((it) => it.description).join(", ");
                   return (
                     <div
                       key={inv._id}
@@ -384,14 +422,6 @@ export default function PatientProfilePage() {
                       >
                         {t("pp.viewInvoice")}
                       </Link>
-                      {items && (
-                        <span
-                          className="block w-full truncate text-[10px] text-mute"
-                          title={items}
-                        >
-                          {t("inv.items")}: {items}
-                        </span>
-                      )}
                     </div>
                   );
                 })}
@@ -569,26 +599,22 @@ export default function PatientProfilePage() {
                       ) : (
                         <p className="mt-1 text-[10px] italic text-mute/70">{t("pp.noVisitNote")}</p>
                       )}
-                      {/* ===== NEW — Add/Edit Visit Note from Visit History (Fix #2).
-                           Available on every past visit regardless of status
-                           (completed, cancelled, no-show, or a past-dated
-                           scheduled/confirmed one) — the doctor may still need
-                           to document what happened, and ClinicOS already lets
-                           staff edit visitNote on any status from the
-                           Appointments page, so this doesn't add a new
-                           restriction. Past time alone never blocks this. ===== */}
-                      <button
-                        onClick={() => openNoteEditor(v)}
-                        className="btn-ghost mt-1.5 !px-2 !py-1 text-[9px]"
-                      >
-                        {v.visitNote ? (
-                          <>
-                            <IconPencil size={11} /> {t("pp.editNote")}
-                          </>
-                        ) : (
-                          t("pp.addNote")
-                        )}
-                      </button>
+                      {/* Dental procedures performed in THIS existing visit (sessions link to the visit; no duplicate history system) */}
+                      {isDental && (treatQ.data?.sessions ?? []).some((x) => x.appointmentId === v._id) && (
+                        <div className="mt-1.5 border-t border-edge pt-1.5">
+                          <div className="mb-1 text-[9px] font-medium tracking-wide text-mute">{t("dn.dentalProcedures").toUpperCase()}</div>
+                          <div className="space-y-1">
+                            {(treatQ.data?.sessions ?? []).filter((x) => x.appointmentId === v._id).map((x) => (
+                              <div key={x._id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px]">
+                                <span className="text-ink">{t(`dn.p.${x.procedureCode}`)}</span>
+                                <span className="text-mute"><TxTargetText targetType={x.targetType} toothNumbers={x.toothNumbers} surfaces={x.surfaces} /></span>
+                                <span className="text-[10px] text-mute">· {t("dn.session")} {x.sessionNumber}</span>
+                                {x.itemStatus && <TxStatusPill status={x.itemStatus} />}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -596,49 +622,9 @@ export default function PatientProfilePage() {
             </div>
           </div>
         </div>
-
-        {/* ===== NEW — Add/Edit Visit Note modal (Fix #2) ===== */}
-        {notingVisit && (
-          <Modal
-            title={notingVisit.visitNote ? t("pp.editNote") : t("pp.addNote")}
-            subtitle={`${new Date(notingVisit.startAt).toLocaleDateString(undefined, {
-              month: "short",
-              day: "numeric",
-            })} · ${new Date(notingVisit.startAt).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-              hour12: true,
-            })}`}
-            onClose={() => setNotingVisit(null)}
-          >
-            {noteError && (
-              <p className="mb-2 rounded-lg bg-red-500/10 px-3 py-2 text-[11px] text-red-400">{noteError}</p>
-            )}
-            <label className="lbl">{t("ap.visitNote")}</label>
-            <textarea
-              dir="auto"
-              className="inp min-h-[120px] resize-y"
-              placeholder={t("ap.visitNotePlaceholder")}
-              value={noteDraft}
-              onChange={(e) => setNoteDraft(e.target.value)}
-              maxLength={1000}
-              autoFocus
-            />
-            <div className="mt-3 flex justify-end gap-2">
-              <button onClick={() => setNotingVisit(null)} className="btn-ghost !px-3 !py-1.5 text-[11px]">
-                {t("common.cancel")}
-              </button>
-              <button
-                onClick={() => saveNote.mutate()}
-                disabled={saveNote.isPending}
-                className="btn-teal !px-3 !py-1.5 text-[11px] disabled:opacity-60"
-              >
-                {saveNote.isPending ? t("pp.savingNote") : t("pp.saveNote")}
-              </button>
-            </div>
-          </Modal>
-        )}
       </div>
+
+      </>)}
 
       {/* ===== NEW — Edit the whole file ===== */}
       {editing && (

@@ -20,6 +20,7 @@ import adminRoutes from "./routes/adminRoutes";
 import reminderRoutes from "./routes/reminderRoutes"; // NEW — WhatsApp appointment reminders
 import chatRoutes from "./routes/chatRoutes"; // NEW — "معك" chatbot
 import expenseRoutes from "./routes/expenseRoutes"; // NEW — clinic & owner expenses
+import dentalRoutes from "./routes/dentalRoutes"; // NEW — Dentistry module (dentistry clinics only)
 
 const app = express();
 app.set("trust proxy", 1);
@@ -64,6 +65,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/reminders", reminderRoutes); // NEW — WhatsApp appointment reminders
 app.use("/api/chat", chatRoutes); // NEW — "معك" chatbot
 app.use("/api/expenses", expenseRoutes); // NEW — clinic & owner expenses
+app.use("/api/dental", dentalRoutes); // NEW — Dentistry module (specialty-gated server-side)
 
 app.use(errorHandler);
 

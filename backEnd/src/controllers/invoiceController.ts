@@ -55,6 +55,9 @@ const updateInvoiceSchema = z.object({
   items: z
     .array(
       z.object({
+        // Optional: lets the server recognise which existing line this is, so a line that was created from
+        // another module (e.g. a dental treatment) keeps its provenance link when the invoice is edited.
+        _id: z.string().length(24).optional(),
         description: z.string().min(1).max(200),
         price: z.number().min(0).max(100000),
         qty: z.number().min(1).max(1000).default(1),
@@ -88,7 +91,24 @@ export const updateInvoice = asyncHandler(async (req: Request, res: Response) =>
     });
   }
 
-  invoice.items = data.items;
+  // The whole items array is replaced below, which would silently drop the source link of lines that came
+  // from another module (dental billing). Carry it over, decided ONLY by the server's stored copy:
+  //   1) same _id as an existing sourced line;  2) legacy clients that don't send _id: an unchanged line
+  //   (same description/price/qty) takes the source of an as-yet-unmatched sourced line.
+  // A sourced line that matches nothing was really removed/changed by the user — its link is dropped.
+  const existing = invoice.items as unknown as { _id: any; description: string; price: number; qty: number; sourceType?: string; sourceId?: any }[];
+  const sourced = existing.filter((e) => e.sourceType && e.sourceId);
+  const used = new Set<string>();
+  const nextItems = data.items.map((it) => {
+    const { _id, ...rest } = it;
+    let hit = _id ? sourced.find((e) => String(e._id) === _id && !used.has(String(e._id))) : undefined;
+    if (!hit && !_id) hit = sourced.find((e) => !used.has(String(e._id)) && e.description === it.description && e.price === it.price && e.qty === it.qty);
+    if (!hit) return { ...rest };
+    used.add(String(hit._id));
+    return { _id: hit._id, ...rest, sourceType: hit.sourceType, sourceId: hit.sourceId };
+  });
+
+  invoice.items = nextItems as any;
   invoice.discount = data.discount;
   invoice.total = newTotal;
   invoice.status = paidSoFar === 0 ? "unpaid" : paidSoFar >= newTotal ? "paid" : "partially_paid";

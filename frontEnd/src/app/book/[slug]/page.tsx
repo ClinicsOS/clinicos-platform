@@ -11,6 +11,7 @@ import { useI18n } from "@/lib/i18n";
 import { useTheme } from "@/lib/theme";
 import Cube3D from "@/components/Cube3D";
 import FloatingPlus from "@/components/FloatingPlus";
+import { getSpecialtyLabel } from "@/lib/specialties";
 import type { Clinic, WorkingHour } from "@/lib/types";
 import {
   IconClock,
@@ -233,7 +234,7 @@ export default function PublicBookingPage() {
                 {clinic.name}
               </h1>
               <p className="text-[10px]" style={{ color: "var(--hero-text-mute, #8FB3CC)" }}>
-                {clinic.specialty}
+                {getSpecialtyLabel(clinic.specialty, lang)}
                 {clinic.address ? ` · ${clinic.address}` : ""}
               </p>
             </div>

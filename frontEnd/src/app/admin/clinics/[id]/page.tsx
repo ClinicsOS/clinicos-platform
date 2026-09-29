@@ -8,6 +8,7 @@ import { useAdminAuth } from "@/lib/adminAuth";
 import PlanBadge from "@/components/admin/PlanBadge";
 import StatusBadge from "@/components/admin/StatusBadge";
 import ExpiryBadge from "@/components/admin/ExpiryBadge";
+import { getSpecialtyLabel } from "@/lib/specialties";
 import {
   IconArrowLeft,
   IconEdit,
@@ -187,7 +188,7 @@ export default function ClinicDetailsPage() {
             <ExpiryBadge daysUntilExpiry={clinic.daysUntilExpiry} />
           </div>
           <div className="text-[12px] text-red-200/50">
-            {clinic.specialty} · /{clinic.slug} · Registered{" "}
+            {getSpecialtyLabel(clinic.specialty, "en")} · /{clinic.slug} · Registered{" "}
             {new Date(clinic.createdAt).toLocaleDateString()}
           </div>
         </div>

@@ -6,6 +6,7 @@ import { adminApi, adminErrMsg } from "@/lib/adminApi";
 import PlanBadge from "@/components/admin/PlanBadge";
 import StatusBadge from "@/components/admin/StatusBadge";
 import ExpiryBadge from "@/components/admin/ExpiryBadge";
+import { getSpecialtyLabel } from "@/lib/specialties";
 import {
   IconAlertTriangle,
   IconClock,
@@ -113,7 +114,7 @@ export default function ExpiringPage() {
                 <div>
                   <div className="text-sm font-semibold text-white">{c.name}</div>
                   <div className="text-[10px] text-red-200/50">
-                    /{c.slug} · {c.specialty}
+                    /{c.slug} · {getSpecialtyLabel(c.specialty, "en")}
                   </div>
                 </div>
                 <ExpiryBadge daysUntilExpiry={c.daysUntilExpiry} />

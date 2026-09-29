@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
+import { useAuth } from "@/store/auth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, errMsg } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
@@ -67,13 +69,8 @@ function computeSlots(
   // starts at exactly m (that exact-match check was the double-booking
   // hole: a 60-minute appointment at 10:00 occupies 10:30 too, even though
   // nothing else starts exactly at 10:30).
-  //
-  // FIX #3 — Walk-ins (source === "walk_in") are excluded: a Walk-in is a
-  // visit record, not a schedule reservation, so it must never make a slot
-  // in THIS grid look "taken". This mirrors the backend's
-  // findOverlappingAppointment, which excludes them the same way.
   const activeIntervals = activeAppts
-    .filter((a) => (a.status === "scheduled" || a.status === "confirmed") && a.source !== "walk_in")
+    .filter((a) => a.status === "scheduled" || a.status === "confirmed")
     .map((a) => {
       const start = timeToMinutes(fmtTime(a.startAt));
       return { start, end: start + a.duration };
@@ -111,8 +108,10 @@ type SlotVisual = {
   isContinuation: boolean;          // true when `appt` started on an earlier row, not this one
   isPast: boolean;                  // slot is in the past
   isBreak: boolean;                 // falls inside the clinic's break window
-  walkIns: Appointment[];           // FIX #3 — walk-in(s) whose arrival falls in this row; informational only, never blocking
 };
+
+// Dentistry-only section of the visit modal — loaded on demand, so other specialties never download it.
+const VisitDentalSection = dynamic(() => import("@/components/dental/treatment/VisitDentalSection"), { ssr: false });
 
 export default function AppointmentsPage() {
   const { t, lang } = useI18n();
@@ -139,6 +138,30 @@ export default function AppointmentsPage() {
       (await api.get<Appointment[]>(`/appointments?date=${date}`)).data,
     refetchInterval: 5_000,
   });
+
+  // /appointments?appt=<id> — open straight into that visit's modal (e.g. from the Dental Dashboard's "Open Visit"),
+  // the same deep-link pattern already used by /invoices?invoice=. Reads today's list (the default `date`), so it
+  // only resolves same-day appointments; nothing here changes scheduling or the default view for a plain visit.
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const apptParam = searchParams.get("appt");
+    if (apptParam && appointments) {
+      const found = appointments.find((a) => a._id === apptParam);
+      if (found) setEditing(found);
+    }
+  }, [searchParams, appointments]);
+
+  // /appointments?schedule=<patientId>&name=&doctor=&note= — "Schedule Next Visit" from a Dental treatment
+  // session opens straight into New Appointment with the patient (and doctor/context note) pre-filled. The
+  // person still chooses date, time and duration, and every normal scheduling rule still applies.
+  const [scheduleFor, setScheduleFor] = useState<{ patientId: string; name: string; doctorId?: string; note?: string } | null>(null);
+  useEffect(() => {
+    const sp = searchParams.get("schedule");
+    if (sp) {
+      setScheduleFor({ patientId: sp, name: searchParams.get("name") ?? "", doctorId: searchParams.get("doctor") ?? undefined, note: searchParams.get("note") ?? undefined });
+      setCreatingAt(null); setWalkInMode(false); setCreating(true);
+    }
+  }, [searchParams]);
 
   const { data: staff } = useQuery({
     queryKey: ["staff"],
@@ -183,37 +206,16 @@ export default function AppointmentsPage() {
     // intervals — used to mark EVERY grid row a longer appointment spans, not
     // just the one row matching its exact start time (a 60-minute appointment
     // covers two 30-minute grid rows, for example).
-    //
-    // FIX #3 — Walk-ins are excluded from THIS list: a Walk-in is a visit
-    // record, not a schedule reservation, so it must never occupy/cover a
-    // row (that would make the row look "Booked" and count toward the
-    // "Booked"/"Available" stats below, and would stop a real appointment
-    // from being created at that exact time via this row's own click
-    // shortcut). They're still shown — see walkInsByRow below — just not as
-    // a blocker.
     const apptIntervals = (appointments ?? [])
       .filter((a) => {
         const did = typeof a.doctorId === "string" ? a.doctorId : a.doctorId?._id;
         const doctorMatch = docFilter === "all" || did === docFilter;
-        return doctorMatch && a.status !== "cancelled" && a.source !== "walk_in";
+        return doctorMatch && a.status !== "cancelled";
       })
       .map((a) => {
         const start = timeToMinutes(fmtTime(a.startAt));
         return { appt: a, start, end: start + a.duration };
       });
-
-    // FIX #3 — Walk-ins shown ALONGSIDE the grid (so staff still see "a
-    // patient walked in") without occupying/blocking a row: attached only
-    // to the single row containing their actual arrival minute, never
-    // their full duration span, so one walk-in never visually spans
-    // multiple rows the way a real appointment does.
-    const walkInsByRow = (appointments ?? [])
-      .filter((a) => {
-        const did = typeof a.doctorId === "string" ? a.doctorId : a.doctorId?._id;
-        const doctorMatch = docFilter === "all" || did === docFilter;
-        return doctorMatch && a.source === "walk_in" && a.status !== "cancelled";
-      })
-      .map((a) => ({ appt: a, start: timeToMinutes(fmtTime(a.startAt)) }));
 
     const rows: SlotVisual[] = [];
     const now = new Date();
@@ -228,7 +230,6 @@ export default function AppointmentsPage() {
       // Any appointment whose interval covers this grid cell — not only one
       // starting exactly here.
       const covering = apptIntervals.find((iv) => intervalsOverlap(m, m + step, iv.start, iv.end));
-      const walkIns = walkInsByRow.filter((w) => w.start >= m && w.start < m + step).map((w) => w.appt);
 
       rows.push({
         time,
@@ -237,7 +238,6 @@ export default function AppointmentsPage() {
         isContinuation: covering ? covering.start !== m : false,
         isPast: utcStart.getTime() < now.getTime(),
         isBreak: breakStart !== -1 && intervalsOverlap(m, m + step, breakStart, breakEnd),
-        walkIns,
       });
     }
     return rows;
@@ -429,7 +429,21 @@ export default function AppointmentsPage() {
         </div>
       )}
 
-      {creating && clinic && (
+      {creating && clinic && scheduleFor ? (
+        <NewAppointmentModal
+          doctors={doctors}
+          clinic={clinic}
+          initialDate={date}
+          initialTime={null}
+          initialPatientId={scheduleFor.patientId}
+          initialPatientName={scheduleFor.name}
+          initialDoctorId={scheduleFor.doctorId}
+          initialVisitType={scheduleFor.note ? "procedure" : undefined}
+          initialProcedureNote={scheduleFor.note}
+          onClose={() => { setCreating(false); setScheduleFor(null); }}
+          onDone={() => { setCreating(false); setScheduleFor(null); qc.invalidateQueries({ queryKey: ["appointments-day"] }); }}
+        />
+      ) : creating && clinic && (
         <NewAppointmentModal
           doctors={doctors}
           clinic={clinic}
@@ -483,26 +497,7 @@ function TimelineRow({
   onEdit: (a: Appointment) => void;
   t: (k: string) => string;
 }) {
-  const { time, appt, isPast, isBreak, isContinuation, walkIns } = row;
-
-  // FIX #3 — small, non-interactive indicator that a walk-in's arrival
-  // falls in this row, shown only on rows with no OTHER blocking content
-  // (past/break/available) so it never replaces or competes with a real
-  // appointment's card. Never a separate click target — walk-ins are still
-  // reached the normal way (open the day's list, or Patient Profile).
-  const walkInIndicator = walkIns.length > 0 && (
-    <span
-      className="flex shrink-0 items-center gap-1 rounded-full bg-sky/15 px-1.5 py-0.5 text-[8px] text-sky"
-      title={walkIns
-        .map((w) => (typeof w.patientId === "object" ? w.patientId?.fullName : undefined))
-        .filter(Boolean)
-        .join(", ")}
-    >
-      <IconDoorEnter size={9} />
-      {t("ap.walkInBadge")}
-      {walkIns.length > 1 ? ` ×${walkIns.length}` : ""}
-    </span>
-  );
+  const { time, appt, isPast, isBreak, isContinuation } = row;
 
   // Continuation row — this grid cell belongs to a longer appointment that
   // started on an earlier row. Show it's occupied without duplicating the
@@ -645,7 +640,6 @@ function TimelineRow({
         <div className="w-14 font-mono text-[11px] text-mute">{to12h(time)}</div>
         <div className="h-6 w-1 rounded-full bg-mute/30" />
         <span className="text-[10px] italic text-mute">{t("ap.rowPast")}</span>
-        {walkInIndicator}
       </div>
     );
   }
@@ -659,7 +653,6 @@ function TimelineRow({
         <span className="flex items-center gap-1 text-[10px] italic text-amber-500/80">
           <IconCoffee size={11} /> {t("ap.rowBreak")}
         </span>
-        {walkInIndicator}
       </div>
     );
   }
@@ -673,7 +666,6 @@ function TimelineRow({
       <div className="w-14 font-mono text-[11px] text-mute group-hover:text-teal">{to12h(time)}</div>
       <div className="h-6 w-1 rounded-full bg-teal/30 group-hover:bg-teal" />
       <span className="text-[10px] text-mute group-hover:text-teal">{t("ap.rowAvailable")}</span>
-      {walkInIndicator}
       <IconPlus size={11} className="ms-auto text-mute opacity-0 group-hover:opacity-100" />
     </button>
   );
@@ -710,6 +702,11 @@ function NewAppointmentModal({
   initialDate,
   initialTime,
   isWalkIn = false,
+  initialPatientId,
+  initialPatientName,
+  initialDoctorId,
+  initialVisitType,
+  initialProcedureNote,
   onClose,
   onDone,
 }: {
@@ -718,6 +715,13 @@ function NewAppointmentModal({
   initialDate: string;
   initialTime: string | null;
   isWalkIn?: boolean;
+  // Pre-fill for "Schedule Next Visit" (Dental) — the user still picks date/time/duration and confirms; all
+  // normal scheduling rules (working hours, overlap, availability) still run exactly as for any other booking.
+  initialPatientId?: string;
+  initialPatientName?: string;
+  initialDoctorId?: string;
+  initialVisitType?: "consultation" | "procedure";
+  initialProcedureNote?: string;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -725,29 +729,16 @@ function NewAppointmentModal({
   const qc = useQueryClient();
   const toast = useToast();
   const [mode, setMode] = useState<"appointment" | "block">("appointment");
-  const [search, setSearch] = useState("");
-  const [patientId, setPatientId] = useState("");
-  const [doctorId, setDoctorId] = useState(doctors[0]?._id ?? "");
+  const [search, setSearch] = useState(initialPatientName ?? "");
+  const [patientId, setPatientId] = useState(initialPatientId ?? "");
+  const [doctorId, setDoctorId] = useState(initialDoctorId ?? doctors[0]?._id ?? "");
   const [date, setDate] = useState(initialDate);
   const [time, setTime] = useState(initialTime || "");
   const [duration, setDuration] = useState(clinic.slotDuration || 30);
   const [blockNote, setBlockNote] = useState("");
-  const [visitType, setVisitType] = useState<"consultation" | "procedure">("consultation");
-  const [procedureNote, setProcedureNote] = useState("");
+  const [visitType, setVisitType] = useState<"consultation" | "procedure">(initialVisitType ?? "consultation");
+  const [procedureNote, setProcedureNote] = useState(initialProcedureNote ?? "");
   const [error, setError] = useState("");
-
-  // ===== FIX #3 — Walk-in: optional reason-for-visit text, and a live
-  // "Arrival: Now — HH:MM" display. The DISPLAYED clock is cosmetic only —
-  // the actual stored arrival timestamp is always set by the SERVER at the
-  // moment of submission (never this client clock), so this never drifts
-  // from what's actually recorded. =====
-  const [reason, setReason] = useState("");
-  const [nowDisplay, setNowDisplay] = useState<Date | null>(isWalkIn ? new Date() : null);
-  useEffect(() => {
-    if (!isWalkIn) return;
-    const id = window.setInterval(() => setNowDisplay(new Date()), 15_000);
-    return () => window.clearInterval(id);
-  }, [isWalkIn]);
 
   // Quick "register a new patient" — for a walk-in (or any) patient who
   // isn't in the system yet, without leaving this modal.
@@ -795,10 +786,7 @@ function NewAppointmentModal({
           `/appointments?doctorId=${doctorId}&date=${date}`
         )
       ).data,
-    // FIX #3 — a Walk-in never shows/uses the slot grid, so there's no
-    // reason to fetch (and every-5-seconds re-poll) the day's appointments
-    // for it.
-    enabled: !!doctorId && !!date && !isWalkIn,
+    enabled: !!doctorId && !!date,
     refetchInterval: 5_000,
   });
 
@@ -809,18 +797,6 @@ function NewAppointmentModal({
 
   const create = useMutation({
     mutationFn: async () => {
-      if (isWalkIn) {
-        // FIX #3 — no startAt/duration/visitType from the client: the
-        // server sets the arrival time itself and skips scheduling
-        // validation entirely (see appointmentController.ts).
-        await api.post("/appointments", {
-          patientId,
-          doctorId,
-          source: "walk_in",
-          reason: reason.trim() || undefined,
-        });
-        return;
-      }
       const startAt = combineToUTC(date, time);
       await api.post("/appointments", {
         patientId,
@@ -829,6 +805,7 @@ function NewAppointmentModal({
         duration,
         visitType,
         procedureNote: visitType === "procedure" ? procedureNote.trim() : undefined,
+        source: isWalkIn ? "walk_in" : undefined,
       });
     },
     onSuccess: () => {
@@ -836,7 +813,7 @@ function NewAppointmentModal({
       // for a different date than the one currently in view, closing the
       // modal changes nothing visible on screen. Without this, there is no
       // confirmation at all that the booking succeeded.
-      toast.success(t("tst.savedTitle"), isWalkIn ? t("ap.walkInAdded") : t("tst.savedBody"));
+      toast.success(t("tst.savedTitle"), t("tst.savedBody"));
       onDone();
     },
     onError: (e) => setError(errMsg(e, t("ap.taken"))),
@@ -953,38 +930,34 @@ function NewAppointmentModal({
             </div>
           )}
 
-          {!isWalkIn && (
-            <>
-              <label className="lbl">{t("visit.type")}</label>
-              <div className="mb-3 grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setVisitType("consultation")}
-                  className={`rounded-lg border py-2 text-[11px] font-medium ${
-                    visitType === "consultation" ? "border-blue bg-blue/15 text-sky" : "border-edge bg-card2 text-mute"
-                  }`}
-                >
-                  {t("visit.consultation")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setVisitType("procedure")}
-                  className={`rounded-lg border py-2 text-[11px] font-medium ${
-                    visitType === "procedure" ? "border-blue bg-blue/15 text-sky" : "border-edge bg-card2 text-mute"
-                  }`}
-                >
-                  {t("visit.procedure")}
-                </button>
-              </div>
-              {visitType === "procedure" && (
-                <input
-                  className="inp mb-3"
-                  placeholder={t("visit.procedureNotePlaceholder")}
-                  value={procedureNote}
-                  onChange={(e) => setProcedureNote(e.target.value)}
-                />
-              )}
-            </>
+          <label className="lbl">{t("visit.type")}</label>
+          <div className="mb-3 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setVisitType("consultation")}
+              className={`rounded-lg border py-2 text-[11px] font-medium ${
+                visitType === "consultation" ? "border-blue bg-blue/15 text-sky" : "border-edge bg-card2 text-mute"
+              }`}
+            >
+              {t("visit.consultation")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setVisitType("procedure")}
+              className={`rounded-lg border py-2 text-[11px] font-medium ${
+                visitType === "procedure" ? "border-blue bg-blue/15 text-sky" : "border-edge bg-card2 text-mute"
+              }`}
+            >
+              {t("visit.procedure")}
+            </button>
+          </div>
+          {visitType === "procedure" && (
+            <input
+              className="inp mb-3"
+              placeholder={t("visit.procedureNotePlaceholder")}
+              value={procedureNote}
+              onChange={(e) => setProcedureNote(e.target.value)}
+            />
           )}
         </>
       ) : (
@@ -1021,99 +994,72 @@ function NewAppointmentModal({
         </select>
       )}
 
-      {isWalkIn ? (
-        <>
-          {/* FIX #3 — no slot grid, no date/duration picker: a Walk-in
-              documents an actual arrival, it doesn't reserve a future slot. */}
-          <label className="lbl">{t("ap.arrival")}</label>
-          <div
-            className="mb-3 flex items-center gap-2 rounded-lg border border-edge bg-card2 px-3 py-2.5 text-[12px] font-medium text-ink"
-            dir="ltr"
-          >
-            <IconClock size={13} className="text-teal" />
-            {t("ap.arrivalNow")} — {(nowDisplay ?? new Date()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: true })}
-          </div>
-
-          <label className="lbl">{t("ap.reasonForVisit")}</label>
+      <div className="mb-3 grid grid-cols-2 gap-2">
+        <div>
+          <label className="lbl">{t("ap.date")}</label>
           <input
-            dir="auto"
-            className="inp mb-3"
-            placeholder={t("ap.reasonPlaceholder")}
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            maxLength={300}
+            type="date"
+            className="inp"
+            value={date}
+            min={todayLocal()}
+            onChange={(e) => {
+              setDate(e.target.value);
+              setTime("");
+            }}
           />
-        </>
-      ) : (
-        <>
-          <div className="mb-3 grid grid-cols-2 gap-2">
-            <div>
-              <label className="lbl">{t("ap.date")}</label>
-              <input
-                type="date"
-                className="inp"
-                value={date}
-                min={todayLocal()}
-                onChange={(e) => {
-                  setDate(e.target.value);
-                  setTime("");
-                }}
-              />
-            </div>
-            <div>
-              <label className="lbl">{t("ap.duration")}</label>
-              <select
-                className="inp"
-                value={duration}
-                onChange={(e) => {
-                  setDuration(Number(e.target.value));
-                  setTime("");
-                }}
-              >
-                {[10, 15, 20, 30, 45, 60, 90, 120].map((d) => (
-                  <option key={d} value={d}>
-                    {d} {t("ap.min")}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+        </div>
+        <div>
+          <label className="lbl">{t("ap.duration")}</label>
+          <select
+            className="inp"
+            value={duration}
+            onChange={(e) => {
+              setDuration(Number(e.target.value));
+              setTime("");
+            }}
+          >
+            {[10, 15, 20, 30, 45, 60, 90, 120].map((d) => (
+              <option key={d} value={d}>
+                {d} {t("ap.min")}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
 
-          <label className="lbl">{t("ap.time")}</label>
-          {slots.closed ? (
-            <p className="mb-3 rounded-lg bg-red-500/10 px-3 py-2 text-center text-[11px] text-red-400">
-              {t("ap.dayClosed")}
-            </p>
-          ) : slots.list.length === 0 ? (
-            <p className="mb-3 py-3 text-center text-[11px] text-mute">{t("common.loading")}</p>
-          ) : (
-            <div className="mb-3 grid max-h-40 grid-cols-4 gap-1.5 overflow-y-auto" dir="ltr">
-              {slots.list.map((s) => (
-                <button
-                  key={s.time}
-                  disabled={s.taken || s.past || s.isBreak}
-                  onClick={() => setTime(s.time)}
-                  className={`rounded-md border py-1.5 text-[11px] font-mono transition-colors ${
-                    time === s.time
-                      ? "border-teal bg-teal text-navy"
-                      : s.taken
-                      ? "border-red-500/30 bg-red-500/10 text-red-400 opacity-60 line-through"
-                      : s.isBreak
-                      ? "border-amber-500/30 bg-amber-500/10 text-amber-500/80 opacity-60 line-through"
-                      : s.past
-                      ? "border-edge bg-card2 text-mute opacity-40"
-                      : "border-sky/50 bg-card2 text-blue hover:bg-soft"
-                  }`}
-                  title={s.taken ? t("ap.taken") : s.isBreak ? t("ap.rowBreak") : s.past ? t("ap.rowPast") : ""}
-                >
-                  {s.taken && <IconLock size={8} className="me-1 inline" />}
-                  {s.isBreak && <IconCoffee size={8} className="me-1 inline" />}
-                  {to12h(s.time)}
-                </button>
-              ))}
-            </div>
-          )}
-        </>
+      <label className="lbl">{t("ap.time")}</label>
+      {slots.closed ? (
+        <p className="mb-3 rounded-lg bg-red-500/10 px-3 py-2 text-center text-[11px] text-red-400">
+          {t("ap.dayClosed")}
+        </p>
+      ) : slots.list.length === 0 ? (
+        <p className="mb-3 py-3 text-center text-[11px] text-mute">{t("common.loading")}</p>
+      ) : (
+        <div className="mb-3 grid max-h-40 grid-cols-4 gap-1.5 overflow-y-auto" dir="ltr">
+          {slots.list.map((s) => (
+            <button
+              key={s.time}
+              disabled={s.taken || s.past || s.isBreak}
+              onClick={() => setTime(s.time)}
+              className={`rounded-md border py-1.5 text-[11px] font-mono transition-colors ${
+                time === s.time
+                  ? "border-teal bg-teal text-navy"
+                  : s.taken
+                  ? "border-red-500/30 bg-red-500/10 text-red-400 opacity-60 line-through"
+                  : s.isBreak
+                  ? "border-amber-500/30 bg-amber-500/10 text-amber-500/80 opacity-60 line-through"
+                  : s.past
+                  ? "border-edge bg-card2 text-mute opacity-40"
+                  : "border-sky/50 bg-card2 text-blue hover:bg-soft"
+              }`}
+              title={s.taken ? t("ap.taken") : s.isBreak ? t("ap.rowBreak") : s.past ? t("ap.rowPast") : ""}
+            >
+              {s.taken && <IconLock size={8} className="me-1 inline" />}
+              {s.isBreak && <IconCoffee size={8} className="me-1 inline" />}
+              {to12h(s.time)}
+            </button>
+          ))}
+        </div>
       )}
 
       {error && <p className="mb-2 text-xs text-red-400">{error}</p>}
@@ -1126,8 +1072,6 @@ function NewAppointmentModal({
         disabled={
           mode === "block"
             ? !doctorId || !time || createBlock.isPending
-            : isWalkIn
-            ? !patientId || !doctorId || create.isPending
             : !patientId ||
               !doctorId ||
               !time ||
@@ -1142,8 +1086,6 @@ function NewAppointmentModal({
             : t("ap.createBlock")
           : create.isPending
           ? t("common.loading")
-          : isWalkIn
-          ? t("ap.addWalkIn")
           : t("ap.create")}
       </button>
     </Modal>
@@ -1167,6 +1109,7 @@ function EditAppointmentModal({
   const router = useRouter();
   const toast = useToast();
   const selectPatient = useSelectedPatient((s) => s.select);
+  const role = useAuth((s) => s.user?.role);
   const [status, setStatus] = useState(appointment.status);
   const [reason, setReason] = useState("");
   const [visitNote, setVisitNote] = useState(appointment.visitNote ?? "");
@@ -1435,6 +1378,11 @@ function EditAppointmentModal({
             onChange={(e) => setVisitNote(e.target.value)}
           />
         </>
+      )}
+
+      {/* Dentistry only, real visits only (never a blocked slot). Complements — never replaces — the visit note above. */}
+      {clinic.specialty === "dentistry" && appointment.type !== "blocked" && patient?._id && (
+        <VisitDentalSection patientId={patient._id} patientName={patient.fullName} appointmentId={appointment._id} canWrite={role === "owner" || role === "doctor"} />
       )}
 
       <label className="lbl">{t("ap.status")}</label>

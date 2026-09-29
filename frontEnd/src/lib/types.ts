@@ -87,7 +87,7 @@ export interface Appointment {
   readBy?: string[];
 }
 
-export interface InvoiceItem { description: string; price: number; qty: number; }
+export interface InvoiceItem { _id?: string; description: string; price: number; qty: number; sourceType?: string; sourceId?: string; }
 export interface Payment { amount: number; method: string; paidAt: string; note?: string; }
 export interface Invoice {
   _id: string; invoiceNumber: number; patientId: Patient;

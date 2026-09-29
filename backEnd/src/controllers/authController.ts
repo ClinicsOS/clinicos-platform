@@ -6,15 +6,20 @@ import { Clinic } from "../models/Clinic";
 import { User, generateToken, hashToken } from "../models/User";
 import { asyncHandler } from "../middleware/errorHandler";
 import { PLANS } from "../config/plans";
+import { SPECIALTY_IDS } from "../config/specialties";
 import {
   sendVerificationEmail,
   sendPasswordResetEmail,
   sendNewClinicRegistrationNotification,
 } from "../services/mailer";
 
+// NOTE: this enum only governs what a NEW signup may submit. It does NOT
+// touch the Clinic Mongoose schema (still a plain String, no enum) — see
+// config/specialties.ts for why that distinction matters for existing
+// clinics with legacy free-text specialty values.
 const registerSchema = z.object({
   clinicName: z.string().min(2).max(100),
-  specialty: z.string().min(2).max(50),
+  specialty: z.enum(SPECIALTY_IDS),
   ownerName: z.string().min(2).max(100),
   email: z.string().email(),
   password: z.string().min(8).max(100),
