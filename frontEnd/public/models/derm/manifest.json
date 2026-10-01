@@ -1,0 +1,435 @@
+{
+  "version": 1,
+  "models": {
+    "male": {
+      "file": "male.glb",
+      "modelVersion": "derm-human-v3",
+      "skinMeshes": [
+        "skin"
+      ],
+      "regions": {
+        "forehead": [
+          "hit_forehead"
+        ],
+        "glabella": [
+          "hit_glabella"
+        ],
+        "left_temple": [
+          "hit_left_temple"
+        ],
+        "right_temple": [
+          "hit_right_temple"
+        ],
+        "left_brow": [
+          "hit_left_brow"
+        ],
+        "right_brow": [
+          "hit_right_brow"
+        ],
+        "left_periorbital": [
+          "hit_left_periorbital"
+        ],
+        "right_periorbital": [
+          "hit_right_periorbital"
+        ],
+        "left_infraorbital": [
+          "hit_left_infraorbital"
+        ],
+        "right_infraorbital": [
+          "hit_right_infraorbital"
+        ],
+        "nose": [
+          "hit_nose"
+        ],
+        "left_cheek": [
+          "hit_left_cheek"
+        ],
+        "right_cheek": [
+          "hit_right_cheek"
+        ],
+        "left_ear": [
+          "hit_left_ear"
+        ],
+        "right_ear": [
+          "hit_right_ear"
+        ],
+        "upper_lip": [
+          "hit_upper_lip"
+        ],
+        "lower_lip": [
+          "hit_lower_lip"
+        ],
+        "perioral": [
+          "hit_perioral"
+        ],
+        "left_jawline": [
+          "hit_left_jawline"
+        ],
+        "right_jawline": [
+          "hit_right_jawline"
+        ],
+        "chin": [
+          "hit_chin"
+        ],
+        "anterior_neck": [
+          "hit_anterior_neck"
+        ],
+        "left_lateral_neck": [
+          "hit_left_lateral_neck"
+        ],
+        "right_lateral_neck": [
+          "hit_right_lateral_neck"
+        ],
+        "frontal_scalp": [
+          "hit_frontal_scalp"
+        ],
+        "top_scalp": [
+          "hit_top_scalp"
+        ],
+        "vertex_scalp": [
+          "hit_vertex_scalp"
+        ],
+        "left_temporal_scalp": [
+          "hit_left_temporal_scalp"
+        ],
+        "right_temporal_scalp": [
+          "hit_right_temporal_scalp"
+        ],
+        "left_lateral_scalp": [
+          "hit_left_lateral_scalp"
+        ],
+        "right_lateral_scalp": [
+          "hit_right_lateral_scalp"
+        ],
+        "occipital_scalp": [
+          "hit_occipital_scalp"
+        ],
+        "posterior_neck": [
+          "hit_posterior_neck"
+        ],
+        "left_shoulder": [
+          "hit_left_shoulder"
+        ],
+        "right_shoulder": [
+          "hit_right_shoulder"
+        ],
+        "left_chest": [
+          "hit_left_chest"
+        ],
+        "right_chest": [
+          "hit_right_chest"
+        ],
+        "abdomen": [
+          "hit_abdomen"
+        ],
+        "left_flank": [
+          "hit_left_flank"
+        ],
+        "right_flank": [
+          "hit_right_flank"
+        ],
+        "upper_back": [
+          "hit_upper_back"
+        ],
+        "lower_back": [
+          "hit_lower_back"
+        ],
+        "left_upper_arm": [
+          "hit_left_upper_arm"
+        ],
+        "right_upper_arm": [
+          "hit_right_upper_arm"
+        ],
+        "left_elbow": [
+          "hit_left_elbow"
+        ],
+        "right_elbow": [
+          "hit_right_elbow"
+        ],
+        "left_forearm": [
+          "hit_left_forearm"
+        ],
+        "right_forearm": [
+          "hit_right_forearm"
+        ],
+        "left_hand": [
+          "hit_left_hand"
+        ],
+        "right_hand": [
+          "hit_right_hand"
+        ],
+        "left_buttock": [
+          "hit_left_buttock"
+        ],
+        "right_buttock": [
+          "hit_right_buttock"
+        ],
+        "left_thigh": [
+          "hit_left_thigh"
+        ],
+        "right_thigh": [
+          "hit_right_thigh"
+        ],
+        "left_knee": [
+          "hit_left_knee"
+        ],
+        "right_knee": [
+          "hit_right_knee"
+        ],
+        "left_lower_leg": [
+          "hit_left_lower_leg"
+        ],
+        "right_lower_leg": [
+          "hit_right_lower_leg"
+        ],
+        "left_ankle": [
+          "hit_left_ankle"
+        ],
+        "right_ankle": [
+          "hit_right_ankle"
+        ],
+        "left_foot": [
+          "hit_left_foot"
+        ],
+        "right_foot": [
+          "hit_right_foot"
+        ]
+      },
+      "landmarks": {
+        "head": [
+          0,
+          1.6766,
+          0.012
+        ],
+        "headRadius": 0.1175,
+        "neckBase": [
+          0,
+          1.5,
+          -0.008
+        ],
+        "faceCenter": [
+          0,
+          1.6413,
+          0.0707
+        ],
+        "faceRadius": 0.1222,
+        "scalpRadius": 0.1457
+      }
+    },
+    "female": {
+      "file": "female.glb",
+      "modelVersion": "derm-human-v3",
+      "skinMeshes": [
+        "skin"
+      ],
+      "regions": {
+        "forehead": [
+          "hit_forehead"
+        ],
+        "glabella": [
+          "hit_glabella"
+        ],
+        "left_temple": [
+          "hit_left_temple"
+        ],
+        "right_temple": [
+          "hit_right_temple"
+        ],
+        "left_brow": [
+          "hit_left_brow"
+        ],
+        "right_brow": [
+          "hit_right_brow"
+        ],
+        "left_periorbital": [
+          "hit_left_periorbital"
+        ],
+        "right_periorbital": [
+          "hit_right_periorbital"
+        ],
+        "left_infraorbital": [
+          "hit_left_infraorbital"
+        ],
+        "right_infraorbital": [
+          "hit_right_infraorbital"
+        ],
+        "nose": [
+          "hit_nose"
+        ],
+        "left_cheek": [
+          "hit_left_cheek"
+        ],
+        "right_cheek": [
+          "hit_right_cheek"
+        ],
+        "left_ear": [
+          "hit_left_ear"
+        ],
+        "right_ear": [
+          "hit_right_ear"
+        ],
+        "upper_lip": [
+          "hit_upper_lip"
+        ],
+        "lower_lip": [
+          "hit_lower_lip"
+        ],
+        "perioral": [
+          "hit_perioral"
+        ],
+        "left_jawline": [
+          "hit_left_jawline"
+        ],
+        "right_jawline": [
+          "hit_right_jawline"
+        ],
+        "chin": [
+          "hit_chin"
+        ],
+        "anterior_neck": [
+          "hit_anterior_neck"
+        ],
+        "left_lateral_neck": [
+          "hit_left_lateral_neck"
+        ],
+        "right_lateral_neck": [
+          "hit_right_lateral_neck"
+        ],
+        "frontal_scalp": [
+          "hit_frontal_scalp"
+        ],
+        "top_scalp": [
+          "hit_top_scalp"
+        ],
+        "vertex_scalp": [
+          "hit_vertex_scalp"
+        ],
+        "left_temporal_scalp": [
+          "hit_left_temporal_scalp"
+        ],
+        "right_temporal_scalp": [
+          "hit_right_temporal_scalp"
+        ],
+        "left_lateral_scalp": [
+          "hit_left_lateral_scalp"
+        ],
+        "right_lateral_scalp": [
+          "hit_right_lateral_scalp"
+        ],
+        "occipital_scalp": [
+          "hit_occipital_scalp"
+        ],
+        "posterior_neck": [
+          "hit_posterior_neck"
+        ],
+        "left_shoulder": [
+          "hit_left_shoulder"
+        ],
+        "right_shoulder": [
+          "hit_right_shoulder"
+        ],
+        "left_chest": [
+          "hit_left_chest"
+        ],
+        "right_chest": [
+          "hit_right_chest"
+        ],
+        "abdomen": [
+          "hit_abdomen"
+        ],
+        "left_flank": [
+          "hit_left_flank"
+        ],
+        "right_flank": [
+          "hit_right_flank"
+        ],
+        "upper_back": [
+          "hit_upper_back"
+        ],
+        "lower_back": [
+          "hit_lower_back"
+        ],
+        "left_upper_arm": [
+          "hit_left_upper_arm"
+        ],
+        "right_upper_arm": [
+          "hit_right_upper_arm"
+        ],
+        "left_elbow": [
+          "hit_left_elbow"
+        ],
+        "right_elbow": [
+          "hit_right_elbow"
+        ],
+        "left_forearm": [
+          "hit_left_forearm"
+        ],
+        "right_forearm": [
+          "hit_right_forearm"
+        ],
+        "left_hand": [
+          "hit_left_hand"
+        ],
+        "right_hand": [
+          "hit_right_hand"
+        ],
+        "left_buttock": [
+          "hit_left_buttock"
+        ],
+        "right_buttock": [
+          "hit_right_buttock"
+        ],
+        "left_thigh": [
+          "hit_left_thigh"
+        ],
+        "right_thigh": [
+          "hit_right_thigh"
+        ],
+        "left_knee": [
+          "hit_left_knee"
+        ],
+        "right_knee": [
+          "hit_right_knee"
+        ],
+        "left_lower_leg": [
+          "hit_left_lower_leg"
+        ],
+        "right_lower_leg": [
+          "hit_right_lower_leg"
+        ],
+        "left_ankle": [
+          "hit_left_ankle"
+        ],
+        "right_ankle": [
+          "hit_right_ankle"
+        ],
+        "left_foot": [
+          "hit_left_foot"
+        ],
+        "right_foot": [
+          "hit_right_foot"
+        ]
+      },
+      "landmarks": {
+        "head": [
+          0,
+          1.5523,
+          0.011
+        ],
+        "headRadius": 0.111,
+        "neckBase": [
+          0,
+          1.42,
+          -0.007
+        ],
+        "faceCenter": [
+          0,
+          1.519,
+          0.0665
+        ],
+        "faceRadius": 0.1154,
+        "scalpRadius": 0.1376
+      }
+    }
+  }
+}

@@ -368,3 +368,13 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .dn-fade-in, .dn-ui-in, .dn-panel-in, .dn-sheet-in { animation: none; }
 }
+
+/* ===== Dermatology & Aesthetics clinical map: premium loading state (disabled for reduced motion) ===== */
+@keyframes dmPulse { 0%, 100% { opacity: 0.55 } 50% { opacity: 1 } }
+@keyframes dmScan { 0% { top: 4%; opacity: 0 } 15% { opacity: 1 } 85% { opacity: 1 } 100% { top: 96%; opacity: 0 } }
+.dm-pulse { animation: dmPulse 2.4s ease-in-out infinite; }
+.dm-scan { animation: dmScan 2.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .dm-pulse, .dm-scan { animation: none; }
+  .dm-scan { display: none; }
+}

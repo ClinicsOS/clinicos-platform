@@ -21,6 +21,7 @@ import reminderRoutes from "./routes/reminderRoutes"; // NEW — WhatsApp appoin
 import chatRoutes from "./routes/chatRoutes"; // NEW — "معك" chatbot
 import expenseRoutes from "./routes/expenseRoutes"; // NEW — clinic & owner expenses
 import dentalRoutes from "./routes/dentalRoutes"; // NEW — Dentistry module (dentistry clinics only)
+import dermRoutes from "./routes/dermRoutes"; // NEW — Dermatology & Aesthetics module (dermatology_aesthetics clinics only)
 
 const app = express();
 app.set("trust proxy", 1);
@@ -66,6 +67,7 @@ app.use("/api/reminders", reminderRoutes); // NEW — WhatsApp appointment remin
 app.use("/api/chat", chatRoutes); // NEW — "معك" chatbot
 app.use("/api/expenses", expenseRoutes); // NEW — clinic & owner expenses
 app.use("/api/dental", dentalRoutes); // NEW — Dentistry module (specialty-gated server-side)
+app.use("/api/derm", dermRoutes); // NEW — Dermatology & Aesthetics module (specialty-gated server-side)
 
 app.use(errorHandler);
 

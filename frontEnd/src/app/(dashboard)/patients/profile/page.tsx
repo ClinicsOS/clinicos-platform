@@ -67,6 +67,7 @@ function DentalLoading() {
 }
 // Treatment Plan workspace — same rule: loaded only when a dentistry clinic opens the tab.
 const PrintExportMenu = dynamic(() => import("@/components/dental/treatment/PrintExportMenu"), { ssr: false });
+const DermPrintExportMenu = dynamic(() => import("@/components/derm/report/DermPrintExportMenu"), { ssr: false });
 const DentalOverviewCard = dynamic(() => import("@/components/dental/treatment/DentalOverviewCard"), { ssr: false });
 const TreatmentPlanTab = dynamic(() => import("@/components/dental/treatment/TreatmentPlanTab"), {
   ssr: false,
@@ -76,6 +77,17 @@ const DentalChartTab = dynamic(() => import("@/components/dental/DentalChartTab"
   ssr: false,
   loading: () => <DentalLoading />,
 });
+
+// Dermatology & Aesthetics module — same rule: the 3D clinical map (and Three.js) is downloaded only when a
+// dermatology_aesthetics clinic opens the Clinical Map tab; no other specialty ever loads it.
+const DermMapTab = dynamic(() => import("@/components/derm/DermMapTab"), {
+  ssr: false,
+  loading: () => <DentalLoading />,
+});
+const DermOverviewCard = dynamic(() => import("@/components/derm/DermOverviewCard"), { ssr: false });
+// Phase 2 (Treatment Plan / History): plain 2D UI — separate chunks, no Three.js. Only rendered for their own tabs.
+const DermTreatmentPlanTab = dynamic(() => import("@/components/derm/treatment/TreatmentPlanTab"), { ssr: false, loading: () => <DentalLoading /> });
+const DermHistoryTab = dynamic(() => import("@/components/derm/treatment/DermHistoryTab"), { ssr: false, loading: () => <DentalLoading /> });
 
 export default function PatientProfilePage() {
   const { t } = useI18n();
@@ -93,7 +105,9 @@ export default function PatientProfilePage() {
     staleTime: 60_000,
   });
   const isDental = clinic?.specialty === "dentistry";
-  const [tab, setTab] = useState<"overview" | "dental" | "plan">("overview");
+  // Dermatology & Aesthetics module: enabled ONLY for the stable specialty id (the server enforces it on every /derm call).
+  const isDerm = clinic?.specialty === "dermatology_aesthetics";
+  const [tab, setTab] = useState<"overview" | "dental" | "plan" | "derm" | "dermplan" | "dermhistory">("overview");
 
   // NEW — always read the latest version of the file from the server (the
   // stored selection can be stale after an edit from another device).
@@ -263,6 +277,7 @@ export default function PatientProfilePage() {
           <Link href="/appointments" className="btn-teal !py-2 text-xs"><IconCalendarPlus size={14} /> {t("pp.book")}</Link>
           <Link href="/invoices" className="btn-ghost !bg-sky/10 !text-[#DCEBF7] !border-[#8FB3CC]/50 !py-2 text-xs"><IconReceipt size={14} /> {t("pp.invoice")}</Link>
           {isDental && <PrintExportMenu patientId={patient._id} />}
+          {isDerm && <DermPrintExportMenu patientId={patient._id} />}
         </div>
       </div>
 
@@ -295,9 +310,45 @@ export default function PatientProfilePage() {
           <TreatmentPlanTab patientId={patient._id} patientName={patient.fullName} canWrite={canWriteDental} visits={visits} />
         </div>
       )}
-      {!(isDental && tab !== "overview") && (<>
+
+      {/* ===== Dermatology & Aesthetics module: tabs (dermatology_aesthetics clinics only) ===== */}
+      {isDerm && (
+        <div className="mt-3 flex gap-1 border-b border-edge" role="tablist">
+          {(["overview", "derm", "dermplan", "dermhistory"] as const).map((k) => (
+            <button
+              key={k}
+              type="button"
+              role="tab"
+              aria-selected={tab === k}
+              onClick={() => setTab(k)}
+              className={`-mb-px border-b-2 px-3 py-2 text-xs font-medium transition-colors ${
+                tab === k ? "border-teal text-teal" : "border-transparent text-mute hover:text-ink"
+              }`}
+            >
+              {k === "overview" ? t("dn.tab.overview") : k === "derm" ? t("dm.tab.map") : k === "dermplan" ? t("dt.tab.plan") : t("dt.tab.history")}
+            </button>
+          ))}
+        </div>
+      )}
+      {isDerm && tab === "derm" && (
+        <div className="mt-3">
+          <DermMapTab patientId={patient._id} patientGender={patient.gender} onOpenPlan={() => setTab("dermplan")} />
+        </div>
+      )}
+      {isDerm && tab === "dermplan" && (
+        <div className="mt-3">
+          <DermTreatmentPlanTab patientId={patient._id} patientName={patient.fullName} canWrite={canWriteDental} onOpenMap={() => setTab("derm")} />
+        </div>
+      )}
+      {isDerm && tab === "dermhistory" && (
+        <div className="mt-3">
+          <DermHistoryTab patientId={patient._id} canWrite={canWriteDental} onOpenMap={() => setTab("derm")} onOpenPlan={() => setTab("dermplan")} />
+        </div>
+      )}
+      {!((isDental || isDerm) && tab !== "overview") && (<>
 
       {isDental && <DentalOverviewCard patientId={patient._id} onOpenChart={() => setTab("dental")} onOpenPlan={() => setTab("plan")} />}
+      {isDerm && <DermOverviewCard patientId={patient._id} onOpenMap={() => setTab("derm")} onOpenPlan={() => setTab("dermplan")} />}
 
       {/* ===== Stats with rotating depth icons ===== */}
       <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">

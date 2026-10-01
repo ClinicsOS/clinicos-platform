@@ -27,6 +27,8 @@ const pillClass: Record<string, string> = {
 // Dentistry-only cockpit (Today/Treatment Overview/Active/Needs Billing/Recent Activity/Quick Actions). Loaded on
 // demand so a non-dentistry clinic's dashboard bundle and requests are completely unaffected.
 const DentalDashboard = dynamic(() => import("@/components/dental/treatment/DentalDashboard"), { ssr: false });
+// Dermatology & Aesthetics cockpit — same on-demand rule (2D only: it never imports the 3D engine).
+const DermDashboard = dynamic(() => import("@/components/derm/DermDashboard"), { ssr: false });
 
 export default function DashboardPage() {
   const { t } = useI18n();
@@ -36,6 +38,7 @@ export default function DashboardPage() {
   // adds no extra request. specialty decides whether the Dentistry cockpit renders; nothing else here changes it.
   const { data: clinic } = useQuery({ queryKey: ["clinic"], queryFn: async () => (await api.get<Clinic>("/clinic")).data });
   const isDental = clinic?.specialty === "dentistry";
+  const isDerm = clinic?.specialty === "dermatology_aesthetics";
 
   const { data: stats } = useQuery({
     queryKey: ["stats"],
@@ -62,6 +65,7 @@ export default function DashboardPage() {
   return (
     <div>
       {isDental && <DentalDashboard />}
+      {isDerm && <DermDashboard />}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-medium text-ink">
