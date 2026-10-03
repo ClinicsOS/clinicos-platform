@@ -22,6 +22,17 @@ export type Priority = (typeof PRIORITIES)[number];
 export const MAX_PHASE = 20;
 export const MAX_MULTI_TEETH = 32;
 
+/**
+ * "Other" = any procedure that is not in the catalog (abscess drainage, a specific gum surgery, a re-treatment, an
+ * orthodontic visit…). It is a catalog entry like any other, but the doctor ALSO types a short name (`customName`),
+ * which is then what every screen, invoice line and history entry shows. Nothing else about the workflow changes.
+ */
+export const OTHER_PROCEDURE_CODE = "other";
+export const CUSTOM_NAME_MIN = 2;
+export const CUSTOM_NAME_MAX = 80;
+/** Collapses whitespace so "  Gum   surgery " and "Gum surgery" are the same name. */
+export const cleanCustomName = (v: unknown): string => (typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "");
+
 export interface ProcedureDef {
   code: string;
   /** Target shapes this procedure accepts. "surface" = one tooth + at least one surface. */
@@ -43,6 +54,8 @@ export const PROCEDURES: readonly ProcedureDef[] = [
   { code: "sealant", targets: ["tooth", "surface"], defaultTarget: "tooth", multiSession: false },
   { code: "veneer", targets: ["tooth", "multi_tooth"], defaultTarget: "tooth", multiSession: true },
   { code: "denture", targets: ["general", "multi_tooth"], defaultTarget: "general", multiSession: true },
+  // Free-text procedure: accepts every target shape (one tooth, surfaces, several teeth, or general).
+  { code: OTHER_PROCEDURE_CODE, targets: ["tooth", "surface", "multi_tooth", "general"], defaultTarget: "tooth", multiSession: false },
 ];
 
 export const findProcedure = (code: string): ProcedureDef | undefined => PROCEDURES.find((p) => p.code === code);
@@ -63,14 +76,23 @@ export interface TargetInput {
   targetType: string;
   toothNumbers?: readonly string[];
   surfaces?: readonly string[];
+  /** Required (2-80 chars after trimming) when procedureCode is "other"; ignored for every other procedure. */
+  customName?: string;
 }
 export type ValidatedTarget =
-  | { ok: true; procedureCode: string; targetType: TargetType; toothNumbers: string[]; surfaces: SurfaceId[] }
+  | { ok: true; procedureCode: string; targetType: TargetType; toothNumbers: string[]; surfaces: SurfaceId[]; customName?: string }
   | { ok: false; message: string };
 
 export function validateTarget(input: TargetInput, dentition: DentitionType): ValidatedTarget {
   const def = findProcedure(input.procedureCode);
   if (!def) return { ok: false, message: `Unknown procedure: ${input.procedureCode}` };
+  let customName: string | undefined;
+  if (def.code === OTHER_PROCEDURE_CODE) {
+    const name = cleanCustomName(input.customName);
+    if (name.length < CUSTOM_NAME_MIN) return { ok: false, message: "Enter the name of the treatment" };
+    if (name.length > CUSTOM_NAME_MAX) return { ok: false, message: `The treatment name is too long (max ${CUSTOM_NAME_MAX} characters)` };
+    customName = name;
+  }
   const targetType = input.targetType as TargetType;
   if (!(TARGET_TYPES as readonly string[]).includes(targetType)) return { ok: false, message: `Invalid target type: ${input.targetType}` };
   if (!def.targets.includes(targetType)) return { ok: false, message: `${def.code} does not support the "${targetType}" target` };
@@ -103,5 +125,5 @@ export function validateTarget(input: TargetInput, dentition: DentitionType): Va
       break;
   }
   const sorted = targetType === "multi_tooth" ? teeth.sort() : teeth;
-  return { ok: true, procedureCode: def.code, targetType, toothNumbers: sorted, surfaces: surfaces as SurfaceId[] };
+  return { ok: true, procedureCode: def.code, targetType, toothNumbers: sorted, surfaces: surfaces as SurfaceId[], ...(customName ? { customName } : {}) };
 }

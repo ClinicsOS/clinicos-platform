@@ -11,6 +11,7 @@ import type { Appointment } from "@/lib/types";
 import { useAuth } from "@/store/auth";
 import { useCancelTreatment, useDentalRecord, useSetPhases, useStartTreatment, useTreatmentPlan } from "@/lib/dental/hooks";
 import type { TreatmentItem, TreatmentPlanResponse } from "@/lib/dental/types";
+import { procLabel } from "@/lib/dental/procedures";
 import TreatmentEditor from "./TreatmentEditor";
 import AddToInvoiceModal from "./AddToInvoiceModal";
 import { BillingLine, PriorityPill, StatusPill, TargetText, TimelineRow, money, scheduleNextVisitHref, shortDate, visitText } from "./shared";
@@ -181,7 +182,7 @@ function ItemCard({ it, d, canWrite, onEdit, onStart, onBill, patientId, patient
       <div className="flex flex-wrap items-start gap-x-3 gap-y-1.5">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[13px] font-medium text-ink">{t(`dn.p.${it.procedureCode}`)}</span>
+            <span className="text-[13px] font-medium text-ink">{procLabel(t, it)}</span>
             <StatusPill status={it.status} />
             <PriorityPill priority={it.priority} />
           </div>
@@ -209,7 +210,7 @@ function ItemCard({ it, d, canWrite, onEdit, onStart, onBill, patientId, patient
           <button type="button" className="btn-ghost !px-3 !py-1 text-[11px] hover:!border-red-400 hover:!text-red-400" onClick={() => setCancelling((v) => !v)}>{t("dn.cancelTx")}</button>
           {/* Particularly useful for multi-session treatment reviewed outside the live visit screen. Booking is available to any staff member, same as any other appointment. */}
           {it.status === "in_progress" && (
-            <Link href={scheduleNextVisitHref(t, { patientId, patientName, procedureCode: it.procedureCode, targetType: it.targetType, toothNumbers: it.toothNumbers, currentDoctorId })} className="btn-ghost !px-3 !py-1 text-[11px]">
+            <Link href={scheduleNextVisitHref(t, { patientId, patientName, procedureCode: it.procedureCode, customName: it.customName, targetType: it.targetType, toothNumbers: it.toothNumbers, currentDoctorId })} className="btn-ghost !px-3 !py-1 text-[11px]">
               <IconCalendarPlus size={12} /> {t("dn.scheduleNext")}
             </Link>
           )}
@@ -265,7 +266,7 @@ function StartVisitModal({ item, visits, patientId, lang, onClose }: { item: Tre
   return (
     <Modal title={item.status === "in_progress" ? t("dn.continue") : t("dn.start")} onClose={onClose}>
       <div className="space-y-3">
-        <div className="text-[12px] text-ink">{t(`dn.p.${item.procedureCode}`)} — <span className="text-mute"><TargetText targetType={item.targetType} toothNumbers={item.toothNumbers} surfaces={item.surfaces} /></span></div>
+        <div className="text-[12px] text-ink">{procLabel(t, item)} — <span className="text-mute"><TargetText targetType={item.targetType} toothNumbers={item.toothNumbers} surfaces={item.surfaces} /></span></div>
         {visits.length === 0 ? (
           <p className="rounded-lg border border-edge bg-card2 px-3 py-2 text-[11px] text-mute">{t("dn.noVisit")}</p>
         ) : (

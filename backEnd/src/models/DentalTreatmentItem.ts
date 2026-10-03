@@ -51,6 +51,7 @@ export interface IDentalTreatmentItem extends Document {
   patientId: Types.ObjectId;
   planId: Types.ObjectId;
   procedureCode: string;
+  customName?: string; // only when procedureCode === "other": the treatment name the doctor typed
   catalogVersion: number;
   targetType: TargetType;
   toothNumbers: string[]; // FDI codes (array — never a comma-separated string)
@@ -77,6 +78,7 @@ const itemSchema = new Schema<IDentalTreatmentItem>(
     patientId: { type: Schema.Types.ObjectId, ref: "Patient", required: true },
     planId: { type: Schema.Types.ObjectId, ref: "DentalTreatmentPlan", required: true },
     procedureCode: { type: String, required: true, trim: true, maxlength: 40 }, // validated against config/dentalProcedures.ts
+    customName: { type: String, trim: true, maxlength: 80 },
     catalogVersion: { type: Number, required: true },
     targetType: { type: String, enum: TARGET_TYPES, required: true },
     toothNumbers: { type: [String], default: [] },

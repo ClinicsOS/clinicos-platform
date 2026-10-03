@@ -32,6 +32,7 @@ export const serializeItem = (i: any, billing?: BillingView) => ({
   _id: String(i._id),
   planId: String(i.planId),
   procedureCode: i.procedureCode,
+  customName: i.customName ?? undefined,
   targetType: i.targetType,
   toothNumbers: i.toothNumbers ?? [],
   surfaces: i.surfaces ?? [],
@@ -59,6 +60,7 @@ const serializeSession = (s: any, itemStatus?: PlanStatus) => ({
   appointmentId: String(s.appointmentId),
   sessionNumber: s.sessionNumber,
   procedureCode: s.procedureCode,
+  customName: s.customName ?? undefined,
   targetType: s.targetType,
   toothNumbers: s.toothNumbers ?? [],
   surfaces: s.surfaces ?? [],
@@ -194,6 +196,7 @@ export const getVisitTreatments = asyncHandler(async (req: Request, res: Respons
 // ------------------------------------------------------------------ create / edit
 const targetFields = {
   procedureCode: z.string().min(1).max(40),
+  customName: z.string().max(200).optional(), // "other" only — validated + normalised in validateTarget
   targetType: z.enum(TARGET_TYPES),
   toothNumbers: z.array(z.string().min(1).max(3)).max(32).optional(),
   surfaces: z.array(z.string().min(1).max(2)).max(5).optional(),
@@ -234,7 +237,7 @@ export const createItem = asyncHandler(async (req: Request, res: Response) => {
   const now = new Date();
   const created = await DentalTreatmentItem.create({
     clinicId: req.clinicId, patientId: patient._id, planId: plan._id,
-    procedureCode: v.procedureCode, catalogVersion: PROCEDURE_CATALOG_VERSION,
+    procedureCode: v.procedureCode, customName: v.customName, catalogVersion: PROCEDURE_CATALOG_VERSION,
     targetType: v.targetType, toothNumbers: v.toothNumbers, surfaces: v.surfaces,
     status: "planned", priority: body.priority ?? "normal", phase: body.phase ?? 1,
     estimatedPrice: typeof body.estimatedPrice === "number" ? roundPrice(body.estimatedPrice) : undefined,
@@ -264,7 +267,7 @@ export const updateItem = asyncHandler(async (req: Request, res: Response) => {
   if (item.status === "completed" || item.status === "cancelled") {
     return res.status(409).json({ message: "A completed or cancelled treatment can no longer be edited", code: "ITEM_LOCKED" });
   }
-  const touchesTarget = body.procedureCode !== undefined || body.targetType !== undefined || body.toothNumbers !== undefined || body.surfaces !== undefined;
+  const touchesTarget = body.procedureCode !== undefined || body.customName !== undefined || body.targetType !== undefined || body.toothNumbers !== undefined || body.surfaces !== undefined;
   if (touchesTarget && item.status !== "planned") {
     return res.status(409).json({ message: "The procedure and target can't be changed once treatment has started. Cancel it and add a corrected one.", code: "ITEM_LOCKED" });
   }
@@ -276,6 +279,7 @@ export const updateItem = asyncHandler(async (req: Request, res: Response) => {
     const v = validateTarget(
       {
         procedureCode: body.procedureCode ?? item.procedureCode,
+        customName: body.customName ?? item.customName,
         targetType: body.targetType ?? item.targetType,
         toothNumbers: body.toothNumbers ?? item.toothNumbers,
         surfaces: body.surfaces ?? item.surfaces,
@@ -284,6 +288,8 @@ export const updateItem = asyncHandler(async (req: Request, res: Response) => {
     );
     if (!v.ok) return res.status(400).json({ message: v.message });
     Object.assign(set, { procedureCode: v.procedureCode, targetType: v.targetType, toothNumbers: v.toothNumbers, surfaces: v.surfaces });
+    // The typed name only exists for "other": switching to a catalog procedure removes it, so it can never linger.
+    if (v.customName) set.customName = v.customName; else unset.customName = 1;
   }
   if (body.priority !== undefined) set.priority = body.priority;
   if (body.phase !== undefined) set.phase = body.phase;
@@ -383,7 +389,7 @@ export const startItem = asyncHandler(async (req: Request, res: Response) => {
     try {
       session = await DentalTreatmentSession.create({
         ...scope, itemId: item._id, appointmentId: visit._id, sessionNumber: (last?.sessionNumber ?? 0) + 1,
-        procedureCode: item.procedureCode, targetType: item.targetType, toothNumbers: item.toothNumbers, surfaces: item.surfaces, // SNAPSHOT
+        procedureCode: item.procedureCode, customName: item.customName, targetType: item.targetType, toothNumbers: item.toothNumbers, surfaces: item.surfaces, // SNAPSHOT
         status: "in_progress", performedBy: req.userId, startedAt: new Date(),
       });
       created = true;

@@ -2,6 +2,8 @@
 import Link from "next/link";
 import { useI18n } from "@/lib/i18n";
 import { SURFACE_LABELS, type SurfaceId } from "@/lib/dental/taxonomy";
+import { procLabel } from "@/lib/dental/procedures";
+import { teethSummary } from "@/lib/dental/teethFormat";
 import type { BillingView, PlanStatus, Priority, TargetType, TimelineEntry, VisitRef } from "@/lib/dental/types";
 
 // Shape + colour together (never colour alone): ○ planned, ◆ in progress, ✓ completed, ✕ cancelled.
@@ -34,10 +36,14 @@ export function PriorityPill({ priority }: { priority: Priority }) {
 
 export const money = (n: number) => `${n.toFixed(2)} JD`;
 
-/** "16 · M,O"   |   "14, 15, 16"   |   "General / Full mouth" — a real tooth list, never a fake tooth. */
+/** Lists up to this many teeth are shown number by number; longer ones are summarised as ranges (a veneer case can be 16 teeth). */
+export const LONG_LIST = 3;
+
+/** "16 · M,O"   |   "14, 15, 16"   |   "Upper 14–24 · Lower 34–44"   |   "General / Full mouth" — a real tooth list, never a fake tooth. */
 export function TargetText({ targetType, toothNumbers, surfaces }: { targetType: TargetType; toothNumbers: string[]; surfaces: SurfaceId[] }) {
   const { t } = useI18n();
   if (targetType === "general" || !toothNumbers.length) return <span>{t("dn.tg.general")}</span>;
+  if (toothNumbers.length > LONG_LIST) return <span dir="auto" title={toothNumbers.join(", ")}>{teethSummary(toothNumbers, t)}</span>; // 4+ teeth: "Upper 14–24 · Lower 34–44"
   return (
     <span dir="ltr" className="font-mono">
       {toothNumbers.join(", ")}
@@ -64,10 +70,10 @@ const KIND_GLYPH: Record<TimelineEntry["kind"], string> = {
  * ("Schedule Next Visit"). All normal scheduling rules still apply — this only saves re-searching the patient. */
 export function scheduleNextVisitHref(
   t: (k: string) => string,
-  x: { patientId: string; patientName: string; procedureCode: string; targetType: TargetType; toothNumbers: string[]; currentDoctorId?: string }
+  x: { patientId: string; patientName: string; procedureCode: string; customName?: string; targetType: TargetType; toothNumbers: string[]; currentDoctorId?: string }
 ) {
-  const target = x.targetType === "general" || !x.toothNumbers.length ? "" : ` — ${x.toothNumbers.join(",")}`;
-  const note = `${t("dn.scheduleNote")}: ${t(`dn.p.${x.procedureCode}`)}${target}`;
+  const target = x.targetType === "general" || !x.toothNumbers.length ? "" : ` — ${x.toothNumbers.length > LONG_LIST ? teethSummary(x.toothNumbers, t) : x.toothNumbers.join(",")}`;
+  const note = `${t("dn.scheduleNote")}: ${procLabel(t, x)}${target}`;
   const p = new URLSearchParams({ schedule: x.patientId, name: x.patientName, note });
   if (x.currentDoctorId) p.set("doctor", x.currentDoctorId);
   return `/appointments?${p.toString()}`;
@@ -87,7 +93,7 @@ export function TimelineRow({ e, visits, showTarget }: { e: TimelineEntry; visit
       <div className="min-w-0 flex-1 text-[11px] leading-snug">
         <div className="text-ink">
           {t(`dn.h.${e.kind}`)}
-          {e.kind === "session" && e.sessionNumber ? ` ${e.sessionNumber}` : ""} — {t(`dn.p.${e.procedureCode}`)}
+          {e.kind === "session" && e.sessionNumber ? ` ${e.sessionNumber}` : ""} — {procLabel(t, e)}
         </div>
         <div className="text-[10px] text-mute">
           {showTarget && <><TargetText targetType={e.targetType} toothNumbers={e.toothNumbers} surfaces={e.surfaces} /> · </>}
@@ -112,12 +118,12 @@ export function TimelineRow({ e, visits, showTarget }: { e: TimelineEntry; visit
 export function invoiceDescription(
   t: (k: string) => string,
   lang: string,
-  x: { procedureCode: string; targetType: TargetType; toothNumbers: string[]; surfaces: SurfaceId[] }
+  x: { procedureCode: string; customName?: string; targetType: TargetType; toothNumbers: string[]; surfaces: SurfaceId[] }
 ) {
-  const label = t(`dn.p.${x.procedureCode}`);
+  const label = procLabel(t, x);
   if (x.targetType === "general" || !x.toothNumbers.length) return `${label} — ${t("dn.generalTx")}`;
   const sep = lang === "ar" ? "،" : ",";
-  const what = x.toothNumbers.length > 1 ? `${t("dn.inv.teeth")} ${x.toothNumbers.join(sep)}` : `${t("dn.inv.tooth")} ${x.toothNumbers[0]}`;
+  const what = x.toothNumbers.length > LONG_LIST ? teethSummary(x.toothNumbers, t) : x.toothNumbers.length > 1 ? `${t("dn.inv.teeth")} ${x.toothNumbers.join(sep)}` : `${t("dn.inv.tooth")} ${x.toothNumbers[0]}`;
   return `${label} — ${what}${x.surfaces.length ? ` — ${x.surfaces.join(",")}` : ""}`;
 }
 

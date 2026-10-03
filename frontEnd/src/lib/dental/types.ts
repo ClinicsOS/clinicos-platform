@@ -53,6 +53,7 @@ export interface TreatmentItem {
   _id: string;
   planId: string;
   procedureCode: string;
+  customName?: string; // only for procedureCode "other": the treatment name the doctor typed
   targetType: TargetType;
   toothNumbers: string[];
   surfaces: SurfaceId[];
@@ -76,6 +77,7 @@ export interface TreatmentSession {
   appointmentId: string; // the EXISTING ClinicOS visit
   sessionNumber: number;
   procedureCode: string; // snapshot
+  customName?: string; // snapshot (procedureCode "other")
   targetType: TargetType;
   toothNumbers: string[];
   surfaces: SurfaceId[];
@@ -91,7 +93,7 @@ export interface TreatmentSession {
 }
 export type TimelineKind = "plan_created" | "treatment_started" | "session" | "session_finished" | "treatment_completed" | "treatment_cancelled" | "invoiced" | "invoice_released";
 export interface TimelineEntry {
-  id: string; at: string; kind: TimelineKind; itemId: string; procedureCode: string; targetType: TargetType;
+  id: string; at: string; kind: TimelineKind; itemId: string; procedureCode: string; customName?: string; targetType: TargetType;
   toothNumbers: string[]; surfaces: SurfaceId[]; by: PersonRef | null; appointmentId?: string; sessionNumber?: number; reason?: string; invoiceNumber?: number; amount?: number;
 }
 export interface VisitRef { startAt: string; source: string; status: string }

@@ -76,15 +76,15 @@ export const getDentalDashboard = asyncHandler(async (req: Request, res: Respons
   const recentStatusItems = (await DentalTreatmentItem.find({ clinicId, status: { $in: ["in_progress", "completed", "cancelled"] } }).sort({ updatedAt: -1 }).limit(LIMIT).lean()) as any[];
   const recentBilled = (await DentalTreatmentItem.find({ clinicId, "billing.state": "invoiced" }).sort({ "billing.at": -1 }).limit(LIMIT).lean()) as any[];
 
-  type Feed = { at: Date; kind: string; patientId: string; procedureCode?: string; targetType?: string; toothNumbers?: string[]; invoiceNumber?: number; amount?: number };
+  type Feed = { at: Date; kind: string; patientId: string; procedureCode?: string; customName?: string; targetType?: string; toothNumbers?: string[]; invoiceNumber?: number; amount?: number };
   const feed: Feed[] = [
     ...recentDiagnoses.map((e) => ({ at: e.createdAt as Date, kind: "diagnosis", patientId: String(e.patientId), procedureCode: e.code, toothNumbers: [e.fdi] })),
     ...recentStatusItems.map((i) => ({
       at: i.updatedAt as Date,
       kind: i.status === "in_progress" ? "treatment_started" : i.status === "completed" ? "treatment_completed" : "treatment_cancelled",
-      patientId: String(i.patientId), procedureCode: i.procedureCode, targetType: i.targetType, toothNumbers: i.toothNumbers,
+      patientId: String(i.patientId), procedureCode: i.procedureCode, customName: i.customName ?? undefined, targetType: i.targetType, toothNumbers: i.toothNumbers,
     })),
-    ...recentBilled.map((i) => ({ at: i.billing.at as Date, kind: "invoiced", patientId: String(i.patientId), procedureCode: i.procedureCode, targetType: i.targetType, toothNumbers: i.toothNumbers, invoiceNumber: i.billing.invoiceNumber, amount: i.billing.amount })),
+    ...recentBilled.map((i) => ({ at: i.billing.at as Date, kind: "invoiced", patientId: String(i.patientId), procedureCode: i.procedureCode, customName: i.customName ?? undefined, targetType: i.targetType, toothNumbers: i.toothNumbers, invoiceNumber: i.billing.invoiceNumber, amount: i.billing.amount })),
   ]
     .sort((a, b) => +new Date(b.at) - +new Date(a.at))
     .slice(0, LIMIT);
@@ -119,19 +119,19 @@ export const getDentalDashboard = asyncHandler(async (req: Request, res: Respons
           _id: String(a._id), startAt: a.startAt, status: a.status, source: a.source,
           patientId: a.patientId ? String(a.patientId) : null, patientName: a.patientId ? nameOf.get(String(a.patientId)) ?? null : null,
           doctorName: a.doctorId?.name ?? null,
-          treatment: tx ? { status: tx.status, procedureCode: tx.procedureCode, targetType: tx.targetType, toothNumbers: tx.toothNumbers } : null,
+          treatment: tx ? { status: tx.status, procedureCode: tx.procedureCode, customName: tx.customName ?? undefined, targetType: tx.targetType, toothNumbers: tx.toothNumbers } : null,
         };
       }),
     },
     treatmentOverview,
     activeTreatments: activeItems.map((i) => ({
       _id: String(i._id), patientId: String(i.patientId), patientName: nameOf.get(String(i.patientId)) ?? null,
-      procedureCode: i.procedureCode, targetType: i.targetType, toothNumbers: i.toothNumbers, surfaces: i.surfaces,
+      procedureCode: i.procedureCode, customName: i.customName ?? undefined, targetType: i.targetType, toothNumbers: i.toothNumbers, surfaces: i.surfaces,
       status: i.status, priority: i.priority, phase: i.phase, sessionCount: sessionCountOf.get(String(i._id)) ?? 0, updatedAt: i.updatedAt,
     })),
     needsBilling: needsBillingItems.map((i) => ({
       _id: String(i._id), patientId: String(i.patientId), patientName: nameOf.get(String(i.patientId)) ?? null,
-      procedureCode: i.procedureCode, targetType: i.targetType, toothNumbers: i.toothNumbers, surfaces: i.surfaces,
+      procedureCode: i.procedureCode, customName: i.customName ?? undefined, targetType: i.targetType, toothNumbers: i.toothNumbers, surfaces: i.surfaces,
       estimatedPrice: typeof i.estimatedPrice === "number" ? i.estimatedPrice : null,
     })),
     recentActivity: feed.map((e) => ({ ...e, patientName: nameOf.get(e.patientId) ?? null })),

@@ -9,6 +9,7 @@ import { useCompleteTreatment, useFinishSession, useSessionNotes, useStartTreatm
 import type { TreatmentItem, TreatmentSession } from "@/lib/dental/types";
 import AddToInvoiceModal, { type BillableTreatment } from "./AddToInvoiceModal";
 import { BillingLine, PriorityPill, StatusPill, TargetText, money, scheduleNextVisitHref } from "./shared";
+import { procLabel } from "@/lib/dental/procedures";
 
 /**
  * The Dentistry section INSIDE the existing visit (Appointment) modal — rendered for dentistry clinics only.
@@ -65,7 +66,7 @@ export default function VisitDentalSection({ patientId, patientName, appointment
           <div className="space-y-1.5">
             {q.data.performed.map((s) => (
               <SessionRow key={s._id} s={s} item={itemOf(s)} canWrite={canWrite} busy={busyId === s.itemId} patientId={patientId} patientName={patientName} currentDoctorId={currentDoctorId}
-                onBill={() => setBilling({ _id: s.itemId, procedureCode: s.procedureCode, targetType: s.targetType, toothNumbers: s.toothNumbers, surfaces: s.surfaces, estimatedPrice: s.estimatedPrice ?? null })}
+                onBill={() => setBilling({ _id: s.itemId, procedureCode: s.procedureCode, customName: s.customName, targetType: s.targetType, toothNumbers: s.toothNumbers, surfaces: s.surfaces, estimatedPrice: s.estimatedPrice ?? null })}
                 onSaveNotes={(notes) => run(s.itemId, () => saveNotes.mutateAsync({ sessionId: s._id, notes }))}
                 onFinish={(notes) => run(s.itemId, () => finish.mutateAsync({ id: s.itemId, appointmentId, notes }))}
                 onComplete={(notes) => run(s.itemId, () => complete.mutateAsync({ id: s.itemId, appointmentId, notes }))} />
@@ -83,7 +84,7 @@ function PendingRow({ it, canWrite, busy, onStart }: { it: TreatmentItem; canWri
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-edge bg-card px-2.5 py-1.5">
       <div className="min-w-0 flex-1 text-[12px]">
-        <span className="text-ink">{t(`dn.p.${it.procedureCode}`)}</span>{" "}
+        <span className="text-ink">{procLabel(t, it)}</span>{" "}
         <span className="text-mute text-[11px]"><TargetText targetType={it.targetType} toothNumbers={it.toothNumbers} surfaces={it.surfaces} /></span>
       </div>
       <StatusPill status={it.status} />
@@ -106,7 +107,7 @@ function SessionRow({ s, item, canWrite, busy, patientId, patientName, currentDo
   return (
     <div className="rounded-lg border border-edge bg-card px-2.5 py-1.5">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]">
-        <span className="text-ink">{t(`dn.p.${s.procedureCode}`)}</span>
+        <span className="text-ink">{procLabel(t, s)}</span>
         <span className="text-[11px] text-mute"><TargetText targetType={s.targetType} toothNumbers={s.toothNumbers} surfaces={s.surfaces} /></span>
         <span className="text-[10px] text-mute">· {t("dn.session")} {s.sessionNumber}</span>
         {s.itemStatus && <span className="ms-auto"><StatusPill status={itemDone ? "completed" : open ? "in_progress" : s.itemStatus} /></span>}
@@ -151,7 +152,7 @@ function SessionRow({ s, item, canWrite, busy, patientId, patientName, currentDo
 /** "Schedule Next Visit" — reuses the EXISTING Appointment booking flow (New Appointment, pre-filled), no
  * separate Dental scheduling system. Available to any staff member, same as booking any other appointment. */
 function ScheduleNextVisitLink({ t, patientId, patientName, currentDoctorId, s }: { t: (k: string) => string; patientId: string; patientName: string; currentDoctorId?: string; s: TreatmentSession }) {
-  const href = scheduleNextVisitHref(t, { patientId, patientName, procedureCode: s.procedureCode, targetType: s.targetType, toothNumbers: s.toothNumbers, currentDoctorId });
+  const href = scheduleNextVisitHref(t, { patientId, patientName, procedureCode: s.procedureCode, customName: s.customName, targetType: s.targetType, toothNumbers: s.toothNumbers, currentDoctorId });
   return (
     <Link href={href} className="btn-ghost !px-2.5 !py-1 text-[11px]">
       <IconCalendarPlus size={12} /> {t("dn.scheduleNext")}

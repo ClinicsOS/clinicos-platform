@@ -8,6 +8,7 @@ import Modal from "@/components/Modal";
 import { getToothMeta, slotVariants, toothName, type DentitionType } from "@/lib/dental/fdi";
 import { SURFACES, SURFACE_LABELS, findItem, taxonomyFor, type EventCategory, type SurfaceId } from "@/lib/dental/taxonomy";
 import type { DentalEvent, TimelineEntry, TreatmentItem, VisitRef } from "@/lib/dental/types";
+import { procLabel } from "@/lib/dental/procedures";
 import type { EditorPrefill } from "./treatment/TreatmentEditor";
 import { BillingLine, StatusPill, TargetText, TimelineRow, money } from "./treatment/shared";
 import { useAddDentalEvent, useResolveDentalEvent } from "@/lib/dental/hooks";
@@ -118,7 +119,7 @@ export default function ToothPanel(p: Props) {
           <Section title={t("dn.forTooth")}>
             {planItems.length ? planItems.map((i) => (
               <div key={i._id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-ink">
-                <span>{t(`dn.p.${i.procedureCode}`)}</span>
+                <span>{procLabel(t, i)}</span>
                 <span className="text-[11px] text-mute"><TargetText targetType={i.targetType} toothNumbers={i.toothNumbers.filter((f) => f !== p.fdi || i.targetType === "tooth" || i.targetType === "surface")} surfaces={i.surfaces} /></span>
                 <StatusPill status={i.status} />
                 {i.estimatedPrice != null && <span className="text-[10px] text-mute" dir="ltr">{money(i.estimatedPrice)}</span>}
@@ -193,7 +194,7 @@ export default function ToothPanel(p: Props) {
                 ) : (
                   <div key={h.tx!.id} className="flex items-baseline gap-2 text-[11px]">
                     <span className="w-16 shrink-0 text-[10px] text-mute" dir="ltr">{shortWhen(h.tx!.at, lang, t("dn.today"))}</span>
-                    <span className="min-w-0 text-ink">{t(`dn.h.${h.tx!.kind}`)}{h.tx!.kind === "session" && h.tx!.sessionNumber ? ` ${h.tx!.sessionNumber}` : ""} — {t(`dn.p.${h.tx!.procedureCode}`)}</span>
+                    <span className="min-w-0 text-ink">{t(`dn.h.${h.tx!.kind}`)}{h.tx!.kind === "session" && h.tx!.sessionNumber ? ` ${h.tx!.sessionNumber}` : ""} — {procLabel(t, h.tx!)}</span>
                   </div>
                 ))}
               </div>

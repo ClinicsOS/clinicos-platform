@@ -4,6 +4,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useAuth } from "@/store/auth";
 import { useTreatmentPlan } from "@/lib/dental/hooks";
+import { procLabel } from "@/lib/dental/procedures";
 import { StatusPill as TxStatusPill, TargetText as TxTargetText } from "@/components/dental/treatment/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -657,7 +658,7 @@ export default function PatientProfilePage() {
                           <div className="space-y-1">
                             {(treatQ.data?.sessions ?? []).filter((x) => x.appointmentId === v._id).map((x) => (
                               <div key={x._id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px]">
-                                <span className="text-ink">{t(`dn.p.${x.procedureCode}`)}</span>
+                                <span className="text-ink">{procLabel(t, x)}</span>
                                 <span className="text-mute"><TxTargetText targetType={x.targetType} toothNumbers={x.toothNumbers} surfaces={x.surfaces} /></span>
                                 <span className="text-[10px] text-mute">· {t("dn.session")} {x.sessionNumber}</span>
                                 {x.itemStatus && <TxStatusPill status={x.itemStatus} />}

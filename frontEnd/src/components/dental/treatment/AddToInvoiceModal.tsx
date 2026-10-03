@@ -9,12 +9,14 @@ import type { Invoice } from "@/lib/types";
 import { useBillTreatment } from "@/lib/dental/hooks";
 import type { SurfaceId } from "@/lib/dental/taxonomy";
 import type { TargetType } from "@/lib/dental/types";
+import { procLabel } from "@/lib/dental/procedures";
 import { TargetText, invLabel, invoiceDescription, money } from "./shared";
 
 /** What the modal needs to know about the treatment (works from a plan item or from a visit session snapshot). */
 export interface BillableTreatment {
   _id: string;
   procedureCode: string;
+  customName?: string;
   targetType: TargetType;
   toothNumbers: string[];
   surfaces: SurfaceId[];
@@ -64,7 +66,7 @@ export default function AddToInvoiceModal({ patientId, item, onClose }: { patien
     <Modal title={t("dn.inv.add")} onClose={onClose}>
       <div className="space-y-3.5">
         <div className="rounded-lg border border-edge bg-card2 px-2.5 py-2 text-[12px] text-ink">
-          {t(`dn.p.${item.procedureCode}`)} — <span className="text-mute"><TargetText targetType={item.targetType} toothNumbers={item.toothNumbers} surfaces={item.surfaces} /></span>
+          {procLabel(t, item)} — <span className="text-mute"><TargetText targetType={item.targetType} toothNumbers={item.toothNumbers} surfaces={item.surfaces} /></span>
           <div className="mt-1 text-[11px] text-mute">{t("dn.inv.estimated")}: <span dir="ltr">{item.estimatedPrice != null ? money(item.estimatedPrice) : "—"}</span></div>
         </div>
 

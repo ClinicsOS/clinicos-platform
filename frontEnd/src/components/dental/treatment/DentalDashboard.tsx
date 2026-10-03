@@ -12,6 +12,7 @@ import type { Patient } from "@/lib/types";
 import { useDentalDashboard } from "@/lib/dental/hooks";
 import AddToInvoiceModal, { type BillableTreatment } from "./AddToInvoiceModal";
 import { PriorityPill, StatusPill, TargetText, money, shortDate } from "./shared";
+import { procLabel } from "@/lib/dental/procedures";
 
 /**
  * The Dentistry operational dashboard ("cockpit", not BI): Today, Treatment Overview, Active Treatments,
@@ -72,7 +73,7 @@ export default function DentalDashboard() {
                   </div>
                   {a.treatment && (
                     <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-mute">
-                      {t(`dn.p.${a.treatment.procedureCode}`)} — <TargetText targetType={a.treatment.targetType} toothNumbers={a.treatment.toothNumbers} surfaces={[]} />
+                      {procLabel(t, a.treatment)} — <TargetText targetType={a.treatment.targetType} toothNumbers={a.treatment.toothNumbers} surfaces={[]} />
                       <StatusPill status={a.treatment.status} />
                     </div>
                   )}
@@ -113,7 +114,7 @@ export default function DentalDashboard() {
                       <PriorityPill priority={i.priority} />
                     </div>
                     <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-mute">
-                      {t(`dn.p.${i.procedureCode}`)} — <TargetText targetType={i.targetType} toothNumbers={i.toothNumbers} surfaces={i.surfaces} />
+                      {procLabel(t, i)} — <TargetText targetType={i.targetType} toothNumbers={i.toothNumbers} surfaces={i.surfaces} />
                       {i.sessionCount > 0 && <span>· {i.sessionCount === 1 ? t("dn.dash.session1") : `${i.sessionCount} ${t("dn.dash.sessions")}`}</span>}
                     </div>
                   </div>
@@ -136,11 +137,11 @@ export default function DentalDashboard() {
                   <div className="min-w-0 flex-1">
                     <span className="truncate text-[12px] font-medium text-ink">{i.patientName ?? "—"}</span>
                     <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-mute">
-                      {t(`dn.p.${i.procedureCode}`)} — <TargetText targetType={i.targetType} toothNumbers={i.toothNumbers} surfaces={i.surfaces} />
+                      {procLabel(t, i)} — <TargetText targetType={i.targetType} toothNumbers={i.toothNumbers} surfaces={i.surfaces} />
                       {i.estimatedPrice != null && <span dir="ltr">· {money(i.estimatedPrice)}</span>}
                     </div>
                   </div>
-                  <button type="button" className="btn-teal shrink-0 !px-2.5 !py-1 text-[10px]" onClick={() => setBilling({ item: { _id: i._id, procedureCode: i.procedureCode, targetType: i.targetType, toothNumbers: i.toothNumbers, surfaces: i.surfaces, estimatedPrice: i.estimatedPrice }, patientId: i.patientId })}>
+                  <button type="button" className="btn-teal shrink-0 !px-2.5 !py-1 text-[10px]" onClick={() => setBilling({ item: { _id: i._id, procedureCode: i.procedureCode, customName: i.customName, targetType: i.targetType, toothNumbers: i.toothNumbers, surfaces: i.surfaces, estimatedPrice: i.estimatedPrice }, patientId: i.patientId })}>
                     {t("dn.inv.add")}
                   </button>
                 </div>
@@ -164,7 +165,7 @@ export default function DentalDashboard() {
                   <div className="min-w-0 flex-1">
                     <span className="text-ink">{t(`dn.dash.h.${e.kind}`)}</span>{" "}
                     <span className="text-mute">
-                      {e.patientName} — {e.procedureCode && t(`dn.p.${e.procedureCode}`)}
+                      {e.patientName} — {e.procedureCode && procLabel(t, { procedureCode: e.procedureCode, customName: e.customName })}
                       {e.toothNumbers && e.toothNumbers.length > 0 && e.targetType !== "general" && <> — <TargetText targetType={e.targetType ?? "tooth"} toothNumbers={e.toothNumbers} surfaces={[]} /></>}
                       {e.invoiceNumber != null && <> · <span dir="ltr">INV-{String(e.invoiceNumber).padStart(4, "0")}{typeof e.amount === "number" ? ` · ${money(e.amount)}` : ""}</span></>}
                     </span>

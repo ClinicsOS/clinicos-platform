@@ -5,6 +5,7 @@ import { useI18n } from "@/lib/i18n";
 import { useDentalRecord } from "@/lib/dental/hooks";
 import { useTreatmentPlan } from "@/lib/dental/hooks";
 import { StatusPill, TargetText, shortDate } from "./shared";
+import { procLabel } from "@/lib/dental/procedures";
 
 /**
  * Compact "what's this patient's dental situation" card for the top of Patient Profile — NOT a second Dental
@@ -59,7 +60,7 @@ export default function DentalOverviewCard({ patientId, onOpenChart, onOpenPlan 
           <span className="text-mute">{t("dn.ov.activeWork")}: </span>
           {active ? (
             <span className="text-ink">
-              {t(`dn.p.${active.procedureCode}`)} — <TargetText targetType={active.targetType} toothNumbers={active.toothNumbers} surfaces={active.surfaces} /> <StatusPill status={active.status} />
+              {procLabel(t, active)} — <TargetText targetType={active.targetType} toothNumbers={active.toothNumbers} surfaces={active.surfaces} /> <StatusPill status={active.status} />
             </span>
           ) : (
             <span className="text-mute">{t("dn.ov.noActiveWork")}</span>

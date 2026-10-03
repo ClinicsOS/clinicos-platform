@@ -1,16 +1,16 @@
 "use client";
 import { useRef, useState } from "react";
-import { IconX } from "@tabler/icons-react";
 import { useI18n } from "@/lib/i18n";
 import { errMsg } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import Modal from "@/components/Modal";
-import { isValidFdiFor, type DentitionType } from "@/lib/dental/fdi";
+import type { DentitionType } from "@/lib/dental/fdi";
 import { SURFACES, SURFACE_LABELS, type SurfaceId } from "@/lib/dental/taxonomy";
-import { MAX_PHASE, PRIORITIES, PROCEDURES, findProcedure, targetError, type Priority, type TargetType } from "@/lib/dental/procedures";
-import { useCreateTreatment, useUpdateTreatment, type TreatmentInput } from "@/lib/dental/hooks";
+import { CUSTOM_NAME_MAX, MAX_PHASE, OTHER_PROCEDURE_CODE, PRIORITIES, PROCEDURES, cleanCustomName, findProcedure, procLabel, targetError, type Priority, type TargetType } from "@/lib/dental/procedures";
+import { useCreateTreatment, useDentalRecord, useUpdateTreatment, type TreatmentInput } from "@/lib/dental/hooks";
 import type { TreatmentItem } from "@/lib/dental/types";
 import { TargetText } from "./shared";
+import ToothPicker from "../picker/ToothPicker";
 
 /** Where the editor was opened from (selected tooth / a diagnosis). These are only DEFAULTS — the doctor can change them. */
 export interface EditorPrefill {
@@ -40,10 +40,10 @@ export default function TreatmentEditor(p: {
   const locked = it?.status === "in_progress"; // procedure + target frozen once sessions exist
 
   const [code, setCode] = useState(it?.procedureCode ?? "");
+  const [customName, setCustomName] = useState(it?.customName ?? ""); // only used when the procedure is "Other"
   const [target, setTarget] = useState<TargetType>(it?.targetType ?? "tooth");
   const [teeth, setTeeth] = useState<string[]>(it?.toothNumbers ?? (p.prefill?.fdi ? [p.prefill.fdi] : []));
   const [surfaces, setSurfaces] = useState<SurfaceId[]>(it?.surfaces ?? p.prefill?.surfaces ?? []);
-  const [more, setMore] = useState(""); // multi-tooth input
   const [priority, setPriority] = useState<Priority>(it?.priority ?? "normal");
   const [phase, setPhase] = useState(it?.phase ?? 1);
   const [price, setPrice] = useState(it?.estimatedPrice != null ? String(it.estimatedPrice) : "");
@@ -51,6 +51,10 @@ export default function TreatmentEditor(p: {
   const [error, setError] = useState("");
 
   const def = findProcedure(code);
+  const isOther = code === OTHER_PROCEDURE_CODE;
+  // Mixed dentition: the picker shows exactly the teeth currently charted for this patient (same record the 3D chart uses).
+  const rec = useDentalRecord(p.patientId);
+  const currentTeeth = rec.data?.record.currentTeeth ?? null;
   const busy = create.isPending || update.isPending;
   const seedTooth = p.prefill?.fdi;
 
@@ -66,14 +70,8 @@ export default function TreatmentEditor(p: {
 
   const priceNum = price.trim() === "" ? null : Number(price.replace(",", "."));
   const priceBad = priceNum !== null && (!Number.isFinite(priceNum) || priceNum < 0);
-  const tErr = locked ? null : targetError({ procedureCode: code, targetType: target, teeth, surfaces }, p.dentition);
+  const tErr = locked ? null : targetError({ procedureCode: code, targetType: target, teeth, surfaces, customName }, p.dentition);
   const canSave = !busy && !priceBad && !tErr;
-
-  const addTooth = () => {
-    const v = more.trim();
-    if (v.length !== 2 || !isValidFdiFor(v, p.dentition) || teeth.includes(v)) { setError(t("dn.invalidFdi")); return; }
-    setError(""); setTeeth([...teeth, v]); setMore("");
-  };
 
   const save = async () => {
     if (!canSave || lock.current) return;
@@ -81,11 +79,12 @@ export default function TreatmentEditor(p: {
     try {
       if (it) {
         const body: Partial<TreatmentInput> = { priority, phase, notes, estimatedPrice: priceNum };
-        if (!locked) Object.assign(body, { procedureCode: code, targetType: target, toothNumbers: teeth, surfaces });
+        if (!locked) Object.assign(body, { procedureCode: code, targetType: target, toothNumbers: teeth, surfaces, ...(isOther ? { customName: cleanCustomName(customName) } : {}) });
         await update.mutateAsync({ id: it._id, body });
       } else {
         await create.mutateAsync({
           procedureCode: code, targetType: target, toothNumbers: teeth, surfaces, priority, phase,
+          ...(isOther ? { customName: cleanCustomName(customName) } : {}),
           ...(priceNum !== null ? { estimatedPrice: priceNum } : {}),
           ...(notes.trim() ? { notes: notes.trim() } : {}),
           ...(p.prefill?.diagnosisId ? { sourceDiagnosisIds: [p.prefill.diagnosisId] } : {}),
@@ -115,7 +114,7 @@ export default function TreatmentEditor(p: {
           <label className="lbl">{t("dn.procedure")}</label>
           {locked && it ? (
             <div className="rounded-lg border border-edge bg-card2 px-2.5 py-2 text-[12px] text-ink">
-              {t(`dn.p.${it.procedureCode}`)} — <TargetText targetType={it.targetType} toothNumbers={it.toothNumbers} surfaces={it.surfaces} />
+              {procLabel(t, it)} — <TargetText targetType={it.targetType} toothNumbers={it.toothNumbers} surfaces={it.surfaces} />
               <p className="mt-1 text-[10px] text-mute">{t("dn.locked")}</p>
             </div>
           ) : (
@@ -126,6 +125,15 @@ export default function TreatmentEditor(p: {
             </div>
           )}
           {def?.multiSession && !locked && <p className="mt-1 text-[10px] text-mute">{t("dn.multiHint")}</p>}
+          {isOther && !locked && (
+            <div className="dn-fade-in mt-2">
+              <label className="lbl" htmlFor="dn-custom-name">{t("dn.customName")}</label>
+              <input
+                id="dn-custom-name" dir="auto" className={`inp ${cleanCustomName(customName).length === 1 ? "!border-amber-400" : ""}`} maxLength={CUSTOM_NAME_MAX}
+                placeholder={t("dn.customNamePh")} value={customName} onChange={(e) => { setCustomName(e.target.value); setError(""); }} autoFocus
+              />
+            </div>
+          )}
         </div>
 
         {/* target — driven by the catalog metadata */}
@@ -140,11 +148,7 @@ export default function TreatmentEditor(p: {
               </div>
             )}
             {(target === "tooth" || target === "surface") && (
-              <input
-                dir="ltr" inputMode="numeric" className={`inp w-24 text-center font-mono ${teeth[0] && teeth[0].length === 2 && !isValidFdiFor(teeth[0], p.dentition) ? "!border-red-400" : ""}`}
-                placeholder={t("dn.teethPlaceholder")} aria-label={t("dn.tooth")} value={teeth[0] ?? ""} maxLength={2}
-                onChange={(e) => { const v = e.target.value.replace(/\D/g, "").slice(0, 2); setTeeth(v ? [v] : []); }}
-              />
+              <ToothPicker mode="single" value={teeth} onChange={(next) => setTeeth(next.slice(0, 1))} dentition={p.dentition} current={currentTeeth} />
             )}
             {target === "surface" && (
               <div className="flex flex-wrap gap-1.5" dir="ltr">
@@ -155,20 +159,7 @@ export default function TreatmentEditor(p: {
               </div>
             )}
             {target === "multi_tooth" && (
-              <div className="space-y-1.5">
-                <div className="flex flex-wrap gap-1.5" dir="ltr">
-                  {teeth.map((f) => (
-                    <span key={f} className="inline-flex items-center gap-1 rounded-lg border border-teal bg-teal/15 px-2 py-1 font-mono text-[11px] text-teal">
-                      {f}<button type="button" aria-label={`${t("dn.close")} ${f}`} onClick={() => setTeeth(teeth.filter((x) => x !== f))}><IconX size={11} /></button>
-                    </span>
-                  ))}
-                </div>
-                <div className="flex gap-1.5">
-                  <input dir="ltr" inputMode="numeric" className="inp w-24 text-center font-mono" placeholder={t("dn.teethPlaceholder")} value={more} maxLength={2}
-                    onChange={(e) => setMore(e.target.value.replace(/\D/g, "").slice(0, 2))} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTooth(); } }} />
-                  <button type="button" className="btn-ghost !px-2.5 !py-1 text-[11px]" onClick={addTooth}>{t("dn.addTooth")}</button>
-                </div>
-              </div>
+              <ToothPicker mode="multi" value={teeth} onChange={setTeeth} dentition={p.dentition} current={currentTeeth} />
             )}
             {target === "general" && <p className="text-[11px] text-mute">{t("dn.tg.general")}</p>}
           </div>

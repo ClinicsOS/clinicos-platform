@@ -20,6 +20,7 @@ export interface IDentalTreatmentSession extends Document {
   appointmentId: Types.ObjectId;
   sessionNumber: number;
   procedureCode: string;
+  customName?: string; // snapshot of the item's typed name (procedureCode "other")
   targetType: TargetType;
   toothNumbers: string[];
   surfaces: SurfaceId[];
@@ -41,6 +42,7 @@ const sessionSchema = new Schema<IDentalTreatmentSession>(
     appointmentId: { type: Schema.Types.ObjectId, ref: "Appointment", required: true },
     sessionNumber: { type: Number, required: true, min: 1 },
     procedureCode: { type: String, required: true },
+    customName: { type: String, trim: true, maxlength: 80 },
     targetType: { type: String, enum: TARGET_TYPES, required: true },
     toothNumbers: { type: [String], default: [] },
     surfaces: { type: [{ type: String, enum: SURFACES }], default: [] },

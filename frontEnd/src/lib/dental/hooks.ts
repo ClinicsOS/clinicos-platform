@@ -119,7 +119,7 @@ function useTreatmentMutation<V, R>(patientId: string, fn: (v: V) => Promise<R>)
 const base = (patientId: string) => `/dental/patients/${patientId}/treatment-plan`;
 
 export interface TreatmentInput {
-  procedureCode: string; targetType: string; toothNumbers?: string[]; surfaces?: string[];
+  procedureCode: string; customName?: string; targetType: string; toothNumbers?: string[]; surfaces?: string[];
   priority?: string; phase?: number; estimatedPrice?: number | null; notes?: string; sourceDiagnosisIds?: string[];
 }
 export const useCreateTreatment = (pid: string) =>
@@ -166,13 +166,13 @@ export interface DentalDashboardResponse {
     counts: { total: number; scheduled: number; confirmed: number; completed: number; cancelled: number; noShow: number; walkIns: number };
     appointments: {
       _id: string; startAt: string; status: string; source: string; patientId: string | null; patientName: string | null; doctorName: string | null;
-      treatment: { status: PlanStatus; procedureCode: string; targetType: TargetType; toothNumbers: string[] } | null;
+      treatment: { status: PlanStatus; procedureCode: string; customName?: string; targetType: TargetType; toothNumbers: string[] } | null;
     }[];
   };
   treatmentOverview: { planned: number; inProgress: number; completed: number; cancelled: number };
-  activeTreatments: { _id: string; patientId: string; patientName: string | null; procedureCode: string; targetType: TargetType; toothNumbers: string[]; surfaces: SurfaceId[]; status: PlanStatus; priority: Priority; phase: number; sessionCount: number; updatedAt: string }[];
-  needsBilling: { _id: string; patientId: string; patientName: string | null; procedureCode: string; targetType: TargetType; toothNumbers: string[]; surfaces: SurfaceId[]; estimatedPrice: number | null }[];
-  recentActivity: { at: string; kind: string; patientId: string; patientName: string | null; procedureCode?: string; targetType?: TargetType; toothNumbers?: string[]; invoiceNumber?: number; amount?: number }[];
+  activeTreatments: { _id: string; patientId: string; patientName: string | null; procedureCode: string; customName?: string; targetType: TargetType; toothNumbers: string[]; surfaces: SurfaceId[]; status: PlanStatus; priority: Priority; phase: number; sessionCount: number; updatedAt: string }[];
+  needsBilling: { _id: string; patientId: string; patientName: string | null; procedureCode: string; customName?: string; targetType: TargetType; toothNumbers: string[]; surfaces: SurfaceId[]; estimatedPrice: number | null }[];
+  recentActivity: { at: string; kind: string; patientId: string; patientName: string | null; procedureCode?: string; customName?: string; targetType?: TargetType; toothNumbers?: string[]; invoiceNumber?: number; amount?: number }[];
 }
 
 /** One summary read for the Dentistry operational dashboard (dentistry clinics only — the route itself is specialty-gated). */
