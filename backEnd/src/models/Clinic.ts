@@ -1,5 +1,27 @@
 import mongoose, { Schema, Document } from "mongoose";
 import type { Plan } from "../config/plans";
+import { ADDON_IDS, ADDON_STATUSES, type AddonId, type AddonStatus } from "../config/addons";
+
+/**
+ * A clinic's subscription to ONE paid add-on (see config/addons.ts).
+ * This is the ENTITLEMENT record — "has this clinic paid for the module and may it use it?".
+ * It is controlled only by the ClinicOS platform admin. It is NOT where a module's own
+ * settings live (e.g. a clinic's future loyalty rules); those belong to the module itself.
+ */
+export interface IAddonSubscription {
+  enabled: boolean;               // denormalised: true only while status === "active"
+  status: AddonStatus;
+  setupFee: number;               // one-time fee agreed with THIS clinic (JOD)
+  monthlyPrice: number;           // monthly price agreed with THIS clinic (JOD)
+  activatedAt?: Date | null;
+  currentPeriodStart?: Date | null;
+  currentPeriodEnd?: Date | null;
+  suspendedAt?: Date | null;
+  cancelledAt?: Date | null;
+}
+
+/** Keyed by add-on id. Every key is optional: a clinic with no record is simply "not subscribed". */
+export type ClinicAddons = Partial<Record<AddonId, IAddonSubscription>>;
 
 export interface IClinic extends Document {
   name: string;
@@ -25,9 +47,37 @@ export interface IClinic extends Document {
   planExpiresAt: Date;
   status: "active" | "suspended" | "expired";
 
+  // ===== Paid add-ons (optional — absent on every clinic created before add-ons existed) =====
+  addons?: ClinicAddons;
+
   createdAt: Date;
   updatedAt: Date;
 }
+
+/**
+ * Sub-schema for one add-on subscription. Defaults only apply when a record is created, and the
+ * record itself has NO default — so existing Clinic documents (and new clinics) simply have no
+ * `addons.<id>` and behave as "not subscribed". No migration is required.
+ */
+const addonSubscriptionSchema = new Schema<IAddonSubscription>(
+  {
+    enabled: { type: Boolean, default: false },
+    status: { type: String, enum: ADDON_STATUSES, default: "inactive" },
+    setupFee: { type: Number, min: 0, default: 0 },
+    monthlyPrice: { type: Number, min: 0, default: 0 },
+    activatedAt: { type: Date, default: null },
+    currentPeriodStart: { type: Date, default: null },
+    currentPeriodEnd: { type: Date, default: null },
+    suspendedAt: { type: Date, default: null },
+    cancelledAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
+// One optional path per add-on id: { loyalty: { type: addonSubscriptionSchema }, ... }
+const addonsDefinition = Object.fromEntries(
+  ADDON_IDS.map((id) => [id, { type: addonSubscriptionSchema }])
+);
 
 const clinicSchema = new Schema<IClinic>(
   {
@@ -65,6 +115,8 @@ const clinicSchema = new Schema<IClinic>(
       enum: ["active", "suspended", "expired"],
       default: "active",
     },
+
+    addons: addonsDefinition,
   },
   { timestamps: true }
 );

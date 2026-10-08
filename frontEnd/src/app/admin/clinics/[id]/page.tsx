@@ -8,6 +8,7 @@ import { useAdminAuth } from "@/lib/adminAuth";
 import PlanBadge from "@/components/admin/PlanBadge";
 import StatusBadge from "@/components/admin/StatusBadge";
 import ExpiryBadge from "@/components/admin/ExpiryBadge";
+import LoyaltyAddonSection from "@/components/admin/loyalty/LoyaltyAddonSection";
 import { getSpecialtyLabel } from "@/lib/specialties";
 import {
   IconArrowLeft,
@@ -270,6 +271,9 @@ export default function ClinicDetailsPage() {
           value={stats.recentInvoicesTotal.toLocaleString()}
         />
       </div>
+
+      {/* Paid add-ons (ClinicOS Loyalty) — platform-admin entitlement, separate from the plan */}
+      <LoyaltyAddonSection clinicId={clinicId} clinicName={clinic.name} />
 
       {/* Grid: subscription info + users + history */}
       <div className="grid gap-4 lg:grid-cols-3">

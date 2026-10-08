@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { z } from "zod";
 import { Invoice } from "../models/Invoice";
 import { Patient } from "../models/Patient";
+import { onInvoicePayment } from "../services/loyaltyPoints";
 import { asyncHandler } from "../middleware/errorHandler";
 
 const createInvoiceSchema = z.object({
@@ -248,6 +249,11 @@ export const addPayment = asyncHandler(async (req: Request, res: Response) => {
     await Invoice.updateOne({ _id: updated._id }, { $set: { status: newStatus } });
     updated.status = newStatus;
   }
+
+  // ClinicOS Loyalty: this payment (identified by its own _id) may earn spending points. The hook never throws and
+  // never changes the payment. The payment we just appended is the last element of the array.
+  const newPayment = updated.payments[updated.payments.length - 1] as unknown as { _id?: unknown } | undefined;
+  if (newPayment?._id) await onInvoicePayment(updated, String(newPayment._id), req.userId);
 
   return res.json(updated);
 });

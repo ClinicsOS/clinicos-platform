@@ -5,6 +5,7 @@ import cookieParser from "cookie-parser";
 import { connectDB } from "./config/db";
 import { errorHandler } from "./middleware/errorHandler";
 import { securityHeaders } from "./middleware/securityHeaders";
+import { assertProductionConfig } from "./config/env"; // Phase 10 — refuse to start production with a missing / weak secret
 
 import authRoutes from "./routes/authRoutes";
 import userRoutes from "./routes/userRoutes";
@@ -22,6 +23,15 @@ import chatRoutes from "./routes/chatRoutes"; // NEW — "معك" chatbot
 import expenseRoutes from "./routes/expenseRoutes"; // NEW — clinic & owner expenses
 import dentalRoutes from "./routes/dentalRoutes"; // NEW — Dentistry module (dentistry clinics only)
 import dermRoutes from "./routes/dermRoutes"; // NEW — Dermatology & Aesthetics module (dermatology_aesthetics clinics only)
+import { repairLoyaltyTransactionIndexes } from "./models/LoyaltyTransaction"; // NEW — one-time ledger index repair (see model)
+import loyaltyRoutes from "./routes/loyaltyRoutes"; // NEW — ClinicOS Loyalty engine (paid add-on; entitlement-gated server-side)
+import loyaltyPublicRoutes from "./routes/loyaltyPublicRoutes"; // NEW — public patient Loyalty (slug + short-lived Loyalty-only session)
+
+/** Phase 10 — Loyalty staff responses hold members' balances and activity: never let a browser / proxy keep them. */
+const noStore = (_req: express.Request, res: express.Response, next: express.NextFunction) => {
+  res.setHeader("Cache-Control", "no-store");
+  next();
+};
 
 const app = express();
 app.set("trust proxy", 1);
@@ -61,6 +71,7 @@ app.use("/api/invoices", invoiceRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/subscription", subscriptionRoutes);
 app.use("/api/reports", reportsRoutes);
+app.use("/api/public/loyalty", loyaltyPublicRoutes); // NEW — must come BEFORE /api/public
 app.use("/api/public", publicRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/reminders", reminderRoutes); // NEW — WhatsApp appointment reminders
@@ -68,13 +79,19 @@ app.use("/api/chat", chatRoutes); // NEW — "معك" chatbot
 app.use("/api/expenses", expenseRoutes); // NEW — clinic & owner expenses
 app.use("/api/dental", dentalRoutes); // NEW — Dentistry module (specialty-gated server-side)
 app.use("/api/derm", dermRoutes); // NEW — Dermatology & Aesthetics module (specialty-gated server-side)
+app.use("/api/loyalty", noStore, loyaltyRoutes); // NEW — ClinicOS Loyalty (requires the active paid add-on)
 
 app.use(errorHandler);
 
 const PORT = Number(process.env.PORT) || 5000;
 
 const start = async () => {
+  assertProductionConfig();
   await connectDB();
+  // Loyalty ledger: replace two faulty multi-key sparse indexes (no-op once repaired; never touches data).
+  await repairLoyaltyTransactionIndexes()
+    .then((d) => d.length && console.log("[loyalty] repaired legacy ledger indexes:", d.join(", ")))
+    .catch((e) => console.error("[loyalty] ledger index repair skipped:", e instanceof Error ? e.message : e));
   app.listen(PORT, () => {
     console.log(`🚀 ClinicOS API running on port ${PORT}`);
   });

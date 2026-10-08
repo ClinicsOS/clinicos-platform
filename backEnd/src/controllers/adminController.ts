@@ -14,6 +14,14 @@ import { ClinicNote } from "../models/ClinicNote";
 import { asyncHandler } from "../middleware/errorHandler";
 import { PLANS, PLAN_PRICES, type Plan } from "../config/plans";
 import { logActivity } from "../services/activityLogger";
+import { purgeClinicLoyaltyData } from "../services/loyaltyService";
+import { LoyaltySettings } from "../models/LoyaltySettings";
+import { LoyaltyAccount } from "../models/LoyaltyAccount";
+import { LoyaltyTransaction } from "../models/LoyaltyTransaction";
+import { LoyaltyCheckIn } from "../models/LoyaltyCheckIn";
+import { LoyaltyReward } from "../models/LoyaltyReward";
+import { LoyaltyRedemption } from "../models/LoyaltyRedemption";
+import { LoyaltyTierHistory } from "../models/LoyaltyTierHistory";
 import {
   generateTotpSecret,
   buildTotpUri,
@@ -618,6 +626,7 @@ export const deleteClinic = asyncHandler(
       Patient.deleteMany({ clinicId: id }),
       User.deleteMany({ clinicId: id }),
       SubscriptionRequest.deleteMany({ clinicId: id }),
+      purgeClinicLoyaltyData(id), // Loyalty accounts + ledger + settings (no-op if never used)
       Clinic.deleteOne({ _id: id }),
     ]);
 
@@ -656,6 +665,13 @@ export const exportClinic = asyncHandler(
       appointments,
       invoices,
       subscriptionRequests,
+      loyaltySettings,
+      loyaltyAccounts,
+      loyaltyTransactions,
+      loyaltyCheckIns,
+      loyaltyRewards,
+      loyaltyRedemptions,
+      loyaltyTierHistory,
     ] = await Promise.all([
       Clinic.findById(id).lean(),
       User.find({ clinicId: id })
@@ -665,6 +681,13 @@ export const exportClinic = asyncHandler(
       Appointment.find({ clinicId: id }).lean(),
       Invoice.find({ clinicId: id }).lean(),
       SubscriptionRequest.find({ clinicId: id }).lean(),
+      LoyaltySettings.findOne({ clinicId: id }).lean(),
+      LoyaltyAccount.find({ clinicId: id }).lean(),
+      LoyaltyTransaction.find({ clinicId: id }).sort({ createdAt: 1 }).lean(),
+      LoyaltyCheckIn.find({ clinicId: id }).sort({ requestedAt: 1 }).lean(),
+      LoyaltyReward.find({ clinicId: id }).sort({ createdAt: 1 }).lean(),
+      LoyaltyRedemption.find({ clinicId: id }).sort({ requestedAt: 1 }).lean(),
+      LoyaltyTierHistory.find({ clinicId: id }).sort({ changedAt: 1 }).lean(),
     ]);
 
     if (!clinic) return res.status(404).json({ message: "Clinic not found" });
@@ -687,6 +710,7 @@ export const exportClinic = asyncHandler(
       appointments,
       invoices,
       subscriptionRequests,
+      loyalty: { settings: loyaltySettings, accounts: loyaltyAccounts, transactions: loyaltyTransactions, checkIns: loyaltyCheckIns, rewards: loyaltyRewards, redemptions: loyaltyRedemptions, tierHistory: loyaltyTierHistory },
     });
   },
 );

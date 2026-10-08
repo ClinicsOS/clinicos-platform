@@ -43,7 +43,7 @@ export const requireAdmin = (req: Request, res: Response, next: NextFunction) =>
   }
 
   try {
-    const payload = jwt.verify(header.slice(7), secret) as AdminJwtPayload;
+    const payload = jwt.verify(header.slice(7), secret, { algorithms: ["HS256"] }) as AdminJwtPayload;
     if (payload.sub !== "admin") {
       return res.status(401).json({ message: "Invalid admin token" });
     }

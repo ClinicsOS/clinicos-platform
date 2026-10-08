@@ -26,13 +26,14 @@ const NAV_ITEMS = [
   { href: "/admin/settings", icon: IconSettings, label: "Settings" },
 ] as const;
 
-export default function AdminSidebar() {
+export default function AdminSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const pathname = usePathname();
   const router = useRouter();
   const admin = useAdminAuth((s) => s.admin);
   const logout = useAdminAuth((s) => s.logout);
 
   const doLogout = () => {
+    onNavigate?.();
     logout();
     router.replace("/admin/login");
   };
@@ -61,6 +62,7 @@ export default function AdminSidebar() {
             <Link
               key={item.href}
               href={item.href}
+              onClick={() => onNavigate?.()}
               className={`mb-0.5 flex items-center gap-2.5 rounded-md px-3 py-2 text-[12px] transition-colors ${
                 isActive
                   ? "bg-red-600/20 text-white ring-1 ring-red-600/40"

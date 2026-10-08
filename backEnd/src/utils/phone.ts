@@ -15,7 +15,12 @@
 export function normalizeJordanPhone(raw: string): string | null {
   if (!raw) return null;
 
-  const digits = raw.replace(/[^\d]/g, ""); // strip spaces, dashes, "+"
+  let digits = raw.replace(/[^\d]/g, ""); // strip spaces, dashes, "+"
+
+  // International dial prefix: "009627XXXXXXXX" -> "9627XXXXXXXX" (14 digits).
+  // Previously rejected (null); accepting it can only turn a skipped number into
+  // a usable one, so every existing caller keeps working.
+  if (/^009627\d{8}$/.test(digits)) digits = digits.slice(2);
 
   // Already has the country code: "9627XXXXXXXX" (12 digits)
   if (/^9627\d{8}$/.test(digits)) return digits;

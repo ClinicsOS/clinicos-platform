@@ -1,11 +1,6 @@
 import { Request, Response, NextFunction } from "express";
-import jwt from "jsonwebtoken";
+import { verifyStaffToken } from "./auth";
 import { User } from "../models/User";
-
-interface JwtPayload {
-  userId: string;
-  tokenVersion?: number;
-}
 
 /**
  * Like `protect`, but never rejects the request. If a valid Bearer token
@@ -24,7 +19,7 @@ export const optionalAuth = async (req: Request, _res: Response, next: NextFunct
     }
     const token = header.split(" ")[1];
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as JwtPayload;
+    const decoded = verifyStaffToken(token);
     const user = await User.findById(decoded.userId);
     if (!user || !user.isActive) {
       return next(); // invalid/stale token — treat as anonymous, don't error

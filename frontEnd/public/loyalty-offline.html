@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#05060a">
+<title>Offline · Loyalty</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#05060a;color:#f6efe0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans Arabic",Tahoma,sans-serif;-webkit-font-smoothing:antialiased}
+body{display:flex;align-items:center;justify-content:center;padding:max(24px,env(safe-area-inset-top)) max(24px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(24px,env(safe-area-inset-left));
+  background:radial-gradient(70% 46% at 78% -6%,rgba(232,199,106,.22),transparent 62%),radial-gradient(60% 40% at -8% 104%,rgba(96,128,196,.16),transparent 62%),#05060a}
+main{width:100%;max-width:360px;text-align:center}
+.card{width:min(78vw,300px);aspect-ratio:1.586/1;margin:0 auto 28px;border-radius:20px;background:linear-gradient(135deg,#2c313e,#171a23 55%,#0a0c11);border:1px solid rgba(232,199,106,.35);box-shadow:0 30px 60px -24px rgba(0,0,0,.9),inset 0 1px 0 rgba(255,255,255,.18);position:relative;overflow:hidden;opacity:.85}
+.card::after{content:"";position:absolute;inset:0;background:radial-gradient(60% 60% at 30% 18%,rgba(255,235,190,.22),transparent 65%)}
+.card i{position:absolute;left:16px;top:18px;width:30px;height:30px;border-radius:50%;border:1.5px solid rgba(232,199,106,.7)}
+.card b{position:absolute;left:16px;bottom:18px;width:44%;height:9px;border-radius:5px;background:rgba(232,199,106,.35)}
+h1{margin:0 0 8px;font-family:Georgia,"Noto Naskh Arabic",serif;font-weight:500;font-size:26px;color:#fbf0d2}
+p{margin:0 0 8px;font-size:15px;line-height:1.6;color:#a9a08a}
+button{margin-top:18px;min-height:52px;padding:0 28px;border:0;border-radius:16px;font:inherit;font-weight:700;font-size:15.5px;color:#2a1d06;cursor:pointer;background:linear-gradient(120deg,#f6e2a8,#e8c76a 46%,#b98a38);box-shadow:0 14px 28px -12px rgba(232,199,106,.7),inset 0 1px 0 rgba(255,255,255,.55)}
+button:active{transform:scale(.97)}
+:focus-visible{outline:2px solid #e8c76a;outline-offset:3px}
+.ar{direction:rtl}
+.sep{height:1px;background:rgba(255,255,255,.1);margin:20px 0}
+</style>
+</head>
+<body>
+<main role="main">
+  <div class="card" aria-hidden="true"><i></i><b></b></div>
+  <h1>You're offline</h1>
+  <p>Your Loyalty card needs an internet connection to show your latest points. Nothing has been changed.</p>
+  <div class="sep" aria-hidden="true"></div>
+  <div class="ar" lang="ar">
+    <h1>أنت غير متصل</h1>
+    <p>تحتاج بطاقة الولاء إلى اتصال بالإنترنت لعرض أحدث نقاطك. لم يتغيّر أي شيء.</p>
+  </div>
+  <button type="button" onclick="location.reload()">Try again · حاول مرة أخرى</button>
+</main>
+<script>addEventListener("online",function(){location.reload()})</script>
+</body>
+</html>

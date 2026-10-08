@@ -8,8 +8,10 @@ import { useAuth } from "@/store/auth";
 import { useI18n } from "@/lib/i18n";
 import { useTheme } from "@/lib/theme";
 import Cube3D from "@/components/Cube3D";
-import type { Clinic, Appointment } from "@/lib/types";
+import type { Clinic, Appointment, Subscription } from "@/lib/types";
 import NotificationBell from "@/components/NotificationBell";
+import LoyaltyBoot from "@/components/loyalty/shell/LoyaltyBoot";
+import { SHELL_FLAG } from "@/lib/loyaltyNav";
 import DigitalClock from "@/components/DigitalClock";
 import {
   IconLayoutDashboard,
@@ -24,6 +26,7 @@ import {
   IconArrowRight,
   IconChartBar,
   IconWallet,
+  IconDiamond,
 } from "@tabler/icons-react";
 
 const planLabel = (plan: string | undefined, t: (k: string) => string) => {
@@ -50,7 +53,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     if (hydrated && !token) router.replace("/signin");
   }, [hydrated, token, router]);
 
-  const { data: clinic } = useQuery({
+  const { data: clinic, isError: clinicErr } = useQuery({
     queryKey: ["clinic"],
     queryFn: async () => (await api.get<Clinic>("/clinic")).data,
     enabled: hydrated && !!token,
@@ -62,6 +65,33 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       return failureCount < 2;
     },
   });
+
+  // Loyalty add-on entitlement (paid add-on, enabled by the ClinicOS platform admin). Decides only whether the
+  // sidebar entry is SHOWN — the server enforces the add-on on every /api/loyalty request.
+  const subQ = useQuery({
+    queryKey: ["subscription"],
+    queryFn: async () => (await api.get<Subscription>("/subscription")).data,
+    enabled: hydrated && !!token && clinic?.status === "active",
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    retry: false,
+  });
+  const subscription = subQ.data;
+
+  // Phase 8 — /loyalty/* is its own product shell (ClinicOS Loyalty): while the add-on is active the ClinicOS sidebar / header are not rendered, and
+  // the ClinicOS-only background polling (public bookings) is paused. "boot" = we are on /loyalty but don't know yet whether the add-on is active.
+  const onLoyalty = pathname.startsWith("/loyalty");
+  const immersive = onLoyalty && !!subscription?.addons?.loyalty?.enabled;
+  const loyaltyBoot = onLoyalty && !subscription && !subQ.isError && !clinicErr && (!clinic || clinic.status === "active");
+  // Leaving Loyalty (browser back, a ClinicOS link …) forgets "I'm inside Loyalty", so the next entry plays the entry moment again.
+  useEffect(() => {
+    if (onLoyalty) return;
+    try {
+      window.sessionStorage.removeItem(SHELL_FLAG);
+    } catch {
+      /* storage blocked */
+    }
+  }, [onLoyalty]);
 
   // Poll for pending public bookings — every 5s. FIX #11 (F-02): scoped to
   // just future, still-pending public bookings (source=public&status=
@@ -77,7 +107,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           `/appointments?source=public&status=scheduled&from=${encodeURIComponent(new Date().toISOString())}`
         )
       ).data,
-    enabled: hydrated && !!token && clinic?.status === "active",
+    enabled: hydrated && !!token && clinic?.status === "active" && !immersive,
     refetchInterval: 5_000,
   });
 
@@ -93,6 +123,28 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     retry: false,
   });
 
+  // NEW (Phase 5) — patients waiting for check-in confirmation (sidebar dot on "Loyalty"). Only asked while the add-on is
+  // active; the server enforces the add-on and the role on this request as well. Polling pauses in background tabs.
+  const { data: checkInSummary } = useQuery({
+    queryKey: ["loyalty", "checkins", "summary"],
+    queryFn: async () => (await api.get<{ pending: number; enabled: boolean }>("/loyalty/checkins/summary")).data,
+    enabled: hydrated && !!token && clinic?.status === "active" && !!subscription?.addons?.loyalty?.enabled,
+    staleTime: 5_000,
+    refetchInterval: 15_000,
+    retry: false,
+  });
+  const checkInWaiting = checkInSummary?.pending ?? 0;
+  // NEW (Phase 6) — reward redemption requests waiting for staff (same dot). Same gating as above; the server enforces add-on + role.
+  const { data: redeemSummary } = useQuery({
+    queryKey: ["loyalty", "rewards", "pending-count"],
+    queryFn: async () => (await api.get<{ pending: number }>("/loyalty/rewards/pending-count")).data,
+    enabled: hydrated && !!token && clinic?.status === "active" && !!subscription?.addons?.loyalty?.enabled,
+    staleTime: 5_000,
+    refetchInterval: 15_000,
+    retry: false,
+  });
+  const redeemWaiting = redeemSummary?.pending ?? 0;
+
   const pendingCount = (allAppts ?? []).filter(
     (a) =>
       a.source === "public" &&
@@ -101,6 +153,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   ).length;
 
   if (!hydrated || !token) {
+    if (onLoyalty) return <LoyaltyBoot />;
     return (
       <div className="flex min-h-screen items-center justify-center bg-hero">
         <Cube3D size={64} />
@@ -116,6 +169,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     ...(isOwner ? [{ href: "/expenses", label: t("nav.expenses"), icon: IconWallet }] : []),
     ...(clinic?.planInfo?.limits.reports
       ? [{ href: "/reports", label: t("nav.reports"), icon: IconChartBar }]
+      : []),
+    ...(subscription?.addons?.loyalty?.enabled
+      ? [{ href: "/loyalty", label: lang === "ar" ? "الولاء" : "Loyalty", icon: IconDiamond }]
       : []),
     { href: "/settings", label: t("nav.settings"), icon: IconSettings },
   ];
@@ -162,6 +218,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     );
   }
 
+  // Phase 8 — ClinicOS Loyalty is a standalone product shell: no ClinicOS sidebar / header around it.
+  if (loyaltyBoot) return <LoyaltyBoot />;
+  if (immersive) return <>{children}</>;
+
   const bookingLink = origin && clinic ? `${origin}/book/${clinic.slug}` : "";
 
   return (
@@ -179,6 +239,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           const active = pathname.startsWith(n.href);
           const showDot =
             (n.href === "/appointments" && pendingCount > 0) ||
+            (n.href === "/loyalty" && (checkInWaiting > 0 || redeemWaiting > 0)) ||
             (n.href === "/expenses" && (expenseAlerts?.count ?? 0) > 0);
           const dotRed = n.href === "/expenses" && (expenseAlerts?.overdue ?? 0) > 0;
           return (

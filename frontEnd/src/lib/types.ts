@@ -39,6 +39,70 @@ export interface Clinic {
   };
 }
 
+// ===== Paid add-ons (separate from plans — see backEnd/src/config/addons.ts) =====
+export type AddonId = "loyalty";
+export type AddonStatus = "inactive" | "active" | "suspended" | "cancelled";
+
+/**
+ * What a CLINIC USER may see about an add-on (GET /api/subscription → addons).
+ * Read-only: clinic users can never change entitlement — only the Platform Admin can.
+ * `enabled` is the EFFECTIVE entitlement (already accounts for account suspension / expiry /
+ * the add-on's billing period) — gate UI on it, but remember the server is the real boundary.
+ */
+export interface ClinicAddonEntitlement {
+  enabled: boolean;
+  status: AddonStatus;
+  monthlyPrice: number;
+  currentPeriodEnd: string | null;
+  periodExpired: boolean;
+}
+export type ClinicAddons = Record<AddonId, ClinicAddonEntitlement>;
+
+export type AddonDenyReason =
+  | "not_subscribed"
+  | "suspended"
+  | "cancelled"
+  | "period_ended"
+  | "account_suspended"
+  | "account_expired";
+
+/** Full subscription record as seen by the PLATFORM ADMIN (GET /api/admin/clinics/:id/addons). */
+export interface AddonSubscription {
+  id: AddonId;
+  name: string;
+  status: AddonStatus;
+  entitled: boolean;
+  reason: AddonDenyReason | null;
+  hasRecord: boolean;
+  enabled: boolean;
+  setupFee: number | null;
+  monthlyPrice: number | null;
+  activatedAt: string | null;
+  currentPeriodStart: string | null;
+  currentPeriodEnd: string | null;
+  suspendedAt: string | null;
+  cancelledAt: string | null;
+  periodExpired: boolean;
+  accountEligible: boolean;
+  daysUntilPeriodEnd: number | null;
+}
+
+/** Product-level defaults (list price etc.) — the clinic's own record stores the agreed numbers. */
+export interface AddonDefinition {
+  id: AddonId;
+  name: string;
+  currency: "JOD";
+  defaultMonthlyPrice: number;
+  setupFeeGuidance: { min: number; max: number } | null;
+  defaultPeriodDays: number;
+}
+
+export interface AdminAddonsResponse {
+  addons: Record<AddonId, AddonSubscription>;
+  defaults: Record<AddonId, AddonDefinition>;
+  clinicPlan: { plan: Plan; monthlyPrice: number };
+}
+
 export interface Subscription {
   plan: Plan;
   price: number;
@@ -50,6 +114,8 @@ export interface Subscription {
   pendingRequest: { id: string; plan: Plan; createdAt: string } | null;
   plans: Record<Plan, { price: number; limits: PlanLimits }>;
   cliqInfo: { alias: string; bank: string };
+  /** Optional so older cached responses / older API versions still type-check. */
+  addons?: ClinicAddons;
 }
 
 export interface Staff { _id: string; name: string; email: string; role: string; phone?: string; isActive: boolean; }

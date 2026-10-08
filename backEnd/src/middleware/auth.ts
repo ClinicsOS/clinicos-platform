@@ -9,6 +9,20 @@ interface JwtPayload {
   tokenVersion?: number;
 }
 
+/**
+ * Phase 10 — verifies a clinic-user (staff) token and nothing else.
+ *  • the algorithm is PINNED (HS256): a token can never choose a weaker / different algorithm for itself;
+ *  • a token that is not shaped like a staff token is refused even if its signature were valid under a shared key —
+ *    that includes the public patient Loyalty token (has `typ` / `aud` / `cid`) and the platform-admin token (has `sub`).
+ */
+export function verifyStaffToken(token: string): JwtPayload {
+  const decoded = jwt.verify(token, process.env.JWT_SECRET as string, { algorithms: ["HS256"] }) as JwtPayload & Record<string, unknown>;
+  if (typeof decoded !== "object" || decoded === null) throw new Error("bad token");
+  if (typeof decoded.userId !== "string" || !/^[a-f\d]{24}$/i.test(decoded.userId)) throw new Error("not a staff token");
+  if ("typ" in decoded || "aud" in decoded || "cid" in decoded || "aid" in decoded || "sub" in decoded) throw new Error("not a staff token");
+  return decoded;
+}
+
 export const protect = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const header = req.headers.authorization;
@@ -17,7 +31,7 @@ export const protect = async (req: Request, res: Response, next: NextFunction) =
     }
     const token = header.split(" ")[1];
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as JwtPayload;
+    const decoded = verifyStaffToken(token);
     const user = await User.findById(decoded.userId);
     if (!user || !user.isActive) {
       return res.status(401).json({ message: "Not authorized" });

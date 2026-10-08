@@ -5,6 +5,7 @@ import { SubscriptionRequest } from "../models/SubscriptionRequest";
 import { asyncHandler } from "../middleware/errorHandler";
 import { PLANS, PLAN_PRICES, CLIQ_INFO, daysUntil, type Plan } from "../config/plans";
 import { sendNewSubscriptionRequestNotification } from "../services/mailer";
+import { toClinicSafeAddons } from "../services/addons";
 
 /**
  * GET /api/subscription
@@ -41,6 +42,9 @@ export const getSubscription = asyncHandler(async (req: Request, res: Response) 
       pro: { price: PLAN_PRICES.pro, limits: PLANS.pro },
     },
     cliqInfo: CLIQ_INFO,
+    // Read-only, safe view of paid add-ons (effective entitlement + agreed monthly price).
+    // Clinic users can see this but can never change it — only the Platform Admin can.
+    addons: toClinicSafeAddons(clinic),
   });
 });
 

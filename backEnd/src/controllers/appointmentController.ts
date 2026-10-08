@@ -11,6 +11,7 @@ import {
   checkAppointmentPlanCap,
 } from "../services/appointmentRules";
 import { findOverlappingAppointment } from "../services/appointmentAvailability";
+import { onAppointmentStatusChange } from "../services/loyaltyPoints";
 import { localDayOfWeek } from "../utils/workingHoursTime";
 
 const createAppointmentSchema = z
@@ -381,6 +382,12 @@ export const updateAppointment = asyncHandler(async (req: Request, res: Response
   );
 
   if (!updated) return res.status(404).json({ message: "Appointment not found" });
+
+  // ClinicOS Loyalty: entering "completed" may earn visit points; leaving it reverses them. The hook never throws
+  // and never changes the appointment — it only reacts to a status change that really happened.
+  if (data.status !== undefined && data.status !== appointment.status) {
+    await onAppointmentStatusChange(appointment.status, updated, req.userId);
+  }
   return res.json(updated);
 });
 

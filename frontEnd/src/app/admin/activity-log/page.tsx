@@ -41,6 +41,38 @@ const ACTION_LABELS: Record<string, string> = {
   "clinic.deleted": "Deleted clinic",
   "clinic.exported": "Exported clinic data",
   "clinic.impersonated": "Impersonated clinic owner",
+  "loyalty.member_enrolled": "Clinic enrolled a patient in Loyalty",
+  "loyalty.settings_updated": "Clinic updated Loyalty settings",
+  "loyalty.settings.earning_updated": "Clinic updated Loyalty earning rules",
+  "loyalty.points.visit_awarded": "Loyalty visit points awarded (automatic)",
+  "loyalty.points.spending_awarded": "Loyalty spending points awarded (automatic)",
+  "loyalty.points.manual_credit": "Clinic added Loyalty points manually",
+  "loyalty.points.manual_debit": "Clinic deducted Loyalty points manually",
+  "loyalty.points.reversed": "Loyalty points reversed",
+  "loyalty.public.member_access": "Patient opened their Loyalty card",
+  "loyalty.checkin.requested": "Patient requested a check-in",
+  "loyalty.checkin.confirmed": "Clinic confirmed a patient check-in",
+  "loyalty.checkin.rejected": "Clinic rejected a patient check-in",
+  "loyalty.checkin.cancelled": "Patient cancelled their check-in",
+  "loyalty.reward.created": "Clinic created a reward",
+  "loyalty.reward.updated": "Clinic edited a reward",
+  "loyalty.reward.activated": "Clinic activated a reward",
+  "loyalty.reward.deactivated": "Clinic deactivated a reward",
+  "loyalty.reward.deleted": "Clinic deleted an unused reward",
+  "loyalty.redemption.requested": "Patient requested a reward",
+  "loyalty.redemption.confirmed": "Clinic confirmed a reward redemption (points deducted)",
+  "loyalty.redemption.rejected": "Clinic rejected a reward request",
+  "loyalty.redemption.reversed": "Clinic reversed a redemption (points returned)",
+  "loyalty.tiers.enabled": "Clinic turned Loyalty tiers on",
+  "loyalty.tiers.disabled": "Clinic turned Loyalty tiers off",
+  "loyalty.tier.settings.updated": "Clinic updated Loyalty tier settings",
+  "loyalty.tier.promoted": "Loyalty member promoted to a higher tier (automatic)",
+  "loyalty.tier.recalculated": "Loyalty tiers recalculated",
+  "clinic.addon.loyalty_activated": "Activated ClinicOS Loyalty add-on",
+  "clinic.addon.loyalty_updated": "Edited ClinicOS Loyalty subscription",
+  "clinic.addon.loyalty_suspended": "Suspended ClinicOS Loyalty add-on",
+  "clinic.addon.loyalty_reactivated": "Reactivated ClinicOS Loyalty add-on",
+  "clinic.addon.loyalty_cancelled": "Cancelled ClinicOS Loyalty add-on",
   "subscription_request.approved": "Approved upgrade request",
   "subscription_request.rejected": "Rejected upgrade request",
   "user.password_reset_by_admin": "Reset user password",
@@ -111,6 +143,42 @@ export default function ActivityLogPage() {
             <option value="clinic.reactivated">Reactivated</option>
             <option value="clinic.deleted">Deleted</option>
             <option value="clinic.impersonated">Impersonated</option>
+          </optgroup>
+          <optgroup label="Loyalty (clinic users)">
+            <option value="loyalty.member_enrolled">Member enrolled</option>
+            <option value="loyalty.settings_updated">Settings updated</option>
+            <option value="loyalty.settings.earning_updated">Earning rules updated</option>
+            <option value="loyalty.points.visit_awarded">Visit points awarded</option>
+            <option value="loyalty.points.spending_awarded">Spending points awarded</option>
+            <option value="loyalty.points.manual_credit">Manual credit</option>
+            <option value="loyalty.points.manual_debit">Manual debit</option>
+            <option value="loyalty.points.reversed">Points reversed</option>
+            <option value="loyalty.public.member_access">Patient opened card</option>
+            <option value="loyalty.checkin.requested">Check-in requested</option>
+            <option value="loyalty.checkin.confirmed">Check-in confirmed</option>
+            <option value="loyalty.checkin.rejected">Check-in rejected</option>
+            <option value="loyalty.checkin.cancelled">Check-in cancelled</option>
+            <option value="loyalty.reward.created">Reward created</option>
+            <option value="loyalty.reward.updated">Reward edited</option>
+            <option value="loyalty.reward.activated">Reward activated</option>
+            <option value="loyalty.reward.deactivated">Reward deactivated</option>
+            <option value="loyalty.reward.deleted">Reward deleted</option>
+            <option value="loyalty.redemption.requested">Redemption requested</option>
+            <option value="loyalty.redemption.confirmed">Redemption confirmed</option>
+            <option value="loyalty.redemption.rejected">Redemption rejected</option>
+            <option value="loyalty.redemption.reversed">Redemption reversed</option>
+            <option value="loyalty.tiers.enabled">Tiers turned on</option>
+            <option value="loyalty.tiers.disabled">Tiers turned off</option>
+            <option value="loyalty.tier.settings.updated">Tier settings updated</option>
+            <option value="loyalty.tier.promoted">Member promoted</option>
+            <option value="loyalty.tier.recalculated">Tiers recalculated</option>
+          </optgroup>
+          <optgroup label="Paid Add-ons (Loyalty)">
+            <option value="clinic.addon.loyalty_activated">Loyalty activated</option>
+            <option value="clinic.addon.loyalty_updated">Loyalty edited</option>
+            <option value="clinic.addon.loyalty_suspended">Loyalty suspended</option>
+            <option value="clinic.addon.loyalty_reactivated">Loyalty reactivated</option>
+            <option value="clinic.addon.loyalty_cancelled">Loyalty cancelled</option>
           </optgroup>
           <optgroup label="Upgrade Requests">
             <option value="subscription_request.approved">Approved</option>

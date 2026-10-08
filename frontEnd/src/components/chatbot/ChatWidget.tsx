@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useI18n } from "@/lib/i18n";
@@ -22,6 +23,8 @@ const BOT_NAME = { ar: "اسأل نبض", en: "Ask Nabd" };
  * (see chatController.ts) — this is UX polish, not the real gate.
  */
 export function ChatWidget() {
+  // The public patient Loyalty page (/c/<clinic>/loyalty) is a focused, branded experience — no floating bot there.
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [hydrated, setHydrated] = useState(false);
@@ -35,7 +38,10 @@ export function ChatWidget() {
   // widget renders inside the dashboard, react-query reuses that cached
   // data instead of firing a second request. On public pages (no token)
   // this query is disabled and never runs.
-  const isAuthed = hydrated && !!token;
+  // Phase 10: never fire a staff-authenticated request from the public patient
+  // page (/c/...), even when a staff session happens to exist in this browser.
+  const onPatientPage = !!pathname?.startsWith("/c/");
+  const isAuthed = hydrated && !!token && !onPatientPage;
   const { data: clinic } = useQuery({
     queryKey: ["clinic"],
     queryFn: async () => (await api.get<Clinic>("/clinic")).data,
@@ -45,7 +51,7 @@ export function ChatWidget() {
 
   const canShow = !isAuthed || clinic?.planInfo?.limits.aiAssistant === true;
 
-  if (!hydrated || !canShow) return null;
+  if (!hydrated || !canShow || pathname?.startsWith("/c/")) return null;
 
   return (
     <div

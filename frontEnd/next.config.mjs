@@ -59,6 +59,11 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
+  // Phase 10: don't advertise the framework/version in every response.
+  poweredByHeader: false,
+  // Phase 10: the app uses no next/image, so the built-in image-optimizer endpoint (/_next/image) is switched off — it is
+  // attack surface (several Next advisories target it) with no benefit here.
+  images: { unoptimized: true },
   async headers() {
     return [
       {

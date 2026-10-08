@@ -122,7 +122,7 @@ export const adminVerifyTotp = asyncHandler(async (req: Request, res: Response) 
 
   let payload: { sub: string; email: string };
   try {
-    payload = jwt.verify(parsed.data.pendingToken, adminSecret) as {
+    payload = jwt.verify(parsed.data.pendingToken, adminSecret, { algorithms: ["HS256"] }) as {
       sub: string;
       email: string;
     };

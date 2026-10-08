@@ -29,6 +29,14 @@ import {
   setupTotp,
   verifyTotpSetup,
 } from "../controllers/adminController";
+import {
+  listClinicAddons,
+  activateAddon,
+  updateAddon,
+  suspendAddon,
+  reactivateAddon,
+  cancelAddon,
+} from "../controllers/adminAddonController";
 
 const router = Router();
 
@@ -74,6 +82,15 @@ router.delete("/clinics/:id", deleteClinic);
 router.get("/clinics/:id/export", exportClinic);
 router.post("/clinics/:id/impersonate", impersonateClinic);
 router.post("/clinics/:id/notes", addClinicNote);
+
+// Paid add-ons (e.g. ClinicOS Loyalty) — platform-admin-only entitlement lifecycle.
+// Nothing here is reachable with a clinic (owner / doctor / receptionist) token.
+router.get("/clinics/:id/addons", listClinicAddons);
+router.post("/clinics/:id/addons/:addonId/activate", activateAddon);
+router.patch("/clinics/:id/addons/:addonId", updateAddon);
+router.post("/clinics/:id/addons/:addonId/suspend", suspendAddon);
+router.post("/clinics/:id/addons/:addonId/reactivate", reactivateAddon);
+router.post("/clinics/:id/addons/:addonId/cancel", cancelAddon);
 
 // Upgrade requests
 router.get("/upgrade-requests", listUpgradeRequests);
