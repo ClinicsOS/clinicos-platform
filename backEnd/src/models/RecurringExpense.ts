@@ -28,6 +28,9 @@ export interface IRecurringExpense extends Document {
   startPeriod: string; // "YYYY-MM" — first month this bill applies to
   isActive: boolean; // paused bills stop showing and stop reminding
   notes?: string;
+  /** PHASE 5 — optional: the doctor each month's payment is attributed to (copied onto the Expense when it is marked as paid). */
+  doctorId?: Types.ObjectId;
+  vendor?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -45,6 +48,8 @@ const schema = new Schema<IRecurringExpense>(
     startPeriod: { type: String, required: true, match: /^\d{4}-(0[1-9]|1[0-2])$/ },
     isActive: { type: Boolean, default: true },
     notes: { type: String, trim: true, maxlength: 500 },
+    doctorId: { type: Schema.Types.ObjectId, ref: "User" },
+    vendor: { type: String, trim: true, maxlength: 100 },
   },
   { timestamps: true }
 );

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useAuth } from "@/store/auth";
@@ -10,11 +10,29 @@ import { useSelectedPatient } from "@/store/patient";
 import { useToast } from "@/components/Toast";
 import Modal from "@/components/Modal";
 import type { Appointment, Patient, Staff, Clinic, WorkingHour } from "@/lib/types";
-import { fmtTime, fmtTime12, to12h, todayLocal, combineToUTC, ymd } from "@/lib/dates";
+import {
+  fmtTime,
+  fmtTime12,
+  to12h,
+  todayLocal,
+  combineToUTC,
+  ymd,
+  fmtDate,
+  fmtCalendarDate,
+  clinicLocalToUtc,
+  addDaysYmd,
+  weekdayOfYmd,
+  parseYmd,
+} from "@/lib/dates";
 import { timeToMinutes, intervalsOverlap } from "@/lib/workingHoursTime";
+import { useAccess } from "@/lib/access";
+import DatePickerPopover from "@/components/appointments/DatePickerPopover";
+import { SkeletonList } from "@/components/Skeleton";
+import { newRequestId } from "@/lib/clinical/hooks";
 import {
   IconChevronLeft,
   IconChevronRight,
+  IconChevronDown,
   IconPlus,
   IconCalendarEvent,
   IconAlertCircle,
@@ -44,24 +62,25 @@ function computeSlots(
   clinic: Clinic,
   date: string,
   duration: number,
-  activeAppts: Appointment[]
-): { list: { time: string; taken: boolean; past: boolean; isBreak: boolean }[]; closed: boolean } {
-  const day = new Date(date + "T00:00:00");
-  const dow = day.getDay();
+  activeAppts: Appointment[],
+  doctor?: Staff | null
+): { list: { time: string; taken: boolean; past: boolean; isBreak: boolean }[]; closed: boolean; doctorOff?: boolean } {
+  const dow = weekdayOfYmd(date); // weekday of the calendar date itself — no timezone involved
   const wh = clinic.workingHours.find((w: WorkingHour) => w.day === dow);
   if (!wh || !wh.isOpen) return { list: [], closed: true };
+  // PHASE 4 — the doctor's OWN hours (optional) can only NARROW the clinic's: the clinic's rules always still apply, the doctor's
+  // are checked in addition (the server enforces the same on every create/reschedule/public booking — this just mirrors it).
+  const dwh = doctor?.workingHours?.find((w) => w.day === dow);
+  if (doctor?.workingHours && (!dwh || !dwh.isOpen)) return { list: [], closed: true, doctorOff: true };
 
-  const openM = timeToMinutes(wh.from);
-  const closeM = timeToMinutes(wh.to, { endOfDay: true });
+  const openM = Math.max(timeToMinutes(wh.from), dwh ? timeToMinutes(dwh.from) : 0);
+  const closeM = Math.min(timeToMinutes(wh.to, { endOfDay: true }), dwh ? timeToMinutes(dwh.to, { endOfDay: true }) : 24 * 60);
   const step = clinic.slotDuration || 30;
 
-  // Optional break window (e.g. lunch break)
-  let breakStart = -1;
-  let breakEnd = -1;
-  if (wh.breakFrom && wh.breakTo) {
-    breakStart = timeToMinutes(wh.breakFrom);
-    breakEnd = timeToMinutes(wh.breakTo);
-  }
+  // Optional break windows (e.g. lunch break) — the clinic's and, when set, the doctor's own
+  const breaks: [number, number][] = [];
+  if (wh.breakFrom && wh.breakTo) breaks.push([timeToMinutes(wh.breakFrom), timeToMinutes(wh.breakTo)]);
+  if (dwh?.breakFrom && dwh?.breakTo) breaks.push([timeToMinutes(dwh.breakFrom), timeToMinutes(dwh.breakTo)]);
 
   // Other active appointments/blocks for this doctor/day, as minute-of-day
   // intervals using THEIR OWN duration — a candidate start is "taken" if
@@ -69,8 +88,10 @@ function computeSlots(
   // starts at exactly m (that exact-match check was the double-booking
   // hole: a 60-minute appointment at 10:00 occupies 10:30 too, even though
   // nothing else starts exactly at 10:30).
+  // PHASE 3.5 — a walk-in is a visit RECORD, not a reservation: it never makes a slot "taken" here (the backend's
+  // overlap check and the public booking page already ignore it the same way), so this picker can't disagree with them.
   const activeIntervals = activeAppts
-    .filter((a) => a.status === "scheduled" || a.status === "confirmed")
+    .filter((a) => a.source !== "walk_in" && (a.status === "scheduled" || a.status === "confirmed"))
     .map((a) => {
       const start = timeToMinutes(fmtTime(a.startAt));
       return { start, end: start + a.duration };
@@ -86,10 +107,10 @@ function computeSlots(
     const h = String(Math.floor(m / 60)).padStart(2, "0");
     const mm = String(m % 60).padStart(2, "0");
     const timeStr = `${h}:${mm}`;
-    // Interpret time as local wall-clock (no Z)
-    const slotDate = new Date(`${date}T${timeStr}:00`);
+    // The slot's absolute instant = this wall-clock time on the CLINIC's calendar
+    const slotDate = clinicLocalToUtc(date, timeStr);
     const end = m + duration;
-    const overlapsBreak = breakStart !== -1 && intervalsOverlap(m, end, breakStart, breakEnd);
+    const overlapsBreak = breaks.some(([bs, be]) => intervalsOverlap(m, end, bs, be));
     const overlapsExisting = activeIntervals.some((iv) => intervalsOverlap(m, end, iv.start, iv.end));
     list.push({
       time: timeStr,
@@ -101,14 +122,25 @@ function computeSlots(
   return { list, closed: false };
 }
 
+/**
+ * One appointment as it appears on one grid row. A longer appointment spans several rows but is still ONE
+ * appointment: it is a full card on the first row it touches and a lightweight "continued" marker on the rest.
+ */
+type SlotEntry = {
+  appt: Appointment;
+  isContinuation: boolean;          // true when this appointment already got its card on an earlier row
+};
+
 type SlotVisual = {
   time: string;                     // "HH:mm"
   utcStart: Date;                   // absolute date for this slot
-  appt: Appointment | null;         // if booked (set for every grid cell the appointment spans, not just its start)
-  isContinuation: boolean;          // true when `appt` started on an earlier row, not this one
+  entries: SlotEntry[];             // EVERY appointment/block covering this row (several doctors can share one time)
+  walkIns: Appointment[];           // walk-ins whose real check-in time falls inside this row (never spill into later rows)
   isPast: boolean;                  // slot is in the past
   isBreak: boolean;                 // falls inside the clinic's break window
 };
+
+const apptDoctorId = (a: Appointment): string => (typeof a.doctorId === "string" ? a.doctorId : a.doctorId?._id ?? "");
 
 // Dentistry-only section of the visit modal — loaded on demand, so other specialties never download it.
 const VisitDentalSection = dynamic(() => import("@/components/dental/treatment/VisitDentalSection"), { ssr: false });
@@ -125,14 +157,20 @@ export default function AppointmentsPage() {
   const [walkInMode, setWalkInMode] = useState(false); // opened via "Add Walk-in" instead of "New appointment"
   const [editing, setEditing] = useState<Appointment | null>(null);
 
-  const shiftDay = (delta: number) => {
-    const d = new Date(date + "T00:00:00");
-    d.setDate(d.getDate() + delta);
-    setDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
-  };
+  // `date` ("YYYY-MM-DD" on the CLINIC's calendar) is the ONE source of truth for the schedule: the title, the
+  // working-hours lookup, the query below and the timeline all derive from it. Pure calendar arithmetic, so
+  // month/year rollover and DST can never skip or repeat a day.
+  const shiftDay = (delta: number) => setDate((d) => addDaysYmd(d, delta));
 
   // ==== Data ====
-  const { data: appointments } = useQuery({
+  // One request per day, for ALL doctors. The doctor filter is applied client-side to this same cached list, so
+  // switching doctors never refetches, never shows another day's data and never flashes a loading state.
+  const {
+    data: appointments,
+    isLoading: apptsLoading,
+    isError: apptsError,
+    refetch: refetchAppts,
+  } = useQuery({
     queryKey: ["appointments-day", date],
     queryFn: async () =>
       (await api.get<Appointment[]>(`/appointments?date=${date}`)).data,
@@ -163,30 +201,62 @@ export default function AppointmentsPage() {
     }
   }, [searchParams]);
 
-  const { data: staff } = useQuery({
+  const { data: staff, isLoading: staffLoading } = useQuery({
     queryKey: ["staff"],
     queryFn: async () => (await api.get<Staff[]>("/users")).data,
   });
 
-  const { data: clinic } = useQuery({
+  const { data: clinic, isLoading: clinicLoading } = useQuery({
     queryKey: ["clinic"],
     queryFn: async () => (await api.get<Clinic>("/clinic")).data,
     refetchInterval: 5_000,
     staleTime: 3_000,
   });
 
-  const doctors = (staff ?? []).filter((s) => s.role === "doctor" && s.isActive);
+  // PHASE 4 — a doctor works on THEIR OWN schedule: the server already returns only their appointments and rejects anyone else's,
+  // so the pickers/chips here are limited to themselves too (presentation; the backend is the enforcement).
+  const access = useAccess();
+  const myId = useAuth((st) => st.user?.id);
+  const doctors = (staff ?? []).filter((s) => s.role === "doctor" && s.isActive && (!access.isDoctor || s._id === myId));
 
   // ==== Working hours for the picked day ====
   const dayInfo = useMemo(() => {
     if (!clinic) return null;
-    const dow = new Date(date + "T00:00:00").getDay();
+    const dow = weekdayOfYmd(date);
     const wh = clinic.workingHours.find((w) => w.day === dow);
     if (!wh || !wh.isOpen) return { closed: true, wh: null };
     return { closed: false, wh };
   }, [clinic, date]);
 
+  // ==== Appointments that should be on screen for the current doctor filter ====
+  // Deduplicated by the appointment's stable id (one record is one appointment, however many grid rows it spans),
+  // cancelled ones hidden exactly as before, each with its own minute-of-day interval on the clinic's clock.
+  const visibleAppts = useMemo(() => {
+    const byId = new Map<string, { appt: Appointment; start: number; end: number; doctorIdx: number }>();
+    for (const a of appointments ?? []) {
+      if (a.status === "cancelled") continue;
+      const did = apptDoctorId(a);
+      if (docFilter !== "all" && did !== docFilter) continue;
+      if (byId.has(a._id)) continue;
+      const start = timeToMinutes(fmtTime(a.startAt));
+      byId.set(a._id, { appt: a, start, end: start + a.duration, doctorIdx: doctors.findIndex((d) => d._id === did) });
+    }
+    // Stable, predictable order: by start time, then by the doctor's position in the doctor list, then by id.
+    return Array.from(byId.values()).sort(
+      (x, y) => x.start - y.start || x.doctorIdx - y.doctorIdx || (x.appt._id < y.appt._id ? -1 : 1)
+    );
+  }, [appointments, docFilter, staff]);
+
+  // PHASE 3.5 — Walk-ins are visit records at an exact check-in instant, NOT reservations of a slot: they are kept out of
+  // the interval/overlap layout (so one can never turn the next row into a "Continued" ghost or hide a real
+  // appointment) and are drawn on the row that contains their check-in time, labelled with that exact time.
+  const scheduledAppts = useMemo(() => visibleAppts.filter((iv) => iv.appt.source !== "walk_in"), [visibleAppts]);
+  const walkInAppts = useMemo(() => visibleAppts.filter((iv) => iv.appt.source === "walk_in"), [visibleAppts]);
+
   // ==== Build the timeline: one row per slotDuration between open and close ====
+  // A row holds EVERY appointment/block that covers it (`entries`), so two doctors booked at 10:00 are both
+  // present on the 10:00 row. An appointment is a full card on the first row it touches and a "continued" marker on
+  // later rows — it is never counted or drawn as a new appointment again.
   const timeline = useMemo((): SlotVisual[] => {
     if (!clinic || !dayInfo || dayInfo.closed || !dayInfo.wh) return [];
     const wh = dayInfo.wh;
@@ -202,46 +272,46 @@ export default function AppointmentsPage() {
       breakEnd = timeToMinutes(wh.breakTo);
     }
 
-    // Active appointments/blocks for the filtered doctor(s), as minute-of-day
-    // intervals — used to mark EVERY grid row a longer appointment spans, not
-    // just the one row matching its exact start time (a 60-minute appointment
-    // covers two 30-minute grid rows, for example).
-    const apptIntervals = (appointments ?? [])
-      .filter((a) => {
-        const did = typeof a.doctorId === "string" ? a.doctorId : a.doctorId?._id;
-        const doctorMatch = docFilter === "all" || did === docFilter;
-        return doctorMatch && a.status !== "cancelled";
-      })
-      .map((a) => {
-        const start = timeToMinutes(fmtTime(a.startAt));
-        return { appt: a, start, end: start + a.duration };
-      });
-
     const rows: SlotVisual[] = [];
-    const now = new Date();
+    const nowMs = Date.now();
+    const placed = new Set<string>(); // appointments that already got their full card on an earlier row
 
     for (let m = openM; m + step <= closeM; m += step) {
       const h = String(Math.floor(m / 60)).padStart(2, "0");
       const mm = String(m % 60).padStart(2, "0");
       const time = `${h}:${mm}`;
-      // Interpret the time as WALL-CLOCK local time (no Z)
-      const utcStart = new Date(`${date}T${time}:00`);
+      // The row's absolute instant = this wall-clock time on the CLINIC's calendar (not the browser's)
+      const utcStart = clinicLocalToUtc(date, time);
 
-      // Any appointment whose interval covers this grid cell — not only one
-      // starting exactly here.
-      const covering = apptIntervals.find((iv) => intervalsOverlap(m, m + step, iv.start, iv.end));
+      // Every appointment whose interval covers this grid cell — not only one starting exactly here.
+      const entries: SlotEntry[] = scheduledAppts
+        .filter((iv) => intervalsOverlap(m, m + step, iv.start, iv.end))
+        .map((iv) => ({ appt: iv.appt, isContinuation: placed.has(iv.appt._id) }));
+      for (const e of entries) placed.add(e.appt._id);
+      // New cards first, continuation markers after them (the order within each group is already stable).
+      entries.sort((a, b) => Number(a.isContinuation) - Number(b.isContinuation));
+
+      // Walk-ins checked in during this row [m, m+step), oldest first (visibleAppts is already ordered by start time).
+      const walkIns = walkInAppts.filter((iv) => iv.start >= m && iv.start < m + step).map((iv) => iv.appt);
 
       rows.push({
         time,
         utcStart,
-        appt: covering ? covering.appt : null,
-        isContinuation: covering ? covering.start !== m : false,
-        isPast: utcStart.getTime() < now.getTime(),
+        entries,
+        walkIns,
+        isPast: utcStart.getTime() < nowMs,
         isBreak: breakStart !== -1 && intervalsOverlap(m, m + step, breakStart, breakEnd),
       });
     }
     return rows;
-  }, [clinic, dayInfo, date, appointments, docFilter]);
+  }, [clinic, dayInfo, date, scheduledAppts, walkInAppts]);
+
+  // Appointments that fall on no grid row (e.g. a walk-in recorded after closing time, or the day was later marked
+  // closed). They must stay visible — nothing may silently disappear from the schedule.
+  const outsideHours = useMemo(() => {
+    const placedIds = new Set(timeline.flatMap((r) => [...r.entries.map((e) => e.appt._id), ...r.walkIns.map((w) => w._id)]));
+    return visibleAppts.filter((iv) => !placedIds.has(iv.appt._id)).map((iv) => iv.appt);
+  }, [timeline, visibleAppts]);
 
   // ==== Doctor color mapping ====
   const palette = ["#4FC3B8", "#6FBDF5", "#F5B36F", "#C8A2F5", "#F58FA4", "#B9E68C"];
@@ -251,24 +321,31 @@ export default function AppointmentsPage() {
   };
 
   // ==== Stats for the header ====
+  // "Booked" counts UNIQUE appointment records (a 90-minute appointment is 1, not one per 30-minute cell).
+  // "Available" is still slot-based: grid rows with nothing on them that are not already in the past.
   const stats = useMemo(() => {
     const total = timeline.length;
-    const booked = timeline.filter((r) => r.appt).length;
+    const booked = scheduledAppts.length; // walk-ins are counted separately — they don't reserve a slot
+    const walkIns = walkInAppts.length;
+    const bookedRows = timeline.filter((r) => r.entries.length > 0).length;
     const past = timeline.filter((r) => r.isPast).length;
-    const available = total - booked - past + timeline.filter((r) => r.appt && r.isPast).length;
+    const available = total - bookedRows - past + timeline.filter((r) => r.entries.length > 0 && r.isPast).length;
     const pending = (appointments ?? []).filter(
       (a) => a.source === "public" && a.status === "scheduled"
     ).length;
-    return { total, booked, available: Math.max(0, available), pending };
-  }, [timeline, appointments]);
+    return { total, booked, walkIns, available: Math.max(0, available), pending };
+  }, [timeline, scheduledAppts, walkInAppts, appointments]);
 
   const dayNames = lang === "ar" ? AR_DAYS : EN_DAYS;
-  const dayDate = new Date(date + "T00:00:00");
-  const dayLabel = `${dayNames[dayDate.getDay()]} · ${dayDate.getDate()} ${dayDate.toLocaleDateString(
-    lang === "ar" ? "ar" : undefined,
-    { month: "long" }
-  )}`;
+  const { y: dayYear, d: dayOfMonth } = parseYmd(date);
+  // Year is shown only when it differs from the current one, so jumping to next January is unambiguous.
+  const dayLabel = `${dayNames[weekdayOfYmd(date)]} · ${dayOfMonth} ${fmtCalendarDate(date, lang, { month: "long" })}${
+    dayYear !== parseYmd(todayLocal()).y ? ` · ${dayYear}` : ""
+  }`;
   const isToday = date === todayLocal();
+  // Nothing about the day is known until the clinic, the doctors and this day's appointments have all loaded —
+  // until then the schedule shows skeleton rows instead of a misleading "everything is free".
+  const scheduleLoading = apptsLoading || clinicLoading || staffLoading;
 
   return (
     <div>
@@ -287,29 +364,46 @@ export default function AppointmentsPage() {
         )}
 
         <div className="ms-auto flex flex-wrap items-center gap-1.5">
+          {/* Date navigation: previous day · click the date to open the calendar · next day · jump back to today */}
           <button
             onClick={() => shiftDay(-1)}
-            className="rounded-lg border border-edge bg-card p-1.5 text-mute hover:text-ink"
+            className="rounded-lg border border-edge bg-card p-1.5 text-mute transition-colors hover:border-sky hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky/60"
             title={t("ap.prevDay")}
+            aria-label={t("ap.prevDay")}
           >
             <IconChevronLeft size={14} className="rtl-flip" />
           </button>
+          <DatePickerPopover
+            value={date}
+            onChange={setDate}
+            today={todayLocal()}
+            lang={lang === "ar" ? "ar" : "en"}
+            t={t}
+            triggerClassName="flex min-w-[10.5rem] items-center justify-center gap-1.5 rounded-lg border border-edge bg-card px-3 py-1.5 text-[12px] font-medium text-ink transition-colors hover:border-sky"
+          >
+            <IconCalendarEvent size={13} className="shrink-0 text-sky" />
+            <span dir="auto" className="whitespace-nowrap">
+              {fmtCalendarDate(date, lang === "ar" ? "ar" : "en", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}
+            </span>
+            <IconChevronDown size={12} className="shrink-0 text-mute" />
+          </DatePickerPopover>
           <button
             onClick={() => shiftDay(1)}
-            className="rounded-lg border border-edge bg-card p-1.5 text-mute hover:text-ink"
+            className="rounded-lg border border-edge bg-card p-1.5 text-mute transition-colors hover:border-sky hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky/60"
             title={t("ap.nextDay")}
+            aria-label={t("ap.nextDay")}
           >
             <IconChevronRight size={14} className="rtl-flip" />
           </button>
-          {!isToday && (
-            <button
-              onClick={() => setDate(todayLocal())}
-              className="rounded-lg border border-blue bg-blue/10 px-2 py-1 text-[10px] text-sky hover:bg-blue/20"
-            >
-              <IconCalendarEvent size={11} className="me-1 inline" />
-              {t("ap.today")}
-            </button>
-          )}
+          {/* Always rendered (disabled when already on today) so the header never shifts sideways when the date changes */}
+          <button
+            onClick={() => setDate(todayLocal())}
+            disabled={isToday}
+            className="rounded-lg border border-blue bg-blue/10 px-2.5 py-1.5 text-[11px] text-sky transition-colors hover:bg-blue/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky/60 disabled:cursor-default disabled:border-edge disabled:bg-transparent disabled:text-mute disabled:opacity-60 disabled:hover:bg-transparent"
+          >
+            <IconCalendarEvent size={11} className="me-1 inline" />
+            {t("ap.today")}
+          </button>
           <button
             onClick={() => {
               setCreatingAt(null);
@@ -340,15 +434,21 @@ export default function AppointmentsPage() {
           <div className="text-base font-medium text-ink">{dayLabel}</div>
         </div>
         {!dayInfo?.closed && dayInfo?.wh && (
-          <div className="flex gap-4 text-center">
+          <div className="flex min-w-0 flex-wrap justify-end gap-x-4 gap-y-1 text-center">
             <div>
-              <div className="text-xs font-medium text-teal">{stats.available}</div>
+              <div className="text-xs font-medium text-teal">{scheduleLoading ? "—" : stats.available}</div>
               <div className="text-[9px] tracking-widest text-mute">{t("ap.stats.available")}</div>
             </div>
             <div>
-              <div className="text-xs font-medium text-blue">{stats.booked}</div>
+              <div className="text-xs font-medium text-blue">{scheduleLoading ? "—" : stats.booked}</div>
               <div className="text-[9px] tracking-widest text-mute">{t("ap.stats.booked")}</div>
             </div>
+            {!scheduleLoading && stats.walkIns > 0 && (
+              <div data-testid="stat-walkins">
+                <div className="text-xs font-medium text-sky">{stats.walkIns}</div>
+                <div className="text-[9px] tracking-widest text-mute">{t("ap.stats.walkIns")}</div>
+              </div>
+            )}
             <div>
               <div className="text-xs font-medium text-mute" dir="ltr">
                 {dayInfo.wh.from}–{dayInfo.wh.to}
@@ -360,7 +460,8 @@ export default function AppointmentsPage() {
       </div>
 
       {/* ============ Doctor filter chips ============ */}
-      {doctors.length > 0 && (
+      {access.isDoctor && <div className="mb-3 text-[10px] text-mute">{t("md.ap.mine")}</div>}
+      {doctors.length > 0 && !access.isDoctor && (
         <div className="mb-3 flex flex-wrap items-center gap-1.5">
           <button
             onClick={() => setDocFilter("all")}
@@ -386,14 +487,35 @@ export default function AppointmentsPage() {
       )}
 
       {/* ============ Timeline (main content) ============ */}
-      {dayInfo?.closed ? (
-        <ClosedDayEmptyState />
+      {scheduleLoading ? (
+        // Same footprint as the real schedule, so nothing jumps when the data arrives — and no false "all free" day.
+        <div className="card overflow-hidden" aria-busy="true">
+          <div className="h-[34px] border-b border-edge bg-card2" />
+          <div className="px-4 py-1">
+            <SkeletonList rows={8} />
+          </div>
+        </div>
+      ) : apptsError && !appointments ? (
+        <div className="card flex flex-col items-center py-14 text-center" role="alert">
+          <IconAlertCircle size={28} className="mb-3 text-amber-400" />
+          <p className="text-sm font-medium text-ink">{t("ap.loadError")}</p>
+          <button onClick={() => refetchAppts()} className="btn-ghost mt-3 !py-1.5 text-xs">
+            {t("ap.retry")}
+          </button>
+        </div>
+      ) : dayInfo?.closed ? (
+        <>
+          <ClosedDayEmptyState />
+          {outsideHours.length > 0 && (
+            <OutsideHoursList appts={outsideHours} doctors={doctors} docColor={docColor} onEdit={setEditing} t={t} />
+          )}
+        </>
       ) : !doctors.length ? (
         <NoDoctorsEmptyState />
       ) : (
         <div className="card overflow-hidden">
           {/* Legend */}
-          <div className="flex items-center gap-4 border-b border-edge bg-card2 px-4 py-2 text-[9px] text-mute">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-edge bg-card2 px-4 py-2 text-[9px] text-mute">
             <span className="flex items-center gap-1">
               <span className="h-2 w-2 rounded-sm bg-teal" /> {t("ap.legend.available")}
             </span>
@@ -409,23 +531,33 @@ export default function AppointmentsPage() {
             </span>
           </div>
 
-          {/* Rows */}
-          <div className="max-h-[calc(100vh-320px)] overflow-y-auto">
+          {/* Rows — keyed by the day so a date change replays the soft fade-in, never a layout jump */}
+          <div key={date} className="ap-fade max-h-[calc(100vh-320px)] overflow-y-auto">
             {timeline.map((row, i) => (
-              <TimelineRow
-                key={i}
-                row={row}
-                doctors={doctors}
-                docColor={docColor}
-                onCreate={(time) => {
-                  setCreatingAt(time);
-                  setCreating(true);
-                }}
-                onEdit={setEditing}
-                t={t}
-              />
+              <Fragment key={i}>
+                {/* A row that holds only walk-ins is drawn by WalkInRow itself (no "Past"/"Available" filler under it). */}
+                {(row.entries.length > 0 || row.walkIns.length === 0) && (
+                  <TimelineRow
+                    row={row}
+                    doctors={doctors}
+                    docColor={docColor}
+                    onCreate={(time) => {
+                      setCreatingAt(time);
+                      setCreating(true);
+                    }}
+                    onEdit={setEditing}
+                    t={t}
+                  />
+                )}
+                {row.walkIns.length > 0 && (
+                  <WalkInRow time={row.time} walkIns={row.walkIns} showTime={row.entries.length === 0} isPast={row.isPast} doctors={doctors} docColor={docColor} onEdit={setEditing} t={t} />
+                )}
+              </Fragment>
             ))}
           </div>
+          {outsideHours.length > 0 && (
+            <OutsideHoursList appts={outsideHours} doctors={doctors} docColor={docColor} onEdit={setEditing} t={t} embedded />
+          )}
         </div>
       )}
 
@@ -456,6 +588,9 @@ export default function AppointmentsPage() {
             setWalkInMode(false);
           }}
           onDone={() => {
+            // A walk-in is always registered for TODAY: if the board is showing another day, bring the user to today so
+            // the record they just created is visibly there (nothing "disappears" onto a day they aren't looking at).
+            if (walkInMode) setDate(todayLocal());
             qc.invalidateQueries({ queryKey: ["appointments-day"] });
             setCreating(false);
             setCreatingAt(null);
@@ -480,7 +615,176 @@ export default function AppointmentsPage() {
 }
 
 // ==================================================================
-// One row of the timeline — clearly shows availability at that time
+// Shared pieces for rendering appointments (used by the timeline rows and the
+// "outside working hours" list, so both always look and behave the same)
+// ==================================================================
+type DoctorLike = { _id: string; name: string };
+
+/** Everything a card needs to know about an appointment's people. */
+function apptParties(appt: Appointment, doctors: Staff[], docColor: (id: string) => string) {
+  const did = apptDoctorId(appt);
+  const doctor: DoctorLike | undefined = typeof appt.doctorId === "object" ? appt.doctorId : doctors.find((d) => d._id === did);
+  const patient = typeof appt.patientId === "object" ? appt.patientId : null;
+  return { doctor, patient, color: docColor(did) };
+}
+
+/** "10:00 AM–10:30 AM" on the clinic's clock. */
+function apptRange(appt: Appointment): string {
+  const end = new Date(new Date(appt.startAt).getTime() + appt.duration * 60_000);
+  return `${to12h(fmtTime(appt.startAt))}–${to12h(fmtTime(end))}`;
+}
+
+function statusPillClass(appt: Appointment): string {
+  const isPending = appt.source === "public" && appt.status === "scheduled";
+  return isPending
+    ? "bg-amber-500/15 text-amber-400"
+    : appt.status === "confirmed"
+    ? "bg-teal/15 text-teal"
+    : appt.status === "completed"
+    ? "bg-mute/15 text-mute"
+    : "bg-blue/15 text-sky";
+}
+
+/** A full appointment (or blocked-time) card — used whenever several appointments share a row. */
+function ApptCard({
+  appt,
+  doctors,
+  docColor,
+  onEdit,
+  t,
+  dim = false,
+}: {
+  appt: Appointment;
+  doctors: Staff[];
+  docColor: (id: string) => string;
+  onEdit: (a: Appointment) => void;
+  t: (k: string) => string;
+  dim?: boolean;
+}) {
+  const { doctor, patient, color } = apptParties(appt, doctors, docColor);
+  const isWalkIn = appt.source === "walk_in";
+  // A walk-in shows its real check-in time ("10:37 AM"), not a reserved range.
+  const range = isWalkIn ? fmtTime12(appt.startAt) : apptRange(appt);
+  const base =
+    "group flex min-w-0 items-stretch gap-2.5 rounded-lg border border-edge bg-card2 px-2.5 py-2 text-start transition-colors hover:border-sky hover:bg-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky/60";
+
+  if (appt.type === "blocked") {
+    return (
+      <button onClick={() => onEdit(appt)} className={`${base} ${dim ? "opacity-60" : ""}`}>
+        <span className="w-1 shrink-0 rounded-full bg-mute/40" />
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-1.5 text-[12px] font-medium text-mute">
+            <IconLock size={11} /> {t("ap.blockedLabel")}
+          </span>
+          <span className="mt-0.5 flex items-center gap-1.5 text-[10px] text-mute">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: color }} />
+            <span className="truncate">{doctor?.name}</span>
+            <span>·</span>
+            <span dir="ltr" className="shrink-0">{range}</span>
+          </span>
+        </span>
+      </button>
+    );
+  }
+
+  const isPending = appt.source === "public" && appt.status === "scheduled";
+  return (
+    <button onClick={() => onEdit(appt)} className={`${base} ${dim ? "opacity-60" : ""}`} data-testid="appt-card" data-source={appt.source} data-id={appt._id}>
+      <span className="w-1 shrink-0 rounded-full" style={{ background: color }} />
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5">
+          <span className="truncate text-[12px] font-medium text-ink">{patient?.fullName ?? "—"}</span>
+          {appt.visitType === "procedure" && (
+            <span className="pill shrink-0 bg-purple-500/15 text-[8px] text-purple-300">{t("visit.procedureBadge")}</span>
+          )}
+          {appt.source === "walk_in" && (
+            <span className="pill shrink-0 bg-sky/15 text-[8px] text-sky">{t("ap.walkInBadge")}</span>
+          )}
+          {isPending && (
+            <span className="relative flex h-2 w-2 shrink-0">
+              <span className="absolute inline-flex h-2 w-2 animate-ping rounded-full bg-amber-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-500" />
+            </span>
+          )}
+        </span>
+        <span className="mt-0.5 flex items-center gap-1.5 text-[10px] text-mute">
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: color }} />
+          <span className="truncate font-medium text-ink/80">{doctor?.name}</span>
+          <span>·</span>
+          <span dir="ltr" className="shrink-0">{range}</span>
+        </span>
+      </span>
+      <span className={`pill h-fit shrink-0 text-[9px] ${statusPillClass(appt)}`}>{statusLabel(appt, t)}</span>
+    </button>
+  );
+}
+
+/** A walk-in that has not been seen yet is "Waiting" — a display label over the existing `scheduled` status (no new status). */
+function statusLabel(appt: Appointment, t: (k: string) => string): string {
+  return appt.source === "walk_in" && appt.status === "scheduled" ? t("ap.walkInWaiting") : t(`status.${appt.status}`);
+}
+
+/**
+ * Walk-ins checked in during one grid row. Each shows its exact check-in time; several can sit side by side. They are
+ * visit records, so they never reserve the row (the row's own availability is drawn by TimelineRow, untouched).
+ */
+function WalkInRow({
+  time, walkIns, showTime, isPast, doctors, docColor, onEdit, t,
+}: {
+  time: string;
+  walkIns: Appointment[];
+  showTime: boolean;
+  isPast: boolean;
+  doctors: Staff[];
+  docColor: (id: string) => string;
+  onEdit: (a: Appointment) => void;
+  t: (k: string) => string;
+}) {
+  return (
+    <div data-testid="walkin-row" className="flex items-start gap-3 border-b border-edge px-4 py-2.5">
+      <div className="w-14 shrink-0 pt-2 font-mono text-[11px] font-medium text-ink">{showTime ? to12h(time) : ""}</div>
+      <div className="grid min-w-0 flex-1 grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-1.5">
+        {walkIns.map((a) => (
+          <ApptCard key={a._id} appt={a} doctors={doctors} docColor={docColor} onEdit={onEdit} t={t} dim={isPast && a.status === "completed"} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Lightweight marker for the rows a longer appointment continues through (the card lives on its first row). */
+function ContinuedChip({
+  appt,
+  doctors,
+  docColor,
+  onEdit,
+  t,
+}: {
+  appt: Appointment;
+  doctors: Staff[];
+  docColor: (id: string) => string;
+  onEdit: (a: Appointment) => void;
+  t: (k: string) => string;
+}) {
+  const { doctor, patient, color } = apptParties(appt, doctors, docColor);
+  const label = appt.type === "blocked" ? t("ap.blockedLabel") : patient?.fullName ?? doctor?.name ?? "—";
+  return (
+    <button
+      onClick={() => onEdit(appt)}
+      className="flex min-w-0 items-center gap-2 rounded-lg border border-dashed border-edge px-2.5 py-1.5 text-start transition-colors hover:border-sky hover:bg-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky/60"
+    >
+      <span className="h-4 w-1 shrink-0 rounded-full opacity-40" style={{ background: color }} />
+      <span className="truncate text-[10px] italic text-mute">
+        {t("ap.rowContinued")} · {label}
+        {doctor?.name && appt.type !== "blocked" ? ` · ${doctor.name}` : ""}
+      </span>
+    </button>
+  );
+}
+
+// ==================================================================
+// One row of the timeline — clearly shows availability at that time.
+// A row can hold SEVERAL appointments (different doctors at the same time).
 // ==================================================================
 function TimelineRow({
   row,
@@ -497,17 +801,33 @@ function TimelineRow({
   onEdit: (a: Appointment) => void;
   t: (k: string) => string;
 }) {
-  const { time, appt, isPast, isBreak, isContinuation } = row;
+  const { time, entries, isPast, isBreak } = row;
 
-  // Continuation row — this grid cell belongs to a longer appointment that
-  // started on an earlier row. Show it's occupied without duplicating the
-  // patient card (which stays on the row where the appointment actually
-  // starts) — clicking still opens the same appointment.
-  if (appt && isContinuation) {
-    const did = typeof appt.doctorId === "string" ? appt.doctorId : appt.doctorId?._id;
-    const doctor = typeof appt.doctorId === "object" ? appt.doctorId : doctors.find((d) => d._id === did);
-    const color = docColor(did || "");
-    const patient = typeof appt.patientId === "object" ? appt.patientId : null;
+  // ---- Several appointments share this row: a responsive grid of cards, every one clickable ----
+  if (entries.length > 1) {
+    return (
+      <div className="flex items-start gap-3 border-b border-edge px-4 py-2.5">
+        <div className="w-14 shrink-0 pt-2 font-mono text-[11px] font-medium text-ink">{to12h(time)}</div>
+        <div className="grid min-w-0 flex-1 grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-1.5">
+          {entries.map((e) =>
+            e.isContinuation ? (
+              <ContinuedChip key={e.appt._id} appt={e.appt} doctors={doctors} docColor={docColor} onEdit={onEdit} t={t} />
+            ) : (
+              <ApptCard key={e.appt._id} appt={e.appt} doctors={doctors} docColor={docColor} onEdit={onEdit} t={t} dim={isPast} />
+            )
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const single = entries[0];
+  const appt = single?.appt;
+
+  // Continuation row — this grid cell belongs to a longer appointment whose card is on an earlier row.
+  // Show it's occupied without duplicating the patient card — clicking still opens the same appointment.
+  if (appt && single.isContinuation) {
+    const { doctor, patient, color } = apptParties(appt, doctors, docColor);
     const label = appt.type === "blocked" ? t("ap.blockedLabel") : patient?.fullName ?? doctor?.name ?? "—";
 
     return (
@@ -528,9 +848,7 @@ function TimelineRow({
 
   // Booked row
   if (appt) {
-    const did = typeof appt.doctorId === "string" ? appt.doctorId : appt.doctorId?._id;
-    const doctor = typeof appt.doctorId === "object" ? appt.doctorId : doctors.find((d) => d._id === did);
-    const color = docColor(did || "");
+    const { doctor, patient, color } = apptParties(appt, doctors, docColor);
 
     // Blocked row — the doctor reserved this slot for themselves, no patient involved
     if (appt.type === "blocked") {
@@ -561,10 +879,7 @@ function TimelineRow({
       );
     }
 
-    const patient = typeof appt.patientId === "object" ? appt.patientId : null;
     const isPending = appt.source === "public" && appt.status === "scheduled";
-    const isConfirmed = appt.status === "confirmed";
-    const isCompleted = appt.status === "completed";
 
     return (
       <button
@@ -616,17 +931,7 @@ function TimelineRow({
             )}
           </div>
         </div>
-        <span
-          className={`pill text-[9px] ${
-            isPending
-              ? "bg-amber-500/15 text-amber-400"
-              : isConfirmed
-              ? "bg-teal/15 text-teal"
-              : isCompleted
-              ? "bg-mute/15 text-mute"
-              : "bg-blue/15 text-sky"
-          }`}
-        >
+        <span className={`pill text-[9px] ${statusPillClass(appt)}`}>
           {t(`status.${appt.status}`)}
         </span>
       </button>
@@ -668,6 +973,37 @@ function TimelineRow({
       <span className="text-[10px] text-mute group-hover:text-teal">{t("ap.rowAvailable")}</span>
       <IconPlus size={11} className="ms-auto text-mute opacity-0 group-hover:opacity-100" />
     </button>
+  );
+}
+
+/** Appointments that fall outside the day's grid (after closing, on a day later marked closed…) — never hidden. */
+function OutsideHoursList({
+  appts,
+  doctors,
+  docColor,
+  onEdit,
+  t,
+  embedded = false,
+}: {
+  appts: Appointment[];
+  doctors: Staff[];
+  docColor: (id: string) => string;
+  onEdit: (a: Appointment) => void;
+  t: (k: string) => string;
+  embedded?: boolean;
+}) {
+  return (
+    <div className={embedded ? "border-t border-edge" : "card mt-3 overflow-hidden"}>
+      <div className="flex items-center gap-1.5 bg-card2 px-4 py-2 text-[9px] tracking-widest text-mute">
+        <IconClock size={10} />
+        {t("ap.outsideHours").toUpperCase()}
+      </div>
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-1.5 px-4 py-2.5">
+        {appts.map((a) => (
+          <ApptCard key={a._id} appt={a} doctors={doctors} docColor={docColor} onEdit={onEdit} t={t} />
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -731,7 +1067,9 @@ function NewAppointmentModal({
   const [mode, setMode] = useState<"appointment" | "block">("appointment");
   const [search, setSearch] = useState(initialPatientName ?? "");
   const [patientId, setPatientId] = useState(initialPatientId ?? "");
-  const [doctorId, setDoctorId] = useState(initialDoctorId ?? doctors[0]?._id ?? "");
+  // A walk-in is attributed to a REAL doctor reference. With several doctors nobody is silently pre-picked (that would
+  // mis-attribute the visit); with a single doctor the choice is obvious and pre-filled.
+  const [doctorId, setDoctorId] = useState(initialDoctorId ?? (isWalkIn ? (doctors.length === 1 ? doctors[0]._id : "") : doctors[0]?._id ?? ""));
   const [date, setDate] = useState(initialDate);
   const [time, setTime] = useState(initialTime || "");
   const [duration, setDuration] = useState(clinic.slotDuration || 30);
@@ -739,6 +1077,17 @@ function NewAppointmentModal({
   const [visitType, setVisitType] = useState<"consultation" | "procedure">(initialVisitType ?? "consultation");
   const [procedureNote, setProcedureNote] = useState(initialProcedureNote ?? "");
   const [error, setError] = useState("");
+  // Walk-in extras: an optional reason for the visit, an idempotency token (one per dialog, so a double click or a retry
+  // is the SAME walk-in on the server too), a submit lock, and a live read-out of the check-in time that will be recorded.
+  const [reason, setReason] = useState("");
+  const requestId = useMemo(() => newRequestId(), []);
+  const submitLock = useRef(false);
+  const [nowLabel, setNowLabel] = useState(() => fmtTime12(new Date()));
+  useEffect(() => {
+    if (!isWalkIn) return;
+    const id = setInterval(() => setNowLabel(fmtTime12(new Date())), 15_000);
+    return () => clearInterval(id);
+  }, [isWalkIn]);
 
   // Quick "register a new patient" — for a walk-in (or any) patient who
   // isn't in the system yet, without leaving this modal.
@@ -786,17 +1135,32 @@ function NewAppointmentModal({
           `/appointments?doctorId=${doctorId}&date=${date}`
         )
       ).data,
-    enabled: !!doctorId && !!date,
+    enabled: !isWalkIn && !!doctorId && !!date, // a walk-in never picks a slot, so it needs no availability data
     refetchInterval: 5_000,
   });
 
   const slots = useMemo(() => {
-    if (!doctorId || !date) return { list: [], closed: false };
-    return computeSlots(clinic, date, duration, dayAppts ?? []);
-  }, [doctorId, date, clinic, dayAppts, duration]);
+    if (isWalkIn || !doctorId || !date) return { list: [], closed: false };
+    return computeSlots(clinic, date, duration, dayAppts ?? [], doctors.find((d) => d._id === doctorId));
+  }, [isWalkIn, doctorId, date, clinic, dayAppts, duration, doctors]);
 
   const create = useMutation({
     mutationFn: async () => {
+      if (isWalkIn) {
+        // No date, no time, no duration: the SERVER stamps the real check-in instant (and verifies the patient/doctor
+        // belong to this clinic). `requestId` makes a double click / retry resolve to the same record.
+        return (
+          await api.post<Appointment>("/appointments", {
+            patientId,
+            doctorId,
+            source: "walk_in",
+            visitType,
+            procedureNote: visitType === "procedure" ? procedureNote.trim() : undefined,
+            reason: reason.trim() || undefined,
+            requestId,
+          })
+        ).data;
+      }
       const startAt = combineToUTC(date, time);
       await api.post("/appointments", {
         patientId,
@@ -805,10 +1169,15 @@ function NewAppointmentModal({
         duration,
         visitType,
         procedureNote: visitType === "procedure" ? procedureNote.trim() : undefined,
-        source: isWalkIn ? "walk_in" : undefined,
       });
+      return null;
     },
-    onSuccess: () => {
+    onSuccess: (created) => {
+      if (isWalkIn && created) {
+        toast.success(t("ap.walkInRegistered"), `${t("ap.walkInRegisteredAt")} ${fmtTime12(created.startAt)}`);
+        onDone();
+        return;
+      }
       // The Timeline only shows ONE day — if this appointment was booked
       // for a different date than the one currently in view, closing the
       // modal changes nothing visible on screen. Without this, there is no
@@ -816,7 +1185,8 @@ function NewAppointmentModal({
       toast.success(t("tst.savedTitle"), t("tst.savedBody"));
       onDone();
     },
-    onError: (e) => setError(errMsg(e, t("ap.taken"))),
+    onError: (e) => setError(errMsg(e, isWalkIn ? t("common.error") : t("ap.taken"))),
+    onSettled: () => { submitLock.current = false; },
   });
 
   const createBlock = useMutation({
@@ -986,6 +1356,7 @@ function NewAppointmentModal({
             setTime("");
           }}
         >
+          {isWalkIn && doctorId === "" && <option value="">{t("ap.walkInPickDoctor")}</option>}
           {doctors.map((d) => (
             <option key={d._id} value={d._id}>
               {d.name}
@@ -994,6 +1365,31 @@ function NewAppointmentModal({
         </select>
       )}
 
+      {isWalkIn && (
+        <>
+          <div data-testid="walkin-checkin" className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-sky/30 bg-sky/5 px-3 py-2.5">
+            <div className="min-w-0">
+              <div className="text-[9px] tracking-widest text-mute">{t("ap.walkInCheckIn")}</div>
+              <div className="text-[10px] text-mute">{t("ap.walkInCheckInHint")}</div>
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5 text-sm font-medium text-sky" dir="ltr">
+              <IconClock size={14} /> {nowLabel}
+            </div>
+          </div>
+          <label className="lbl">{t("ap.walkInReason")}</label>
+          <input
+            dir="auto"
+            className="inp mb-3"
+            maxLength={300}
+            placeholder={t("ap.walkInReasonPh")}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+        </>
+      )}
+
+      {!isWalkIn && (
+      <>
       <div className="mb-3 grid grid-cols-2 gap-2">
         <div>
           <label className="lbl">{t("ap.date")}</label>
@@ -1030,7 +1426,7 @@ function NewAppointmentModal({
       <label className="lbl">{t("ap.time")}</label>
       {slots.closed ? (
         <p className="mb-3 rounded-lg bg-red-500/10 px-3 py-2 text-center text-[11px] text-red-400">
-          {t("ap.dayClosed")}
+          {slots.doctorOff ? t("md.hours.doctorOff") : t("ap.dayClosed")}
         </p>
       ) : slots.list.length === 0 ? (
         <p className="mb-3 py-3 text-center text-[11px] text-mute">{t("common.loading")}</p>
@@ -1062,19 +1458,27 @@ function NewAppointmentModal({
         </div>
       )}
 
+      </>
+      )}
+
       {error && <p className="mb-2 text-xs text-red-400">{error}</p>}
       <button
         onClick={() => {
           setError("");
           if (mode === "block") createBlock.mutate();
-          else create.mutate();
+          else {
+            if (submitLock.current) return; // belt and braces with isPending: a second click in the same tick is ignored
+            submitLock.current = true;
+            create.mutate();
+          }
         }}
+        data-testid="appt-submit"
         disabled={
           mode === "block"
             ? !doctorId || !time || createBlock.isPending
             : !patientId ||
               !doctorId ||
-              !time ||
+              (!isWalkIn && !time) ||
               (visitType === "procedure" && procedureNote.trim().length < 2) ||
               create.isPending
         }
@@ -1086,6 +1490,8 @@ function NewAppointmentModal({
             : t("ap.createBlock")
           : create.isPending
           ? t("common.loading")
+          : isWalkIn
+          ? t("ap.walkInRegister")
           : t("ap.create")}
       </button>
     </Modal>
@@ -1118,6 +1524,9 @@ function EditAppointmentModal({
   const patient = typeof appointment.patientId === "object" ? appointment.patientId : null;
   const doctor = typeof appointment.doctorId === "object" ? appointment.doctorId : null;
   const currentDoctorId = typeof appointment.doctorId === "string" ? appointment.doctorId : appointment.doctorId?._id ?? "";
+  // PHASE 3.5 — a walk-in's check-in time is a recorded fact: it can't be "rescheduled", but the visit can be (re)assigned
+  // to a doctor (a real user reference) at any time.
+  const isWalkInAppt = appointment.source === "walk_in" && appointment.type !== "blocked";
 
   // ==== FIX #6 — reschedule (date/time/duration/doctor). Collapsed by
   // default so a quick status/note edit stays a small form, exactly like
@@ -1142,8 +1551,8 @@ function EditAppointmentModal({
     // Exclude THIS appointment from the "taken" set — it must never
     // conflict with its own current slot (same rule the backend enforces).
     const others = (dayApptsForEdit ?? []).filter((a) => a._id !== appointment._id);
-    return computeSlots(clinic, editDate, editDuration, others);
-  }, [editDoctorId, editDate, editDuration, clinic, dayApptsForEdit, appointment._id]);
+    return computeSlots(clinic, editDate, editDuration, others, doctors.find((d) => d._id === editDoctorId));
+  }, [editDoctorId, editDate, editDuration, clinic, dayApptsForEdit, appointment._id, doctors]);
 
   const update = useMutation({
     mutationFn: async () => {
@@ -1152,6 +1561,8 @@ function EditAppointmentModal({
       if (rescheduling) {
         body.startAt = combineToUTC(editDate, editTime);
         body.duration = editDuration;
+        body.doctorId = editDoctorId;
+      } else if (isWalkInAppt && editDoctorId && editDoctorId !== currentDoctorId) {
         body.doctorId = editDoctorId;
       }
       await api.patch(`/appointments/${appointment._id}/status`, body);
@@ -1231,27 +1642,38 @@ function EditAppointmentModal({
           <div className="grid grid-cols-2 gap-2">
             <div className="rounded-lg border border-edge bg-card2 p-2.5">
               <div className="text-[9px] tracking-widest text-mute">{t("ap.doctor")}</div>
-              <div className="text-xs font-medium text-ink">{doctor?.name || "—"}</div>
+              {isWalkInAppt && doctors.length > 0 ? (
+                <select
+                  data-testid="walkin-doctor"
+                  className="inp mt-0.5 !py-1 text-xs"
+                  value={editDoctorId}
+                  onChange={(e) => setEditDoctorId(e.target.value)}
+                >
+                  {doctors.map((d) => (
+                    <option key={d._id} value={d._id}>{d.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <div className="text-xs font-medium text-ink">{doctor?.name || "—"}</div>
+              )}
             </div>
             <div className="rounded-lg border border-edge bg-card2 p-2.5">
-              <div className="text-[9px] tracking-widest text-mute">{t("ap.time")}</div>
-              <div className="text-xs font-medium text-ink" dir="ltr">
-                {new Date(appointment.startAt).toLocaleDateString(lang === "ar" ? "ar" : undefined, {
-                  weekday: "short",
-                  month: "short",
-                  day: "numeric",
-                })}{" "}
-                · {fmtTime12(appointment.startAt)} · {appointment.duration} {t("ap.min")}
+              <div className="text-[9px] tracking-widest text-mute">{isWalkInAppt ? t("ap.checkedInAt") : t("ap.time")}</div>
+              <div className="text-xs font-medium text-ink" dir="ltr" data-testid="appt-time">
+                {fmtDate(appointment.startAt, lang === "ar" ? "ar" : "en")}{" "}
+                · {fmtTime12(appointment.startAt)}{isWalkInAppt ? "" : ` · ${appointment.duration} ${t("ap.min")}`}
               </div>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setRescheduling(true)}
-            className="mt-1.5 flex items-center gap-1 text-[10px] text-sky hover:underline"
-          >
-            <IconClock size={12} /> {t("ap.reschedule")}
-          </button>
+          {!isWalkInAppt && (
+            <button
+              type="button"
+              onClick={() => setRescheduling(true)}
+              className="mt-1.5 flex items-center gap-1 text-[10px] text-sky hover:underline"
+            >
+              <IconClock size={12} /> {t("ap.reschedule")}
+            </button>
+          )}
         </div>
       ) : (
         <div className="mb-3 rounded-lg border border-dashed border-sky/40 bg-soft p-2.5">
@@ -1324,7 +1746,7 @@ function EditAppointmentModal({
           <label className="lbl">{t("ap.time")}</label>
           {editSlots.closed ? (
             <p className="rounded-lg bg-red-500/10 px-3 py-2 text-center text-[11px] text-red-400">
-              {t("ap.dayClosed")}
+              {editSlots.doctorOff ? t("md.hours.doctorOff") : t("ap.dayClosed")}
             </p>
           ) : editSlots.list.length === 0 ? (
             <p className="py-3 text-center text-[11px] text-mute">{t("common.loading")}</p>
@@ -1401,7 +1823,7 @@ function EditAppointmentModal({
                 : "border-edge bg-card2 text-mute"
             }`}
           >
-            {t(`status.${s}`)}
+            {isWalkInAppt && s === "scheduled" ? t("ap.walkInWaiting") : t(`status.${s}`)}
           </button>
         ))}
       </div>

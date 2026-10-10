@@ -6,6 +6,7 @@
  *
  * NEW FILE — does not touch any existing service.
  */
+import { isProduction, maskPhone } from "../utils/logSafe";
 
 const apiVersion = process.env.WHATSAPP_API_VERSION || "v22.0";
 const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || "";
@@ -33,6 +34,11 @@ export async function sendWhatsAppTemplate(
   bodyParams: string[]
 ): Promise<WhatsAppSendResult> {
   if (!phoneNumberId || !accessToken) {
+    // PHASE 7 — in production neither the patient's number nor the template values (their name) are written to the log.
+    if (isProduction()) {
+      console.warn(`[WHATSAPP SERVICE] credentials not configured — template "${templateName}" to ${maskPhone(toPhone)} was NOT sent`);
+      return { success: true };
+    }
     console.log("═══════════════════════════════════════════════════");
     console.log("📱 [WHATSAPP SERVICE — dev mode, no credentials configured]");
     console.log("To:       ", toPhone);
@@ -74,11 +80,11 @@ export async function sendWhatsAppTemplate(
       throw new Error(`WhatsApp API ${res.status}: ${errBody}`);
     }
 
-    console.log(`[WHATSAPP SERVICE] ✔ Sent "${templateName}" to ${toPhone}`);
+    console.log(`[WHATSAPP SERVICE] ✔ Sent "${templateName}" to ${maskPhone(toPhone)}`);
     return { success: true };
   } catch (err) {
     const message = (err as Error).message;
-    console.error(`[WHATSAPP SERVICE] ✗ Failed to send to ${toPhone}:`, message);
+    console.error(`[WHATSAPP SERVICE] ✗ Failed to send to ${maskPhone(toPhone)}:`, message);
     return { success: false, error: message };
   }
 }

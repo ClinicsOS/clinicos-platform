@@ -5,12 +5,20 @@ import { Clinic } from "../models/Clinic";
 import { User } from "../models/User";
 import { Appointment } from "../models/Appointment";
 import { Patient } from "../models/Patient";
+import { nextNumber, retryPause, NUMBER_ATTEMPTS } from "../services/numbering";
 import { asyncHandler } from "../middleware/errorHandler";
 import { PLANS, type Plan } from "../config/plans";
 import { sendNewBookingNotification } from "../services/mailer";
 import { timeToMinutes, intervalsOverlap } from "../utils/workingHoursTime";
+import { doctorAllowsInterval, checkDoctorTiming } from "../services/doctorSchedule";
 import { checkAppointmentTiming } from "../services/appointmentRules";
 import { findOverlappingAppointment } from "../services/appointmentAvailability";
+import {
+  DEFAULT_CLINIC_TIMEZONE,
+  clinicDayRange,
+  clinicLocalToUtc,
+  isValidYmd,
+} from "../utils/timezone";
 
 // ===== GET /api/public/clinics/search?q= =====
 // Added for mobile clinic discovery (patient no longer needs a direct link).
@@ -26,7 +34,7 @@ export const searchClinics = asyncHandler(
     // Case-insensitive partial match. Mongo regex on a modest clinic
     // collection is fine here; a text index would be the next step if this
     // ever needs to scale beyond that.
-    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const escaped = q.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); // PHASE 7 — control characters would make MongoDB reject the pattern (500)
     const regex = new RegExp(escaped, "i");
 
     const clinics = await Clinic.find({
@@ -163,7 +171,7 @@ export const getAvailableSlots = asyncHandler(
     if (!doctor) return res.status(404).json({ message: "Doctor not found" });
 
     const day = new Date(date + "T00:00:00.000Z");
-    if (isNaN(day.getTime())) {
+    if (isNaN(day.getTime()) || !isValidYmd(date)) {
       return res
         .status(400)
         .json({ message: "Invalid date format, use YYYY-MM-DD" });
@@ -215,18 +223,24 @@ export const getAvailableSlots = asyncHandler(
       const h = String(Math.floor(m / 60)).padStart(2, "0");
       const mm = String(m % 60).padStart(2, "0");
       const time = `${h}:${mm}`;
-      // Interpret as WALL-CLOCK local time (no Z)
-      const local = new Date(`${dateOnly}T${time}:00`);
+      // The slot's absolute instant = this wall-clock time on the CLINIC's
+      // calendar. (`new Date("...T10:00:00")` without a zone is parsed in the
+      // SERVER's timezone — UTC on Render — which made the "already past"
+      // check 3 hours late.)
+      const local = clinicLocalToUtc(dateOnly, time);
       allSlots.push({ time, local });
     }
 
-    const nextDay = new Date(day);
-    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+    // The day being viewed is the CLINIC-local calendar day, not the UTC day:
+    // using UTC midnight..midnight shifted the window by the clinic's UTC
+    // offset, so an appointment just after local midnight was attributed to
+    // the previous day (and vice-versa).
+    const { start: dayStart, end: dayEnd } = clinicDayRange(date);
 
     const booked = await Appointment.find({
       clinicId: clinic._id,
       doctorId,
-      startAt: { $gte: day, $lt: nextDay },
+      startAt: { $gte: dayStart, $lt: dayEnd },
       status: { $in: ["scheduled", "confirmed"] },
       // FIX #3 — a Walk-in is a visit record, not a schedule reservation;
       // it must never make an otherwise-free public slot look taken.
@@ -244,7 +258,7 @@ export const getAvailableSlots = asyncHandler(
     // return time in whatever timezone the SERVER happens to run in.
     const occupied = booked.map((a) => {
       const parts = new Intl.DateTimeFormat("en-GB", {
-        timeZone: "Asia/Amman",
+        timeZone: DEFAULT_CLINIC_TIMEZONE,
         hour: "2-digit",
         minute: "2-digit",
         hour12: false,
@@ -265,7 +279,15 @@ export const getAvailableSlots = asyncHandler(
       return !overlapsExisting && s.local.getTime() > now;
     });
 
-    const slots = available.map((s) => s.time);
+    // PHASE 4 — the selected doctor's OWN working hours (optional) narrow the clinic's: a slot is offered only when the doctor's
+    // schedule allows it too. A doctor without their own hours follows the clinic exactly as before.
+    if (doctor.workingHours && doctor.workingHours.length) {
+      const dayOff = doctorAllowsInterval(doctor.workingHours, dayOfWeek, 0, 0);
+      if (dayOff?.code === "DOCTOR_DAY_OFF") return res.json({ date, doctorId, slotDuration: slotMinutes, slots: [], message: dayOff.message });
+    }
+    const slots = available
+      .filter((s) => !doctorAllowsInterval(doctor.workingHours, dayOfWeek, timeToMinutes(s.time), timeToMinutes(s.time) + slotMinutes))
+      .map((s) => s.time);
 
     return res.json({ date, doctorId, slotDuration: slotMinutes, slots });
   },
@@ -358,6 +380,11 @@ export const publicBook = asyncHandler(async (req: Request, res: Response) => {
   if (timing) {
     return res.status(400).json({ message: timing.message, code: timing.code });
   }
+  // PHASE 4 — and the selected doctor's own working hours, if they have set any.
+  const doctorTiming = checkDoctorTiming(doctor.workingHours, startAt, clinic.slotDuration);
+  if (doctorTiming) {
+    return res.status(400).json({ message: doctorTiming.message, code: doctorTiming.code });
+  }
 
   // Enforce trial appointment cap on public bookings too
   const limits = PLANS[clinic.plan as Plan];
@@ -378,14 +405,25 @@ export const publicBook = asyncHandler(async (req: Request, res: Response) => {
   });
 
   if (!patient) {
-    const pCount = await Patient.countDocuments({ clinicId: clinic._id });
-    patient = await Patient.create({
-      clinicId: clinic._id,
-      fileNumber: pCount + 1,
-      fullName: data.fullName,
-      phone: data.phone,
-      email: data.email || undefined,
-    });
+    // PHASE 7 — two visitors booking at the same moment (or the same phone twice) must not 500 on the file-number / phone indexes:
+    // a duplicate PHONE means "the patient was just created by the other request" → use it; a duplicate FILE NUMBER is retried.
+    for (let attempt = 0; attempt < NUMBER_ATTEMPTS && !patient; attempt++) {
+      await retryPause(attempt);
+      const next = await nextNumber(Patient, clinic._id, "fileNumber");
+      try {
+        patient = await Patient.create({
+          clinicId: clinic._id,
+          fileNumber: next,
+          fullName: data.fullName,
+          phone: data.phone,
+          email: data.email || undefined,
+        });
+      } catch (err: any) {
+        if (err?.code !== 11000) throw err;
+        patient = await Patient.findOne({ clinicId: clinic._id, phone: data.phone });
+      }
+    }
+    if (!patient) return res.status(409).json({ message: "Could not complete the booking, please try again" });
   } else if (data.email && !patient.email) {
     // Progressive enrichment — capture the email if we didn't have one yet
     patient.email = data.email;

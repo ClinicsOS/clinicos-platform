@@ -13,6 +13,7 @@ import {
 } from "../config/dentalProcedures";
 import { buildTimeline } from "../utils/dentalTimeline";
 import { loadBillingViews, type BillingView } from "../services/dentalBilling";
+import { billingCtxOf } from "../services/doctorAttribution";
 
 /**
  * SECURITY (same model as dentalController): `protect` -> `requireSpecialty("dentistry")` (router level) ->
@@ -135,7 +136,7 @@ export async function planPayload(req: Request, patient: any) {
 
   const round = (n: number) => Math.round(n * 1000) / 1000;
   // billing links -> live invoice state (read from the invoice lines themselves; the Invoice system is authoritative)
-  const views = await loadBillingViews({ clinicId: req.clinicId, userId: req.userId, patientId: patient._id }, itemList);
+  const views = await loadBillingViews(billingCtxOf(req, patient._id), itemList);
   const invoicedTotal = round(itemList.reduce((t, i) => t + (views.get(String(i._id))?.state === "invoiced" ? views.get(String(i._id))!.amount ?? 0 : 0), 0));
   const count = (s: PlanStatus) => itemList.filter((i) => i.status === s).length;
   const sum = (list: any[]) => list.reduce((t, i) => t + (typeof i.estimatedPrice === "number" ? i.estimatedPrice : 0), 0);
@@ -180,7 +181,7 @@ export const getVisitTreatments = asyncHandler(async (req: Request, res: Respons
   const doneItems = doneIds.length ? ((await DentalTreatmentItem.find({ ...scope, _id: { $in: doneIds } }).populate("billing.by", "name").lean()) as any[]) : [];
   const st = new Map(doneItems.map((i) => [String(i._id), i.status as PlanStatus]));
   const doneById = new Map(doneItems.map((i) => [String(i._id), i]));
-  const views = await loadBillingViews({ clinicId: req.clinicId, userId: req.userId, patientId: patient._id }, doneItems);
+  const views = await loadBillingViews(billingCtxOf(req, patient._id), doneItems);
   const byItem = new Map(sessions.map((s) => [String(s.itemId), s]));
   return res.json({
     visit: { _id: String(visit._id), status: visit.status, source: visit.source, startAt: visit.startAt },
@@ -222,6 +223,24 @@ async function checkSourceDiagnoses(req: Request, patientId: unknown, ids: strin
   return n === uniq.length ? null : "Source diagnosis not found";
 }
 
+const DUPLICATE_MESSAGE = "This treatment is already in the plan for this tooth";
+
+/**
+ * DUPLICATE PROTECTION. There is exactly ONE treatment entity (DentalTreatmentItem) and both the Dental Chart and the
+ * Treatment Plan read it, so the only way to get "two Crowns on 16" is to create the same item twice. An ACTIVE
+ * (planned / in progress) item with the same procedure on the same tooth/surfaces is therefore refused. Completed and
+ * cancelled items never block (re-doing a treatment later is legitimate). Whole-mouth ("general") treatments are not
+ * checked: they have no tooth to double up on.
+ */
+function activeTwinFilter(req: Request, patientId: unknown, v: { procedureCode: string; targetType: string; toothNumbers: string[]; surfaces: string[]; customName?: string }) {
+  if (v.targetType === "general") return null;
+  return {
+    clinicId: req.clinicId, patientId, status: { $in: ["planned", "in_progress"] },
+    procedureCode: v.procedureCode, targetType: v.targetType, toothNumbers: v.toothNumbers, surfaces: v.surfaces,
+    ...(v.customName ? { customName: v.customName } : {}),
+  };
+}
+
 /** POST /dental/patients/:patientId/treatment-plan/items — always created as PLANNED (intent, not performed work). */
 export const createItem = asyncHandler(async (req: Request, res: Response) => {
   const patient = await loadPatient(req, res);
@@ -232,6 +251,12 @@ export const createItem = asyncHandler(async (req: Request, res: Response) => {
   if (!v.ok) return res.status(400).json({ message: v.message });
   const srcErr = await checkSourceDiagnoses(req, patient._id, body.sourceDiagnosisIds ?? []);
   if (srcErr) return res.status(400).json({ message: srcErr });
+
+  const twin = activeTwinFilter(req, patient._id, v);
+  if (twin) {
+    const existing = await DentalTreatmentItem.findOne(twin).select("_id");
+    if (existing) return res.status(409).json({ message: DUPLICATE_MESSAGE, code: "DUPLICATE_ITEM", itemId: String(existing._id) });
+  }
 
   const plan = await getOrCreatePlan(req, patient._id);
   const now = new Date();
@@ -247,6 +272,16 @@ export const createItem = asyncHandler(async (req: Request, res: Response) => {
     statusHistory: [{ status: "planned", at: now, by: req.userId }],
     createdBy: req.userId,
   });
+  // Two identical requests can both pass the check above at the same instant. Deterministic tie-break: the item with the
+  // SMALLER id survives; the other one removes ITSELF (it was created a moment ago in this same request, nobody has seen
+  // it, it has no sessions or billing) and answers 409 — so the pair can never end up as two items.
+  if (twin) {
+    const older = await DentalTreatmentItem.findOne({ ...twin, _id: { $lt: created._id } }).select("_id");
+    if (older) {
+      await DentalTreatmentItem.deleteOne({ _id: created._id, clinicId: req.clinicId, patientId: patient._id, status: "planned" });
+      return res.status(409).json({ message: DUPLICATE_MESSAGE, code: "DUPLICATE_ITEM", itemId: String(older._id) });
+    }
+  }
   // Re-read through a Query (Document#populate returns a Promise in Mongoose, so it can't be chained like a Query).
   const fresh = await populateItem(DentalTreatmentItem.findOne({ _id: created._id, clinicId: req.clinicId, patientId: patient._id })).lean();
   return res.status(201).json({ item: serializeItem(fresh) });
@@ -287,6 +322,11 @@ export const updateItem = asyncHandler(async (req: Request, res: Response) => {
       record.dentitionType
     );
     if (!v.ok) return res.status(400).json({ message: v.message });
+    const twin = activeTwinFilter(req, patient._id, v);
+    if (twin) {
+      const existing = await DentalTreatmentItem.findOne({ ...twin, _id: { $ne: item._id } }).select("_id");
+      if (existing) return res.status(409).json({ message: DUPLICATE_MESSAGE, code: "DUPLICATE_ITEM", itemId: String(existing._id) });
+    }
     Object.assign(set, { procedureCode: v.procedureCode, targetType: v.targetType, toothNumbers: v.toothNumbers, surfaces: v.surfaces });
     // The typed name only exists for "other": switching to a catalog procedure removes it, so it can never linger.
     if (v.customName) set.customName = v.customName; else unset.customName = 1;

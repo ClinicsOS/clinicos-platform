@@ -1,5 +1,7 @@
 import mongoose from "mongoose";
+import { nextNumber, retryPause, NUMBER_ATTEMPTS } from "./numbering";
 import { Invoice } from "../models/Invoice";
+import { resolveTreatingDoctor } from "./doctorAttribution";
 import { DentalTreatmentItem } from "../models/DentalTreatmentItem";
 
 /**
@@ -22,7 +24,11 @@ const isOid = (v: unknown) => mongoose.isValidObjectId(v);
 export type Fail = { ok: false; status: number; code: string; message: string };
 const fail = (status: number, code: string, message: string): Fail => ({ ok: false, status, code, message });
 
-export interface Ctx { clinicId: any; userId: any; patientId?: any }
+/**
+ * restrictToDoctorId (PHASE 4): set for a doctor-role caller. They may bill only treatments THEY completed, may only target
+ * invoices attributed to them, and (for display) never see the amount / payment status of another doctor's invoice.
+ */
+export interface Ctx { clinicId: any; userId: any; patientId?: any; restrictToDoctorId?: string }
 
 export interface BillingView {
   state: "none" | "pending" | "invoiced";
@@ -40,7 +46,7 @@ const linePresent = (inv: any, lineId: unknown) => !!inv?.items?.some((l: any) =
 
 /** Display state for many treatment items at once (read-only; nothing is written). */
 /** Clinic-wide read of the SAME authoritative billing state (no patient scoping) — used by the Dental Dashboard. */
-export const loadBillingViewsForClinic = (clinicId: any, items: any[]) => loadBillingViews({ clinicId, userId: undefined }, items);
+export const loadBillingViewsForClinic = (clinicId: any, items: any[], restrictToDoctorId?: string) => loadBillingViews({ clinicId, userId: undefined, restrictToDoctorId }, items);
 
 export async function loadBillingViews(ctx: Ctx, items: any[]): Promise<Map<string, BillingView>> {
   const out = new Map<string, BillingView>();
@@ -49,7 +55,7 @@ export async function loadBillingViews(ctx: Ctx, items: any[]): Promise<Map<stri
   // patientId is omitted for a clinic-wide read (e.g. the Dental Dashboard's "Needs Billing"); every per-patient
   // caller still passes it, so their behaviour is unchanged.
   const invs = ids.length
-    ? ((await Invoice.find({ _id: { $in: ids }, clinicId: ctx.clinicId, ...(ctx.patientId ? { patientId: ctx.patientId } : {}) }).select("invoiceNumber status items").lean()) as any[])
+    ? ((await Invoice.find({ _id: { $in: ids }, clinicId: ctx.clinicId, ...(ctx.patientId ? { patientId: ctx.patientId } : {}) }).select("invoiceNumber status items doctorId").lean()) as any[])
     : [];
   const byId = new Map(invs.map((v) => [String(v._id), v]));
   for (const it of items) {
@@ -59,6 +65,11 @@ export async function loadBillingViews(ctx: Ctx, items: any[]): Promise<Map<stri
     const line = inv?.items?.find((l: any) => String(l._id) === String(b.invoiceItemId));
     const by = b.by && b.by._id ? { _id: String(b.by._id), name: b.by.name } : null;
     if (line) {
+      // PHASE 4 — another doctor's invoice: the treatment still shows as invoiced (so it can't be billed twice), but its money isn't shown.
+      if (ctx.restrictToDoctorId && String(inv.doctorId ?? "") !== ctx.restrictToDoctorId) {
+        out.set(String(it._id), { state: "invoiced", invoiceNumber: inv.invoiceNumber, at: b.at, by });
+        continue;
+      }
       out.set(String(it._id), { state: "invoiced", invoiceId: String(inv._id), invoiceNumber: inv.invoiceNumber, invoiceItemId: String(line._id), amount: round3(line.price * line.qty), invoiceStatus: inv.status, at: b.at, by });
     } else if (b.state === "pending" && b.at && Date.now() - new Date(b.at).getTime() < STALE_CLAIM_MS) {
       out.set(String(it._id), { state: "pending" });
@@ -113,7 +124,7 @@ async function resolveExisting(ctx: Ctx, item: any): Promise<Existing> {
 }
 
 /** Add one line to an EXISTING invoice. Optimistic guarded update (no lost updates vs. payments / other edits). */
-async function appendToInvoice(ctx: Ctx, invoiceId: any, line: { _id: any; description: string; price: number }, sourceId: any) {
+async function appendToInvoice(ctx: Ctx, invoiceId: any, line: { _id: any; description: string; price: number }, sourceId: any, expectDoctor: string | null) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const inv: any = await Invoice.findOne({ _id: invoiceId, clinicId: ctx.clinicId, patientId: ctx.patientId });
     if (!inv) return fail(404, "INVOICE_NOT_FOUND", "Invoice not found");
@@ -124,7 +135,7 @@ async function appendToInvoice(ctx: Ctx, invoiceId: any, line: { _id: any; descr
     const paid = inv.payments.reduce((s: number, p: any) => s + p.amount, 0);
     const status = paid >= total ? "paid" : paid === 0 ? "unpaid" : "partially_paid"; // same outcomes as create/update invoice
     const updated: any = await Invoice.findOneAndUpdate(
-      { _id: invoiceId, clinicId: ctx.clinicId, patientId: ctx.patientId, total: inv.total, discount: inv.discount, items: { $size: inv.items.length }, payments: { $size: inv.payments.length } },
+      { _id: invoiceId, clinicId: ctx.clinicId, patientId: ctx.patientId, doctorId: expectDoctor, total: inv.total, discount: inv.discount, items: { $size: inv.items.length }, payments: { $size: inv.payments.length } },
       { $push: { items: { _id: line._id, description: line.description, price: line.price, qty: 1, sourceType: "dental_treatment", sourceId } }, $set: { total, status } },
       { new: true }
     );
@@ -134,12 +145,14 @@ async function appendToInvoice(ctx: Ctx, invoiceId: any, line: { _id: any; descr
 }
 
 /** Create a NEW invoice through the same rules as the normal invoice creation (numbering, status). */
-async function createInvoiceWithLine(ctx: Ctx, invoiceId: any, line: { _id: any; description: string; price: number }, sourceId: any, appointmentId?: any) {
-  for (let attempt = 0; attempt < 6; attempt++) {
-    const count = await Invoice.countDocuments({ clinicId: ctx.clinicId });
+async function createInvoiceWithLine(ctx: Ctx, invoiceId: any, line: { _id: any; description: string; price: number }, sourceId: any, appointmentId?: any, doctorId?: string | null) {
+  for (let attempt = 0; attempt < NUMBER_ATTEMPTS; attempt++) {
+    await retryPause(attempt);
+    const nextNo = await nextNumber(Invoice, ctx.clinicId, "invoiceNumber");
     try {
       const inv: any = await Invoice.create({
-        _id: invoiceId, clinicId: ctx.clinicId, invoiceNumber: count + 1, patientId: ctx.patientId, appointmentId,
+        _id: invoiceId, clinicId: ctx.clinicId, invoiceNumber: nextNo, patientId: ctx.patientId, appointmentId,
+        ...(doctorId ? { doctorId } : {}), createdBy: ctx.userId,
         items: [{ _id: line._id, description: line.description, price: line.price, qty: 1, sourceType: "dental_treatment", sourceId }],
         discount: 0, total: round3(line.price), status: line.price === 0 ? "paid" : "unpaid",
       });
@@ -168,6 +181,13 @@ export async function billTreatmentItem(ctx: Ctx, itemId: unknown, input: BillIn
     if (item.status === "cancelled") return fail(409, "TREATMENT_CANCELLED", "A cancelled treatment can't be invoiced");
     if (item.status !== "completed") return fail(409, "TREATMENT_NOT_COMPLETED", "Only a completed treatment can be added to an invoice");
 
+    // PHASE 4 — who treated this? (the clinician who completed it; see services/doctorAttribution.ts). A doctor-role caller may only
+    // bill THEIR OWN treatments — checked before anything else so another doctor's invoice is never even echoed back.
+    const treating = await resolveTreatingDoctor(ctx.clinicId, item);
+    if (ctx.restrictToDoctorId && treating.doctorId !== ctx.restrictToDoctorId) {
+      return fail(403, "NOT_YOUR_TREATMENT", "Only the doctor who performed this treatment, the receptionist or the owner can add it to an invoice");
+    }
+
     const ex = await resolveExisting(ctx, item);
     if (ex.kind === "invoiced") return { ok: true, created: false, invoice: invoiceBrief(ex.invoice), invoiceLineId: String(item.billing.invoiceItemId) }; // idempotent
     if (ex.kind === "pending") return fail(409, "BILLING_IN_PROGRESS", "This treatment is being added to an invoice right now. Refresh in a moment.");
@@ -175,8 +195,15 @@ export async function billTreatmentItem(ctx: Ctx, itemId: unknown, input: BillIn
     // validate the target BEFORE claiming (never trust the client's invoiceId)
     let target: any = null;
     if (input.invoiceId) {
-      target = isOid(input.invoiceId) ? await Invoice.findOne({ _id: input.invoiceId, clinicId: ctx.clinicId, patientId: ctx.patientId }) : null;
+      target = isOid(input.invoiceId)
+        ? await Invoice.findOne({ _id: input.invoiceId, clinicId: ctx.clinicId, patientId: ctx.patientId, ...(ctx.restrictToDoctorId ? { doctorId: ctx.restrictToDoctorId } : {}) })
+        : null;
       if (!target) return fail(404, "INVOICE_NOT_FOUND", "Invoice not found for this patient");
+      // An attributed invoice only takes treatments of the SAME doctor (otherwise revenue would silently move between doctors).
+      // A legacy / unassigned invoice (no doctor) takes any treatment and simply stays unassigned.
+      if (target.doctorId && String(target.doctorId) !== treating.doctorId) {
+        return fail(409, "INVOICE_DOCTOR_MISMATCH", "This invoice belongs to another doctor. Create a new invoice for this treatment.");
+      }
       if (target.status === "paid") return fail(409, "INVOICE_NOT_EDITABLE", "This invoice is already fully paid. Create a new invoice or choose another one.");
     }
 
@@ -194,7 +221,7 @@ export async function billTreatmentItem(ctx: Ctx, itemId: unknown, input: BillIn
     const line = { _id: lineId, description: input.description, price: input.price };
     let res: any;
     try {
-      res = target ? await appendToInvoice(ctx, invoiceId, line, item._id) : await createInvoiceWithLine(ctx, invoiceId, line, item._id, completedIn);
+      res = target ? await appendToInvoice(ctx, invoiceId, line, item._id, target.doctorId ? String(target.doctorId) : null) : await createInvoiceWithLine(ctx, invoiceId, line, item._id, completedIn, treating.doctorId);
     } catch (err) {
       // an unexpected failure: nothing (or maybe something) was written — decide from what is really there
       const inv: any = await Invoice.findOne({ _id: invoiceId, clinicId: ctx.clinicId, patientId: ctx.patientId });

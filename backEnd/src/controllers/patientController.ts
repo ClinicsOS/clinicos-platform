@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { z } from "zod";
 import { Patient } from "../models/Patient";
+import { nextNumber, retryPause, NUMBER_ATTEMPTS } from "../services/numbering";
 import { asyncHandler } from "../middleware/errorHandler";
 import {
   MEDICAL_KEYS,
@@ -15,7 +16,7 @@ import {
 // ===================================================================
 
 /** Escapes user input so it can be used safely inside a RegExp. */
-const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapeRegex = (s: string) => s.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); // PHASE 7 — a NUL / control character makes MongoDB reject the pattern (was a 500)
 
 const optText = (max: number) => z.string().trim().max(max).optional();
 
@@ -179,19 +180,25 @@ export const createPatient = asyncHandler(async (req: Request, res: Response) =>
     return res.status(409).json({ message: DUPLICATE_PHONE_MSG });
   }
 
-  const count = await Patient.countDocuments({ clinicId: req.clinicId });
-
-  try {
-    const patient = await Patient.create({
-      ...set,
-      clinicId: req.clinicId,
-      fileNumber: count + 1,
-    });
-    return res.status(201).json(patient);
-  } catch (err) {
-    if (isDuplicatePhone(err)) return res.status(409).json({ message: DUPLICATE_PHONE_MSG });
-    throw err;
+  // fileNumber is clinic-unique (index). Two receptionists registering at the same moment compute the same count; PHASE 7: the one
+  // that loses on THAT index recounts and retries instead of failing with a confusing "duplicate" error. A duplicate PHONE still
+  // answers 409 with the friendly message.
+  for (let attempt = 0; attempt < NUMBER_ATTEMPTS; attempt++) {
+    await retryPause(attempt);
+    const next = await nextNumber(Patient, req.clinicId, "fileNumber");
+    try {
+      const patient = await Patient.create({
+        ...set,
+        clinicId: req.clinicId,
+        fileNumber: next,
+      });
+      return res.status(201).json(patient);
+    } catch (err) {
+      if (isDuplicatePhone(err)) return res.status(409).json({ message: DUPLICATE_PHONE_MSG });
+      if ((err as { code?: number })?.code !== 11000) throw err;
+    }
   }
+  return res.status(409).json({ message: "Could not register the patient, please try again", code: "PATIENT_CREATE_FAILED" });
 });
 
 /**

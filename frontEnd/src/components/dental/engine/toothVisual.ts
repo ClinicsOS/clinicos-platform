@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { ToothMeta } from "@/lib/dental/fdi";
 import type { ToothVisualState } from "@/lib/dental/types";
 import type { SurfaceId } from "@/lib/dental/taxonomy";
+import { CROWN_HEX, FILLING_HEX } from "@/lib/dental/visualTokens";
 import type { ToothMeshSource } from "./toothGeometry";
 import type { ToothPlacement } from "./archLayout";
 
@@ -23,6 +24,15 @@ const getMarkerGeo = () => (markerGeo ??= new THREE.SphereGeometry(1, 14, 10));
 
 interface Tint { m: THREE.MeshStandardMaterial; base: THREE.Color }
 
+// Silhouette rim shared by the selection outline and the planned-crown halo (back-face shell pushed out along the normals).
+// NOTE: `#include` has to start its own line, otherwise the fragment shader fails to compile ("invalid character '#'")
+// and the program stays invalid for the rest of the session.
+const RIM_VERTEX = "uniform float uThick; void main(){ vec3 p = position + normal * uThick; gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0); }";
+const RIM_FRAGMENT = "uniform vec3 uColor; uniform float uOpacity;\nvoid main(){\n gl_FragColor = vec4(uColor, uOpacity);\n#include <colorspace_fragment>\n}";
+
+/** One animated piece of a treatment picture: opacity fades in when it appears, in-progress pieces breathe. */
+interface TreatFx { set: (opacity: number) => void; base: number; pulse: boolean; phase: number; mesh?: THREE.Object3D; baseScale?: THREE.Vector3 }
+
 export class ToothVisual {
   readonly fdi: string;
   readonly meta: ToothMeta;
@@ -39,6 +49,13 @@ export class ToothVisual {
   private markers = new THREE.Group();
   private planMarkers = new THREE.Group(); // treatment-plan indicators (ring = planned, diamond = in progress, check = treated)
   private planMats: THREE.MeshBasicMaterial[] = [];
+  private treatGroup = new THREE.Group(); // Crown / Filling TYPE pictures for planned + in-progress treatments (ghost style)
+  private treatMats: THREE.Material[] = [];
+  private treatGeos: THREE.BufferGeometry[] = [];
+  private treatFx: TreatFx[] = [];
+  private treatSig = "";
+  private treatAppear = 1; private treatAppearTarget = 1;
+  private stateApplied = false;
   private pulsing: Array<{ mesh: THREE.Mesh; base: THREE.Vector3; phase: number }> = [];
   private enamel: THREE.MeshPhysicalMaterial;
   private capMat: THREE.MeshStandardMaterial | null = null;
@@ -89,8 +106,8 @@ export class ToothVisual {
 
     this.outlineMat = new THREE.ShaderMaterial({
       uniforms: { uColor: { value: new THREE.Color(OUTLINE) }, uThick: { value: 0.026 }, uOpacity: { value: 0 } },
-      vertexShader: "uniform float uThick; void main(){ vec3 p = position + normal * uThick; gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0); }",
-      fragmentShader: "uniform vec3 uColor; uniform float uOpacity; void main(){ gl_FragColor = vec4(uColor, uOpacity); #include <colorspace_fragment>\n }",
+      vertexShader: RIM_VERTEX,
+      fragmentShader: RIM_FRAGMENT,
       side: THREE.BackSide, transparent: true, depthWrite: false,
     });
     this.ownedMats.push(this.outlineMat);
@@ -107,6 +124,7 @@ export class ToothVisual {
     this.inner.add(this.ghost);
 
     this.inner.add(this.markers);
+    this.inner.add(this.treatGroup);
     this.inner.add(this.planMarkers);
     this.rebuildTints();
   }
@@ -136,13 +154,15 @@ export class ToothVisual {
     this.presenceTarget = s.missing || s.unerupted ? 0 : 1; // missing / unerupted: ghost stays selectable
     this.eruptTarget = s.partiallyErupted ? 1 : 0; // partially erupted: sits lower in the gingiva
     // Restoration: crown/bridge/implant get a cap material on the crown mesh; natural roots stay enamel.
+    // A crown that is recorded as an existing condition OR as a COMPLETED crown treatment looks the same (it IS a crown on the tooth).
+    const restoration = s.restoration ?? (s.treatments.some((x) => x.kind === "crown" && x.status === "completed") ? "crown" : null);
     this.capMat?.dispose();
     this.ownedMats = this.ownedMats.filter((m) => m !== this.capMat);
     this.capMat = null;
-    if (s.restoration) {
+    if (restoration) {
       const cfg =
-        s.restoration === "crown" ? { color: 0xd5dadd, metalness: 0.55, roughness: 0.28 }
-        : s.restoration === "bridge" ? { color: 0xe1cc98, metalness: 0.6, roughness: 0.3 }
+        restoration === "crown" ? { color: CROWN_HEX, metalness: 0.4, roughness: 0.3 }
+        : restoration === "bridge" ? { color: 0xe1cc98, metalness: 0.6, roughness: 0.3 }
         : { color: 0xf3efe4, metalness: 0.05, roughness: 0.2 };
       this.capMat = new THREE.MeshStandardMaterial({ ...cfg, envMapIntensity: 0.9, emissive: new THREE.Color(0xfff0dc), emissiveIntensity: 0 });
       this.ownedMats.push(this.capMat);
@@ -150,13 +170,15 @@ export class ToothVisual {
     } else {
       this.crown.material = this.enamel;
     }
-    this.rootsHidden = s.restoration === "implant";
+    this.rootsHidden = restoration === "implant";
     // Root-canal-treated: enamel reads very slightly greyer.
     this.enamel.color.set(ENAMEL);
     if (s.rootCanal) this.enamel.color.lerp(new THREE.Color(0x9a9a92), 0.22);
     this.rebuildTints();
     this.rebuildMarkers(s);
+    this.rebuildTreatments(s);
     this.rebuildPlanMarkers(s);
+    this.stateApplied = true;
   }
 
   update(dt: number, time: number, reduced: boolean) {
@@ -195,6 +217,17 @@ export class ToothVisual {
     for (const r of this.roots) r.visible = solid && !this.rootsHidden;
     this.markers.visible = this.presence > 0.5;
     this.planMarkers.visible = this.presence > 0.5;
+    this.treatGroup.visible = this.presence > 0.5 && this.treatFx.length > 0;
+    if (this.treatGroup.visible) {
+      this.treatAppear += (this.treatAppearTarget - this.treatAppear) * (1 - Math.exp(-dt * (reduced ? 60 : 8)));
+      if (Math.abs(this.treatAppearTarget - this.treatAppear) < 0.004) this.treatAppear = this.treatAppearTarget;
+      const soft = 0.3 + 0.7 * this.emph; // fades with the rest of the jaw when it is de-emphasised
+      for (const fx of this.treatFx) {
+        const wave = fx.pulse && !reduced ? Math.sin(time * 2.6 + fx.phase) : 0;
+        fx.set(fx.base * this.treatAppear * soft * (1 + 0.22 * wave));
+        if (fx.mesh && fx.baseScale) fx.mesh.scale.copy(fx.baseScale).multiplyScalar((0.8 + 0.2 * this.treatAppear) * (1 + 0.05 * wave));
+      }
+    }
     for (const m of this.planMats) m.opacity = 0.3 + 0.7 * this.emph; // fades with the rest of the jaw when it is de-emphasised
     const ghostA = 1 - this.presence;
     this.ghost.visible = ghostA > 0.02;
@@ -212,6 +245,7 @@ export class ToothVisual {
 
   dispose() {
     this.clearPlanMarkers();
+    this.clearTreatments();
     this.clearMarkers();
     this.ownedMats.forEach((m) => m.dispose());
     this.capMat?.dispose();
@@ -275,6 +309,90 @@ export class ToothVisual {
     }
   }
 
+  private clearTreatments() {
+    for (const c of [...this.treatGroup.children]) this.treatGroup.remove(c);
+    this.treatMats.forEach((m) => m.dispose());
+    this.treatGeos.forEach((g) => g.dispose());
+    this.treatMats = []; this.treatGeos = []; this.treatFx = [];
+  }
+
+  /**
+   * PLANNED / IN-PROGRESS Crown and Filling pictures (completed ones are drawn solid by applyState / rebuildMarkers).
+   *   Crown   -> covers the WHOLE crown: a gold halo around the silhouette + a faint gold veil over it
+   *   Filling -> only the treated SURFACE(S): a hollow cobalt ring with a faint fill (solid dome once completed)
+   * "Ghost" = intent, not yet done; in progress is stronger and breathes. They fade in when a treatment is added.
+   */
+  private rebuildTreatments(s: ToothVisualState) {
+    const sig = JSON.stringify(s.treatments);
+    const changed = sig !== this.treatSig;
+    this.treatSig = sig;
+    this.clearTreatments();
+    // in progress beats planned when the same thing is listed twice
+    const rank = (x: "planned" | "in_progress" | "completed") => (x === "in_progress" ? 2 : x === "planned" ? 1 : 0);
+    let crown: "planned" | "in_progress" | null = null;
+    const fillings = new Map<SurfaceId, "planned" | "in_progress">();
+    for (const x of s.treatments) {
+      if (x.status === "completed") continue;
+      if (x.kind === "crown") { if (!crown || rank(x.status) > rank(crown)) crown = x.status; }
+      else for (const surf of (x.surfaces.length ? x.surfaces : (["O"] as SurfaceId[]))) {
+        const cur = fillings.get(surf);
+        if (!cur || rank(x.status) > rank(cur)) fillings.set(surf, x.status);
+      }
+    }
+    if (!crown && !fillings.size) { this.treatAppearTarget = this.treatAppear = 1; return; }
+    // animate only when something about the treatments changed after the tooth was first drawn
+    this.treatAppear = changed && this.stateApplied ? 0 : 1;
+    this.treatAppearTarget = 1;
+
+    if (crown) {
+      const live = crown === "in_progress";
+      const haloMat = new THREE.ShaderMaterial({
+        uniforms: { uColor: { value: new THREE.Color(CROWN_HEX) }, uThick: { value: 0.05 }, uOpacity: { value: 0 } },
+        vertexShader: RIM_VERTEX, fragmentShader: RIM_FRAGMENT, side: THREE.BackSide, transparent: true, depthWrite: false,
+      });
+      const halo = new THREE.Mesh(this.crown.geometry, haloMat);
+      halo.renderOrder = 1;
+      const veilMat = new THREE.MeshBasicMaterial({ color: CROWN_HEX, transparent: true, opacity: 0, depthWrite: false });
+      const veil = new THREE.Mesh(this.crown.geometry, veilMat);
+      veil.scale.setScalar(1.02);
+      veil.renderOrder = 1;
+      this.treatGroup.add(halo, veil);
+      this.treatMats.push(haloMat, veilMat); // the crown geometry is shared with the tooth: never disposed here
+      this.treatFx.push(
+        { set: (o) => { haloMat.uniforms.uOpacity.value = Math.min(1, o); }, base: live ? 0.95 : 0.7, pulse: live, phase: 0 },
+        { set: (o) => { veilMat.opacity = Math.min(1, o); }, base: live ? 0.3 : 0.18, pulse: live, phase: 0 }
+      );
+    }
+
+    const r = 0.11 + 0.05 * this.dims.w;
+    const ringGeo = new THREE.TorusGeometry(1, 0.13, 8, 32); // unit ring, scaled per surface
+    this.treatGeos.push(ringGeo);
+    let k = 0;
+    for (const [surf, st] of Array.from(fillings.entries())) {
+      const live = st === "in_progress";
+      const a = this.anchor(surf);
+      const ringMat = new THREE.MeshBasicMaterial({ color: FILLING_HEX, transparent: true, opacity: 0, depthWrite: false });
+      const fillMat = new THREE.MeshBasicMaterial({ color: FILLING_HEX, transparent: true, opacity: 0, depthWrite: false });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.position.copy(a.p).addScaledVector(a.n, 0.02);
+      ring.quaternion.setFromUnitVectors(Z_AXIS, a.n);
+      ring.scale.setScalar(r * 1.35);
+      ring.renderOrder = 2;
+      const fill = new THREE.Mesh(getMarkerGeo(), fillMat);
+      fill.position.copy(a.p);
+      fill.quaternion.setFromUnitVectors(Z_AXIS, a.n);
+      fill.scale.set(r * 1.2, r * 1.2, r * 0.4);
+      fill.renderOrder = 1;
+      this.treatGroup.add(ring, fill);
+      this.treatMats.push(ringMat, fillMat);
+      const phase = k++ * 1.3;
+      this.treatFx.push(
+        { set: (o) => { ringMat.opacity = Math.min(1, o); }, base: live ? 1 : 0.9, pulse: live, phase, mesh: ring, baseScale: ring.scale.clone() },
+        { set: (o) => { fillMat.opacity = Math.min(1, o); }, base: live ? 0.5 : 0.28, pulse: live, phase, mesh: fill, baseScale: fill.scale.clone() }
+      );
+    }
+  }
+
   private clearMarkers() {
     for (const c of [...this.markers.children]) {
       this.markers.remove(c);
@@ -311,9 +429,13 @@ export class ToothVisual {
     const r = 0.11 + 0.05 * this.dims.w;
     const surfacesOrO = (arr: SurfaceId[]) => (arr.length ? arr : (["O"] as SurfaceId[]));
 
-    if (s.hasFilling) {
-      const mat = new THREE.MeshStandardMaterial({ color: 0x8e99a3, metalness: 0.5, roughness: 0.35 });
-      for (const surf of surfacesOrO(s.fillings)) { const a = this.anchor(surf); this.addMarker(a.p, a.n, mat, r * 0.9, false); }
+    // Filling = LOCAL: a solid cobalt dome on each treated surface only (existing filling OR a completed filling treatment).
+    const solid = new Set<SurfaceId>();
+    if (s.hasFilling) surfacesOrO(s.fillings).forEach((x) => solid.add(x));
+    for (const x of s.treatments) if (x.kind === "filling" && x.status === "completed") surfacesOrO(x.surfaces).forEach((y) => solid.add(y));
+    if (solid.size) {
+      const mat = new THREE.MeshStandardMaterial({ color: FILLING_HEX, metalness: 0.15, roughness: 0.32 });
+      for (const surf of Array.from(solid)) { const a = this.anchor(surf); this.addMarker(a.p, a.n, mat, r * 1.0, false); }
     }
     if (s.rootCanal) {
       const a = this.anchor("O");

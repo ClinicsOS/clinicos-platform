@@ -5,6 +5,23 @@ import { SURFACE_LABELS, type SurfaceId } from "@/lib/dental/taxonomy";
 import { procLabel } from "@/lib/dental/procedures";
 import { teethSummary } from "@/lib/dental/teethFormat";
 import type { BillingView, PlanStatus, Priority, TargetType, TimelineEntry, VisitRef } from "@/lib/dental/types";
+import { CROWN_CSS, FILLING_CSS } from "@/lib/dental/visualTokens";
+
+/**
+ * The chart's own picture of Crown (gold cap, whole tooth) / Filling (cobalt dot, one surface), shown next to the procedure
+ * name wherever a treatment is listed, so the plan, the tooth panel and the chart legend all use the same visual key.
+ * Ghost (dashed / hollow) while planned or in progress, solid once completed; cancelled is neutral. Decorative: the name is the label.
+ */
+export function ProcSwatch({ code, status }: { code: string; status: PlanStatus }) {
+  if (code !== "crown" && code !== "filling") return null;
+  const color = status === "cancelled" ? "#8A97A6" : code === "crown" ? CROWN_CSS : FILLING_CSS;
+  const ghost = status === "planned" || status === "in_progress";
+  const shape = code === "crown" ? "h-2.5 w-3 rounded-t-md" : "h-2.5 w-2.5 rounded-full";
+  return (
+    <i aria-hidden className={`inline-block shrink-0 ${shape} ${ghost ? "border bg-transparent" : ""} ${ghost && code === "crown" ? "border-dashed" : ""}`}
+      style={ghost ? { borderColor: color } : { background: color }} />
+  );
+}
 
 // Shape + colour together (never colour alone): ○ planned, ◆ in progress, ✓ completed, ✕ cancelled.
 const STATUS_STYLE: Record<PlanStatus, { cls: string; glyph: string }> = {
@@ -52,8 +69,11 @@ export function TargetText({ targetType, toothNumbers, surfaces }: { targetType:
   );
 }
 
-export const shortDate = (iso: string, lang: string) =>
-  new Date(iso).toLocaleDateString(lang === "ar" ? "ar-JO" : "en-GB", { day: "numeric", month: "short" });
+// PHASE 7 — always the CLINIC's calendar day (Asia/Amman), never the viewer's browser zone; an unparsable value renders as nothing, not "Invalid Date".
+export const shortDate = (iso: string, lang: string) => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString(lang === "ar" ? "ar-JO" : "en-GB", { day: "numeric", month: "short", timeZone: "Asia/Amman" });
+};
 
 export function visitText(v: VisitRef | undefined, lang: string, walkIn: string) {
   if (!v) return "";
@@ -127,6 +147,13 @@ export function invoiceDescription(
   return `${label} — ${what}${x.surfaces.length ? ` — ${x.surfaces.join(",")}` : ""}`;
 }
 
+/** Payment status of the invoice a treatment sits on. Same three statuses (and the same words) as the Invoices page. */
+const PAY_STYLE: Record<string, { cls: string; key: string }> = {
+  paid: { cls: "border-teal/40 bg-teal/10 text-teal", key: "inv.paid" },
+  partially_paid: { cls: "border-amber-500/40 bg-amber-500/10 text-amber-400", key: "inv.partial" },
+  unpaid: { cls: "border-red-500/40 bg-red-500/10 text-red-400", key: "inv.unpaid" },
+};
+
 /**
  * The financial state of ONE completed treatment, identical in the plan, the tooth panel and the visit:
  * not invoiced -> [Add to Invoice];  invoiced -> "Invoiced 35.00 JD · INV-0012" + [View Invoice]; never a balance.
@@ -137,12 +164,22 @@ export function BillingLine({ billing, canBill, onAdd }: { billing: BillingView;
     return (
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
         <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300">¤ {t("dn.inv.invoiced")}</span>
+        {/* the invoice's OWN payment status (read live from the invoice — never stored on the treatment) */}
+        {billing.invoiceStatus && PAY_STYLE[billing.invoiceStatus] && (
+          <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${PAY_STYLE[billing.invoiceStatus].cls}`}>{t(PAY_STYLE[billing.invoiceStatus].key)}</span>
+        )}
         {typeof billing.amount === "number" && <span className="text-ink" dir="ltr">{money(billing.amount)}</span>}
         <span className="text-mute" dir="ltr">{invLabel(billing.invoiceNumber)}</span>
-        <Link href={invHref(billing.invoiceNumber)} className="text-sky hover:underline">{t("dn.inv.view")}</Link>
+        {/* PHASE 4: for a doctor viewing a colleague's invoice the server redacts invoiceId/amount — no link to a page they can't open */}
+        {billing.invoiceId ? <Link href={invHref(billing.invoiceNumber)} className="text-sky hover:underline">{t("dn.inv.view")}</Link> : null}
       </div>
     );
   }
   if (billing.state === "pending") return <div className="text-[11px] text-mute animate-pulse">{t("dn.inv.pending")}</div>;
-  return canBill ? <button type="button" className="btn-ghost !px-2.5 !py-1 text-[11px]" onClick={onAdd}>{t("dn.inv.add")}</button> : null;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-[10px] text-mute">{t("dn.inv.notInvoiced")}</span>
+      {canBill ? <button type="button" className="btn-ghost !px-2.5 !py-1 text-[11px]" onClick={onAdd}>{t("dn.inv.add")}</button> : null}
+    </div>
+  );
 }

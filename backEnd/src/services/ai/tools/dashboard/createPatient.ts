@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { nextNumber, retryPause, NUMBER_ATTEMPTS } from "../../../numbering";
 import { Patient } from "../../../../models/Patient";
 import type { AIToolDefinition } from "../../AIProvider";
 import type { ToolContext } from "../types";
@@ -38,32 +39,35 @@ export async function createPatientExecute(
   if (!ctx.clinicId) return { error: "Not authenticated" };
   const input = inputSchema.parse(rawInput);
 
-  const count = await Patient.countDocuments({ clinicId: ctx.clinicId });
+  // PHASE 7 — same numbering + retry as POST /api/patients (a parallel registration used to fail on the file-number index)
+  for (let attempt = 0; attempt < NUMBER_ATTEMPTS; attempt++) {
+    await retryPause(attempt);
+    const next = await nextNumber(Patient, ctx.clinicId, "fileNumber");
+    try {
+      const patient = await Patient.create({
+        fullName: input.fullName,
+        phone: input.phone,
+        email: input.email,
+        gender: input.gender,
+        birthDate: input.birthDate ? new Date(input.birthDate) : undefined,
+        medicalNotes: input.medicalNotes,
+        clinicId: ctx.clinicId,
+        fileNumber: next,
+      });
 
-  try {
-    const patient = await Patient.create({
-      fullName: input.fullName,
-      phone: input.phone,
-      email: input.email,
-      gender: input.gender,
-      birthDate: input.birthDate ? new Date(input.birthDate) : undefined,
-      medicalNotes: input.medicalNotes,
-      clinicId: ctx.clinicId,
-      fileNumber: count + 1,
-    });
-
-    return {
-      success: true,
-      patientId: String(patient._id),
-      fullName: patient.fullName,
-      fileNumber: patient.fileNumber,
-    };
-  } catch (err: any) {
-    // Patient has a unique {clinicId, phone} index — give a clean message
-    // instead of leaking the raw Mongo duplicate-key error to the AI.
-    if (err?.code === 11000) {
-      return { error: "A patient with this phone number already exists at this clinic" };
+      return {
+        success: true,
+        patientId: String(patient._id),
+        fullName: patient.fullName,
+        fileNumber: patient.fileNumber,
+      };
+    } catch (err: any) {
+      if (err?.code !== 11000) throw err;
+      // Patient has a unique {clinicId, phone} index — a duplicate PHONE is a clean message; a duplicate FILE NUMBER is retried.
+      if (String(err?.keyPattern ? Object.keys(err.keyPattern) : err?.message).includes("phone")) {
+        return { error: "A patient with this phone number already exists at this clinic" };
+      }
     }
-    throw err;
   }
+  return { error: "Could not register the patient, please try again" };
 }

@@ -64,7 +64,7 @@ export function scheduleNextVisitHref(t: (k: string) => string, x: { patientId: 
 
 export function visitText(v: VisitRef | undefined, lang: string, walkIn: string) {
   if (!v) return "";
-  const d = new Date(v.startAt).toLocaleDateString(lang === "ar" ? "ar-JO" : "en-GB", { year: "numeric", month: "short", day: "numeric" });
+  const d = new Date(v.startAt).toLocaleDateString(lang === "ar" ? "ar-JO" : "en-GB", { year: "numeric", month: "short", day: "numeric", timeZone: "Asia/Amman" });
   return v.source === "walk_in" ? `${d} · ${walkIn}` : d;
 }
 

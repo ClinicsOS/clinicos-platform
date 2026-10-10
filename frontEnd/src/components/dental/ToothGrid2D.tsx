@@ -3,8 +3,9 @@ import { useI18n } from "@/lib/i18n";
 import { getToothMeta, jawRowFdis, toothName, type DentitionType } from "@/lib/dental/fdi";
 import type { ToothClinicalState } from "@/lib/dental/toothStates";
 import type { ToothVisualState } from "@/lib/dental/types";
+import { CROWN_CSS, FILLING_CSS } from "@/lib/dental/visualTokens";
 
-type PlanMap = Record<string, Pick<ToothVisualState, "plan" | "treated">>;
+type PlanMap = Record<string, Pick<ToothVisualState, "plan" | "treated" | "treatments">>;
 
 /**
  * 2D tooth chart. Used (a) as the fallback when WebGL is unavailable and (b) for primary / mixed
@@ -15,8 +16,14 @@ function Tooth({ fdi, st, pv, selected, onSelect }: { fdi: string; st?: ToothCli
   const { t } = useI18n();
   const meta = getToothMeta(fdi)!;
   const hasDx = !!st?.diagnoses.length;
-  const restored = st?.existing.some((e) => ["existing_crown", "existing_bridge", "existing_implant"].includes(e.code));
-  const filled = st?.existing.some((e) => e.code === "existing_filling");
+  const tx = pv?.treatments ?? [];
+  // Same rules as the 3D chart: an existing condition OR a COMPLETED treatment draws the solid picture; planned / in-progress draw the ghost.
+  const crownSolid = !!st?.existing.some((e) => e.code === "existing_crown") || tx.some((x) => x.kind === "crown" && x.status === "completed");
+  const crownGhost = tx.some((x) => x.kind === "crown" && x.status !== "completed");
+  const fillSolid = !!st?.existing.some((e) => e.code === "existing_filling") || tx.some((x) => x.kind === "filling" && x.status === "completed");
+  const fillGhost = tx.some((x) => x.kind === "filling" && x.status !== "completed");
+  const otherRestoration = st?.existing.some((e) => ["existing_bridge", "existing_implant"].includes(e.code));
+  const restored = crownSolid || otherRestoration;
   const rct = st?.existing.some((e) => e.code === "root_canal_treated");
   return (
     <button
@@ -31,9 +38,12 @@ function Tooth({ fdi, st, pv, selected, onSelect }: { fdi: string; st?: ToothCli
       <span>{fdi}</span>
       <span className="mt-0.5 flex h-2 items-center gap-0.5">
         {hasDx && <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />}
-        {filled && <span className="h-1.5 w-1.5 rounded-sm bg-slate-400" />}
+        {fillSolid && <span className="h-1.5 w-1.5 rounded-full" style={{ background: FILLING_CSS }} />}
+        {fillGhost && <span className="h-1.5 w-1.5 rounded-full border bg-transparent" style={{ borderColor: FILLING_CSS }} />}
         {rct && <span className="h-1.5 w-1.5 rounded-full bg-slate-600" />}
-        {restored && <span className="h-1.5 w-2 rounded-t-sm bg-slate-200" />}
+        {crownSolid && <span className="h-1.5 w-2 rounded-t-md" style={{ background: CROWN_CSS }} />}
+        {crownGhost && <span className="h-1.5 w-2 rounded-t-md border border-dashed bg-transparent" style={{ borderColor: CROWN_CSS }} />}
+        {otherRestoration && <span className="h-1.5 w-2 rounded-t-sm bg-slate-200" />}
       </span>
       {(pv?.plan || pv?.treated) && (
         <span aria-hidden className="absolute -top-1 end-0 flex text-[8px] leading-none">

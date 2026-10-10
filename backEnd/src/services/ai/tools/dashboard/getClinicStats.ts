@@ -4,6 +4,8 @@ import { Invoice } from "../../../../models/Invoice";
 import { Patient } from "../../../../models/Patient";
 import type { AIToolDefinition } from "../../AIProvider";
 import type { ToolContext } from "../types";
+import { scopeOf, doctorMatchOid, accessOf } from "../../../../auth/policy";
+import { clinicTodayRange, clinicMonthRange, clinicMonthOf } from "../../../../utils/timezone";
 
 export const getClinicStatsDefinition: AIToolDefinition = {
   name: "getClinicStats",
@@ -23,37 +25,41 @@ export async function getClinicStatsExecute(
   ctx: ToolContext
 ): Promise<Record<string, unknown>> {
   if (!ctx.clinicId) return { error: "Not authenticated" };
+  // PHASE 4 — the AI assistant is bound by the SAME access rules as the dashboard: a doctor gets their own numbers, a receptionist
+  // gets no money at all (the revenue field is simply absent), the owner gets the clinic.
+  const scope = scopeOf(ctx, "dashboardCounts");
+  const showRevenue = accessOf(ctx.role, "dashboardRevenue") !== "none";
   const clinicId = new mongoose.Types.ObjectId(ctx.clinicId);
   const period = input.period === "month" ? "month" : "today";
 
+  // PHASE 7 — clinic-local day / month boundaries (same helpers as the dashboard and the Analytics Center), never UTC.
   let start: Date;
   let end: Date;
   if (period === "today") {
-    start = new Date();
-    start.setUTCHours(0, 0, 0, 0);
-    end = new Date(start);
-    end.setUTCDate(end.getUTCDate() + 1);
+    ({ start, end } = clinicTodayRange());
   } else {
-    const now = new Date();
-    start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-    end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+    const { year, month } = clinicMonthOf();
+    ({ start, end } = clinicMonthRange(year, month));
   }
 
   const byStatusAgg = await Appointment.aggregate([
-    { $match: { clinicId, type: { $ne: "blocked" }, startAt: { $gte: start, $lt: end } } },
+    { $match: { clinicId, ...doctorMatchOid(scope), type: { $ne: "blocked" }, startAt: { $gte: start, $lt: end } } },
     { $group: { _id: "$status", count: { $sum: 1 } } },
   ]);
   const statusCounts: Record<string, number> = {};
   for (const row of byStatusAgg) statusCounts[row._id] = row.count;
   const total = Object.values(statusCounts).reduce((a, b) => a + b, 0);
 
-  const revenueResult = await Invoice.aggregate([
-    { $match: { clinicId } },
-    { $unwind: "$payments" },
-    { $match: { "payments.paidAt": { $gte: start, $lt: end } } },
-    { $group: { _id: null, total: { $sum: "$payments.amount" } } },
-  ]);
-  const revenueJOD = revenueResult[0]?.total || 0;
+  let revenueJOD: number | undefined;
+  if (showRevenue) {
+    const revenueResult = await Invoice.aggregate([
+      { $match: { clinicId, ...doctorMatchOid(scopeOf(ctx, "dashboardRevenue")) } },
+      { $unwind: "$payments" },
+      { $match: { "payments.paidAt": { $gte: start, $lt: end } } },
+      { $group: { _id: null, total: { $sum: "$payments.amount" } } },
+    ]);
+    revenueJOD = revenueResult[0]?.total || 0;
+  }
 
   const result: Record<string, unknown> = {
     period,
@@ -61,10 +67,11 @@ export async function getClinicStatsExecute(
     completed: statusCounts["completed"] || 0,
     cancelled: statusCounts["cancelled"] || 0,
     noShow: statusCounts["no_show"] || 0,
-    revenueJOD,
+    ...(showRevenue ? { revenueJOD } : { note: "Revenue figures are not available for this account's role." }),
   };
 
-  if (period === "month") {
+  // new patients are a clinic-wide figure (patients have no treating-doctor attribution) — not shown to a doctor-scoped caller
+  if (period === "month" && scope.level === "clinic") {
     result.newPatients = await Patient.countDocuments({ clinicId, createdAt: { $gte: start, $lt: end } });
   }
 

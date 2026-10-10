@@ -39,9 +39,10 @@ export function toVisualState(s: ToothClinicalState): ToothVisualState {
     plan: null, // filled in from the treatment plan by the chart (not from diagnosis / condition events)
     treated: false,
     diagnoses: s.diagnoses.map((d) => ({ code: d.code, surfaces: d.surfaces })),
+    treatments: [], // filled in from the treatment plan by applyPlanToVisual
   };
 }
 
 export const emptyVisualState = (): ToothVisualState => ({
-  missing: false, restoration: null, fillings: [], hasFilling: false, rootCanal: false, partiallyErupted: false, unerupted: false, plan: null, treated: false, diagnoses: [],
+  missing: false, restoration: null, fillings: [], hasFilling: false, rootCanal: false, partiallyErupted: false, unerupted: false, plan: null, treated: false, diagnoses: [], treatments: [],
 });

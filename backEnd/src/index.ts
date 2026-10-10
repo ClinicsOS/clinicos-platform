@@ -16,6 +16,7 @@ import invoiceRoutes from "./routes/invoiceRoutes";
 import dashboardRoutes from "./routes/dashboardRoutes";
 import subscriptionRoutes from "./routes/subscriptionRoutes";
 import reportsRoutes from "./routes/reportsRoutes";
+import analyticsRoutes from "./routes/analyticsRoutes"; // PHASE 6 — Analytics Center
 import publicRoutes from "./routes/publicRoutes";
 import adminRoutes from "./routes/adminRoutes";
 import reminderRoutes from "./routes/reminderRoutes"; // NEW — WhatsApp appointment reminders
@@ -71,6 +72,7 @@ app.use("/api/invoices", invoiceRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/subscription", subscriptionRoutes);
 app.use("/api/reports", reportsRoutes);
+app.use("/api/analytics", analyticsRoutes); // PHASE 6 — Analytics Center
 app.use("/api/public/loyalty", loyaltyPublicRoutes); // NEW — must come BEFORE /api/public
 app.use("/api/public", publicRoutes);
 app.use("/api/admin", adminRoutes);

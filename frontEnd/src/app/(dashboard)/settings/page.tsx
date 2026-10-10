@@ -9,6 +9,7 @@ import { useToast } from "@/components/Toast";
 import { useConfirm } from "@/components/Confirm";
 import Modal from "@/components/Modal";
 import type { Clinic, Staff, WorkingHour, Subscription, Plan } from "@/lib/types";
+import DoctorHoursModal from "@/components/settings/DoctorHoursModal";
 import {
   IconClock,
   IconLink,
@@ -81,6 +82,7 @@ export default function SettingsPage() {
 
   // --- edit staff modal ---
   const [editingStaff, setEditingStaff] = useState<Staff | null>(null);
+  const [hoursFor, setHoursFor] = useState<Staff | null>(null); // PHASE 4 — owner edits one doctor's own hours
   const [eName, setEName] = useState("");
   const [eEmail, setEEmail] = useState("");
   const [ePass, setEPass] = useState("");
@@ -233,7 +235,7 @@ export default function SettingsPage() {
   const openEditStaff = (s: Staff) => {
     setEditingStaff(s);
     setEName(s.name);
-    setEEmail(s.email);
+    setEEmail(s.email ?? "");
     setERole((s.role as "doctor" | "receptionist") || "doctor");
     setEPhone(s.phone || "");
     setEPass("");
@@ -340,6 +342,7 @@ export default function SettingsPage() {
                     <>
                       <input
                         type="time"
+                        aria-label={lang === "ar" ? "من" : "From"}
                         className="inp !w-24 !px-2 !py-1 font-mono text-[11px]"
                         value={h.from}
                         disabled={!isOwner}
@@ -350,6 +353,7 @@ export default function SettingsPage() {
                       <span className="text-mute">—</span>
                       <input
                         type="time"
+                        aria-label={lang === "ar" ? "إلى" : "To"}
                         className="inp !w-24 !px-2 !py-1 font-mono text-[11px]"
                         value={h.to}
                         disabled={!isOwner}
@@ -369,6 +373,7 @@ export default function SettingsPage() {
                         <span className="w-16 shrink-0 text-[10px] text-mute">{t("st.breakLabel")}</span>
                         <input
                           type="time"
+                          aria-label={`${t("st.breakLabel")} ${lang === "ar" ? "من" : "from"}`}
                           className="inp !w-24 !px-2 !py-1 font-mono text-[11px]"
                           value={h.breakFrom}
                           disabled={!isOwner}
@@ -379,6 +384,7 @@ export default function SettingsPage() {
                         <span className="text-mute">—</span>
                         <input
                           type="time"
+                          aria-label={`${t("st.breakLabel")} ${lang === "ar" ? "إلى" : "to"}`}
                           className="inp !w-24 !px-2 !py-1 font-mono text-[11px]"
                           value={h.breakTo}
                           disabled={!isOwner}
@@ -536,13 +542,25 @@ export default function SettingsPage() {
                 >
                   {s.name}
                 </span>
-                <span className="text-[9px] text-mute">{s.email}</span>
+                {s.email && <span className="text-[9px] text-mute">{s.email}</span>}
+                {s.role === "doctor" && (
+                  <span className="block text-[9px] text-mute">{s.workingHours?.length ? t("md.hours.custom") : t("md.hours.followsClinic")}</span>
+                )}
               </span>
               <span className={`pill ${rolePill[s.role] ?? "bg-soft text-mute"}`}>
                 {s.role === "owner" ? "Owner" : s.role === "doctor" ? t("st.doctor") : t("st.reception")}
               </span>
               {isOwner && s._id !== user?.id && s.role !== "owner" && (
                 <>
+                  {s.role === "doctor" && (
+                    <button
+                      data-testid={`dh-open-${s._id}`}
+                      onClick={() => setHoursFor(s)}
+                      className="text-[10px] font-medium text-blue hover:underline"
+                    >
+                      {t("md.hours.title")}
+                    </button>
+                  )}
                   <button
                     onClick={() => openEditStaff(s)}
                     className="text-[10px] font-medium text-blue hover:underline"
@@ -783,6 +801,8 @@ export default function SettingsPage() {
           </button>
         </Modal>
       )}
+
+      {hoursFor && <DoctorHoursModal doctor={hoursFor} clinic={clinic} onClose={() => setHoursFor(null)} />}
 
       {/* ===== Edit staff modal ===== */}
       {editingStaff && (

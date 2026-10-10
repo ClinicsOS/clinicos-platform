@@ -30,7 +30,19 @@ export interface DentalRecordResponse {
   events: DentalEvent[];
 }
 
-/** What the 3D engine needs to know about one tooth (derived from ACTIVE events). */
+/**
+ * What a TREATMENT looks like on the chart. Derived (read-only) from the one canonical treatment record
+ * (DentalTreatmentItem) — never stored, never written back as a condition, so the chart and the plan cannot drift.
+ * Only the two restorations a doctor must tell apart get their own picture; every other procedure keeps the generic
+ * status badge (`plan` / `treated`).
+ */
+export interface ToothTreatmentVisual {
+  kind: "crown" | "filling";
+  status: "planned" | "in_progress" | "completed";
+  surfaces: SurfaceId[]; // fillings: the treated surfaces ([] = whole-tooth filling => drawn on the occlusal surface)
+}
+
+/** What the 3D engine needs to know about one tooth (derived from ACTIVE events + the treatment plan). */
 export interface ToothVisualState {
   missing: boolean;
   restoration: null | "crown" | "bridge" | "implant";
@@ -42,6 +54,7 @@ export interface ToothVisualState {
   treated: boolean; // has completed treatment (history indicator)
   unerupted: boolean; // not visible; position stays selectable (ghost)
   diagnoses: Array<{ code: string; surfaces: SurfaceId[] }>;
+  treatments: ToothTreatmentVisual[]; // crown / filling treatments from the plan (cancelled ones are never included)
 }
 
 // ---------- Phase 3: treatment plan / sessions ----------

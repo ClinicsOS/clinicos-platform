@@ -53,7 +53,12 @@ export function RegionChip({
   );
 }
 
-export const fmtDate = (iso: string, lang: string) =>
-  new Date(iso).toLocaleDateString(lang === "ar" ? "ar-JO" : "en-GB", { year: "numeric", month: "short", day: "numeric" });
-export const fmtDateTime = (iso: string, lang: string) =>
-  new Date(iso).toLocaleString(lang === "ar" ? "ar-JO" : "en-GB", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+// PHASE 7 — clinic calendar (Asia/Amman) regardless of the viewer's browser zone; unparsable → "" (never "Invalid Date").
+export const fmtDate = (iso: string, lang: string) => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString(lang === "ar" ? "ar-JO" : "en-GB", { year: "numeric", month: "short", day: "numeric", timeZone: "Asia/Amman" });
+};
+export const fmtDateTime = (iso: string, lang: string) => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleString(lang === "ar" ? "ar-JO" : "en-GB", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Amman" });
+};

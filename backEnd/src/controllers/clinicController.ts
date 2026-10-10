@@ -11,6 +11,7 @@ import { PLANS, PLAN_PRICES, daysUntil, type Plan } from "../config/plans";
 import { isValidWorkingRange, timeToMinutes } from "../utils/workingHoursTime";
 import { withoutAddons } from "../services/addons";
 import { purgeClinicLoyaltyData } from "../services/loyaltyService";
+import { purgeClinicData, exportClinicContent } from "../services/clinicPurge";
 import { LoyaltySettings } from "../models/LoyaltySettings";
 import { LoyaltyAccount } from "../models/LoyaltyAccount";
 import { LoyaltyTransaction } from "../models/LoyaltyTransaction";
@@ -148,6 +149,7 @@ export const deleteMyClinic = asyncHandler(async (req: Request, res: Response) =
     Patient.deleteMany({ clinicId }),
     User.deleteMany({ clinicId }),
     SubscriptionRequest.deleteMany({ clinicId }),
+    purgeClinicData(clinicId), // PHASE 7 — clinical notes, dental/derm records + plans, expenses, reminder logs, AI conversations
     purgeClinicLoyaltyData(String(clinicId)), // Loyalty accounts + ledger + settings (no-op if never used)
     Clinic.deleteOne({ _id: clinicId }),
   ]);
@@ -165,7 +167,7 @@ export const deleteMyClinic = asyncHandler(async (req: Request, res: Response) =
 export const exportMyClinic = asyncHandler(async (req: Request, res: Response) => {
   const clinicId = req.clinicId;
 
-  const [clinic, users, patients, appointments, invoices, loyaltySettings, loyaltyAccounts, loyaltyTransactions, loyaltyCheckIns, loyaltyRewards, loyaltyRedemptions, loyaltyTierHistory] = await Promise.all([
+  const [clinic, users, patients, appointments, invoices, loyaltySettings, loyaltyAccounts, loyaltyTransactions, loyaltyCheckIns, loyaltyRewards, loyaltyRedemptions, loyaltyTierHistory, content] = await Promise.all([
     Clinic.findById(clinicId).lean(),
     User.find({ clinicId }).select("-password -verifyTokenHash -resetTokenHash").lean(),
     Patient.find({ clinicId }).lean(),
@@ -178,6 +180,7 @@ export const exportMyClinic = asyncHandler(async (req: Request, res: Response) =
     LoyaltyReward.find({ clinicId }).sort({ createdAt: 1 }).lean(),
     LoyaltyRedemption.find({ clinicId }).sort({ requestedAt: 1 }).lean(),
     LoyaltyTierHistory.find({ clinicId }).sort({ changedAt: 1 }).lean(),
+    exportClinicContent(clinicId),
   ]);
 
   if (!clinic) return res.status(404).json({ message: "Clinic not found" });
@@ -190,6 +193,8 @@ export const exportMyClinic = asyncHandler(async (req: Request, res: Response) =
     patients,
     appointments,
     invoices,
+    // PHASE 7 — clinical notes, dental + dermatology records / plans / sessions, expenses (previously missing from the export)
+    ...content,
     // Loyalty data (empty for clinics that never used it) — so an export taken before deleting is complete.
     loyalty: { settings: loyaltySettings, accounts: loyaltyAccounts, transactions: loyaltyTransactions, checkIns: loyaltyCheckIns, rewards: loyaltyRewards, redemptions: loyaltyRedemptions, tierHistory: loyaltyTierHistory },
   });

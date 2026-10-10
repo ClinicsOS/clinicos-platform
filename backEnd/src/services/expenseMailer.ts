@@ -5,6 +5,7 @@
  * layout listing every bill that needs attention in one digest.
  */
 import type { DueItem } from "./expenseSchedule";
+import { isProduction, maskEmail } from "../utils/logSafe";
 
 const apiKey = process.env.RESEND_API_KEY || "";
 const mailFromEmail = process.env.MAIL_FROM_EMAIL || "no-reply@clinicosjo.com";
@@ -100,6 +101,10 @@ export async function sendExpenseReminderEmail(
     : `تذكير: دفعات مستحقة قريباً في ${clinicName}`;
 
   if (!apiKey) {
+    if (isProduction()) {
+      console.warn(`[EXPENSE MAILER] RESEND_API_KEY is not set — reminder to ${maskEmail(to)} was NOT sent (${items.length} item(s))`);
+      return;
+    }
     console.log("═══════════════════════════════════════════════════");
     console.log("📧 [EXPENSE MAILER — dev mode, no RESEND_API_KEY configured]");
     console.log("To:      ", to);
@@ -124,5 +129,5 @@ export async function sendExpenseReminderEmail(
     const errBody = await res.text().catch(() => "");
     throw new Error(`Resend API ${res.status}: ${errBody}`);
   }
-  console.log(`[EXPENSE MAILER] ✔ Sent to ${to}`);
+  console.log(`[EXPENSE MAILER] ✔ Sent to ${maskEmail(to)}`);
 }

@@ -13,6 +13,7 @@ import NotificationBell from "@/components/NotificationBell";
 import LoyaltyBoot from "@/components/loyalty/shell/LoyaltyBoot";
 import { SHELL_FLAG } from "@/lib/loyaltyNav";
 import DigitalClock from "@/components/DigitalClock";
+import { useAccess } from "@/lib/access";
 import {
   IconLayoutDashboard,
   IconCalendar,
@@ -27,6 +28,7 @@ import {
   IconChartBar,
   IconWallet,
   IconDiamond,
+  IconMenu2,
 } from "@tabler/icons-react";
 
 const planLabel = (plan: string | undefined, t: (k: string) => string) => {
@@ -44,6 +46,15 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const { token, user, logout } = useAuth();
   const [hydrated, setHydrated] = useState(false);
   const [origin, setOrigin] = useState("");
+  // PHASE 7 — on a phone the navigation is a drawer (it used to be a permanent 208px column that left ~180px for the page)
+  const [navOpen, setNavOpen] = useState(false);
+  useEffect(() => setNavOpen(false), [pathname]);
+  useEffect(() => {
+    if (!navOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setNavOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [navOpen]);
 
   useEffect(() => setHydrated(true), []);
   useEffect(() => {
@@ -113,6 +124,23 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
   // NEW — owner-only: how many bills are overdue / due soon (sidebar dot)
   const isOwner = user?.role === "owner";
+  // PHASE 4 — role-aware navigation. Presentation only: the server re-checks every request (auth/policy.ts).
+  const access = useAccess();
+  const canInvoices = access.can("invoices");
+  const canReportsRole = access.can("reports");
+  const canExpenses = access.can("expenses");
+  // A role that cannot use a page never sees a link to it; if it lands there anyway (old bookmark, typed URL) it is quietly
+  // sent to the dashboard instead of being shown an "access denied" page.
+  useEffect(() => {
+    if (!hydrated || !token) return;
+    if (
+      (pathname.startsWith("/invoices") && !canInvoices) ||
+      (pathname.startsWith("/reports") && !canReportsRole) ||
+      (pathname.startsWith("/expenses") && !canExpenses)
+    ) {
+      router.replace("/dashboard");
+    }
+  }, [hydrated, token, pathname, canInvoices, canReportsRole, canExpenses, router]);
   const { data: expenseAlerts } = useQuery({
     queryKey: ["expense-alerts"],
     queryFn: async () =>
@@ -165,9 +193,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     { href: "/dashboard", label: t("nav.dashboard"), icon: IconLayoutDashboard },
     { href: "/appointments", label: t("nav.appointments"), icon: IconCalendar },
     { href: "/patients", label: t("nav.patients"), icon: IconUsers },
-    { href: "/invoices", label: t("nav.invoices"), icon: IconReceipt },
-    ...(isOwner ? [{ href: "/expenses", label: t("nav.expenses"), icon: IconWallet }] : []),
-    ...(clinic?.planInfo?.limits.reports
+    ...(canInvoices ? [{ href: "/invoices", label: t("nav.invoices"), icon: IconReceipt }] : []),
+    ...(canExpenses ? [{ href: "/expenses", label: t("nav.expenses"), icon: IconWallet }] : []),
+    ...(clinic?.planInfo?.limits.reports && canReportsRole
       ? [{ href: "/reports", label: t("nav.reports"), icon: IconChartBar }]
       : []),
     ...(subscription?.addons?.loyalty?.enabled
@@ -227,7 +255,14 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen bg-base">
       {/* ===== Sidebar — always navy for brand consistency ===== */}
-      <aside className="flex w-52 shrink-0 flex-col p-3" style={{ background: "#06263F" }}>
+      {navOpen && <div className="fixed inset-0 z-30 bg-black/50 md:hidden" onClick={() => setNavOpen(false)} aria-hidden="true" />}
+      <aside
+        id="app-nav"
+        className={`fixed inset-y-0 start-0 z-40 flex w-52 shrink-0 flex-col overflow-y-auto p-3 transition-transform duration-200 md:static md:z-auto md:!translate-x-0 md:overflow-visible ${
+          navOpen ? "translate-x-0" : "ltr:-translate-x-full rtl:translate-x-full"
+        }`}
+        style={{ background: "#06263F" }}
+      >
         <Link
           href="/dashboard"
           className="mb-6 flex items-center gap-2 px-1.5 text-sm font-medium text-[#F2F7FC]"
@@ -374,7 +409,17 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
       {/* ===== Main ===== */}
       <div className="min-w-0 flex-1">
-        <header className="flex items-center justify-end gap-2 px-5 pt-4">
+        <header className="flex items-center justify-end gap-2 px-3 pt-4 md:px-5">
+          <button
+            type="button"
+            onClick={() => setNavOpen(true)}
+            className="me-auto rounded-lg border border-edge bg-card p-1.5 text-mute hover:text-ink md:hidden"
+            aria-label={lang === "ar" ? "القائمة" : "Menu"}
+            aria-controls="app-nav"
+            aria-expanded={navOpen}
+          >
+            <IconMenu2 size={16} />
+          </button>
           <DigitalClock />
           <NotificationBell appointments={allAppts ?? []} />
           <div className="flex overflow-hidden rounded-lg border border-edge bg-card text-[10px]">
@@ -396,7 +441,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             {theme === "dark" ? <IconSun size={15} /> : <IconMoon size={15} />}
           </button>
         </header>
-        <main className="px-5 pb-8 pt-3">{children}</main>
+        <main className="px-3 pb-8 pt-3 md:px-5">{children}</main>
       </div>
     </div>
   );

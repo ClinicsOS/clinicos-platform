@@ -297,6 +297,7 @@ export default function PublicBookingPage() {
                     weekday: "long",
                     month: "short",
                     day: "numeric",
+                    timeZone: "Asia/Amman", // PHASE 7 — the appointment is at the CLINIC, in the clinic's time, whatever zone the patient's phone is in
                   }),
                 },
                 {
@@ -306,6 +307,7 @@ export default function PublicBookingPage() {
                     hour: "2-digit",
                     minute: "2-digit",
                     hour12: true,
+                    timeZone: "Asia/Amman",
                   }),
                 },
                 { icon: <IconMapPin size={13} />, l: t("st.address"), v: clinic.address || clinic.name },
@@ -408,6 +410,7 @@ export default function PublicBookingPage() {
               <button
                 onClick={() => setDayOffset(Math.max(0, dayOffset - 5))}
                 disabled={dayOffset === 0}
+                aria-label={lang === "ar" ? "الأيام السابقة" : "Previous days"}
                 className="rounded-lg border border-edge bg-card2 p-1.5 text-mute disabled:opacity-30"
               >
                 <IconChevronLeft size={12} />
@@ -450,6 +453,7 @@ export default function PublicBookingPage() {
               <button
                 onClick={() => setDayOffset(Math.min(allDays.length - 5, dayOffset + 5))}
                 disabled={dayOffset + 5 >= allDays.length}
+                aria-label={lang === "ar" ? "الأيام التالية" : "Next days"}
                 className="rounded-lg border border-edge bg-card2 p-1.5 text-mute disabled:opacity-30"
               >
                 <IconChevronRight size={12} />

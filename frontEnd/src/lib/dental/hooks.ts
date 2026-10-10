@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { DentalEvent, DentalRecordResponse, DentalRecordInfo } from "./types";
 import type { DentitionType } from "./fdi";
@@ -33,6 +33,7 @@ export function useAddDentalEvent(patientId: string) {
       qc.setQueryData<DentalRecordResponse>(dentalKey(patientId), (old) =>
         old ? { ...old, record: { ...old.record, exists: true }, events: [event, ...old.events] } : old
       );
+      void qc.invalidateQueries({ queryKey: ["dental-report", patientId] }); // the printable report lists the events too
     },
   });
 }
@@ -46,6 +47,7 @@ export function useResolveDentalEvent(patientId: string) {
       qc.setQueryData<DentalRecordResponse>(dentalKey(patientId), (old) =>
         old ? { ...old, events: old.events.map((e) => (e._id === event._id ? event : e)) } : old
       );
+      void qc.invalidateQueries({ queryKey: ["dental-report", patientId] });
     },
   });
 }
@@ -103,17 +105,35 @@ export function useVisitTreatments(patientId: string, appointmentId: string, ena
 }
 
 /**
- * Every treatment mutation refetches the plan + the visit sections from the SERVER on success (no optimistic
- * pretending): the UI only ever shows what the backend actually persisted.
+ * THE one place that brings every screen showing treatment state up to date after a treatment changed.
+ *
+ *   ["dental-treatment", patientId]            -> Treatment Plan tab, Dental Chart (3D / 2D markers + tooth panel), Overview card
+ *   ["dental-visit-treatments", patientId]     -> the Dental section inside the visit (appointment) modal
+ *   ["dental-report", patientId]               -> the printable Dental Patient File (marked stale; refetched when opened)
+ *   ["dental-dashboard"]                       -> the clinic's Dentistry dashboard counters (marked stale)
+ *
+ * The returned promise resolves when the plan + visit queries that are ON SCREEN have been re-read from the server, so a
+ * mutation only reports "done" once every visible view already shows the persisted state (no reload, no stale flash).
+ * Only the keys above are touched — never a blanket invalidate — and every key carries the patient id, so another
+ * patient's cache is never involved. A concurrent refetch is cancelled and replaced (React Query default), so an older
+ * response can never overwrite a newer one.
  */
+export function syncTreatmentCaches(qc: QueryClient, patientId: string): Promise<unknown> {
+  void qc.invalidateQueries({ queryKey: ["dental-report", patientId] });
+  void qc.invalidateQueries({ queryKey: ["dental-dashboard"] });
+  void qc.invalidateQueries({ queryKey: ["clinical-timeline", patientId] }); // Patient File -> Clinical Record lists the same milestones
+  return Promise.all([
+    qc.invalidateQueries({ queryKey: treatmentKey(patientId) }),
+    qc.invalidateQueries({ queryKey: ["dental-visit-treatments", patientId] }),
+  ]);
+}
+
+/** Every treatment mutation re-reads from the SERVER on success (no optimistic pretending): the UI only ever shows what the backend persisted. */
 function useTreatmentMutation<V, R>(patientId: string, fn: (v: V) => Promise<R>) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: fn,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: treatmentKey(patientId) });
-      qc.invalidateQueries({ queryKey: ["dental-visit-treatments", patientId] });
-    },
+    onSuccess: () => syncTreatmentCaches(qc, patientId),
   });
 }
 const base = (patientId: string) => `/dental/patients/${patientId}/treatment-plan`;
@@ -152,9 +172,8 @@ export function useBillTreatment(patientId: string) {
         { price: v.price, description: v.description, ...(v.invoiceId ? { invoiceId: v.invoiceId } : {}) }
       )).data,
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: treatmentKey(patientId) });
-      qc.invalidateQueries({ queryKey: ["dental-visit-treatments", patientId] });
-      qc.invalidateQueries({ queryKey: ["invoices"] }); // Invoices page + the patient's financial history (existing screens)
+      void qc.invalidateQueries({ queryKey: ["invoices"] }); // Invoices page + the patient's financial history (existing screens)
+      return syncTreatmentCaches(qc, patientId);
     },
   });
 }

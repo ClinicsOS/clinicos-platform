@@ -10,6 +10,7 @@ import { runGate } from "../utils/runGate";
 import { loadPatient, populateAssessment, serializeAssessment, visitsFor } from "./dermController";
 import { planPayload } from "./dermTreatmentController";
 import { populateFollowUp, serializeFollowUp } from "./dermFollowUpController";
+import { resolveDataScope, doctorMatch } from "../auth/policy";
 
 /**
  * GET /derm/patients/:patientId/report[?financial=1]
@@ -60,7 +61,8 @@ export const getDermReport = asyncHandler(async (req: Request, res: Response) =>
     totalInvoiced: number; totalPaid: number; outstandingBalance: number;
   } = null;
   if (wantFinancial) {
-    const rows = (await Invoice.find(scope).select("invoiceNumber total payments status createdAt").sort({ createdAt: -1 }).limit(LIMITS.invoices).lean()) as any[];
+    // PHASE 4 — a doctor's financial summary covers only the invoices attributed to them (owner / receptionist: the whole file).
+    const rows = (await Invoice.find({ ...scope, ...doctorMatch(resolveDataScope(req, "invoices")) }).select("invoiceNumber total payments status createdAt").sort({ createdAt: -1 }).limit(LIMITS.invoices).lean()) as any[];
     const invoices = rows.map((i) => ({
       invoiceNumber: i.invoiceNumber, createdAt: i.createdAt, total: i.total,
       paid: round3((i.payments ?? []).reduce((s: number, p: any) => s + p.amount, 0)), status: i.status,

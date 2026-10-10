@@ -12,7 +12,7 @@
  * the owner sees on screen and what the email says always agree.
  */
 import { Types } from "mongoose";
-import { getAmmanTodayRange } from "../utils/timezone";
+import { getAmmanTodayRange, clinicLocalToUtc } from "../utils/timezone";
 import { RecurringExpense } from "../models/RecurringExpense";
 import { Expense } from "../models/Expense";
 
@@ -36,7 +36,7 @@ export const todayStr = (): string => getAmmanTodayRange().dateStr;
 export const currentPeriod = (): string => todayStr().slice(0, 7);
 
 /** Midday Amman time for a "YYYY-MM-DD" — safe from any timezone edge. */
-export const dateFromStr = (s: string): Date => new Date(`${s}T12:00:00+03:00`);
+export const dateFromStr = (s: string): Date => clinicLocalToUtc(s, "12:00"); // PHASE 7 — real zone offset, no hard-coded "+03:00" (same instant for Asia/Amman)
 
 export const isValidDateStr = (s: string): boolean => {
   if (!DATE_RE.test(s)) return false;
@@ -120,11 +120,11 @@ export async function getDueItems(clinicId: string | Types.ObjectId): Promise<Du
 
   const [payments, pending] = await Promise.all([
     billIds.length
-      ? Expense.find({ clinicId, recurringId: { $in: billIds }, period: { $in: [previous, current, next] } })
+      ? Expense.find({ clinicId, recurringId: { $in: billIds }, period: { $in: [previous, current, next] }, deletedAt: null })
           .select("recurringId period")
           .lean()
       : Promise.resolve([]),
-    Expense.find({ clinicId, status: "pending" }).lean(),
+    Expense.find({ clinicId, status: "pending", deletedAt: null }).lean(), // PHASE 5: soft-deleted bills never remind
   ]);
 
   const paidKey = new Set(payments.map((p) => `${String(p.recurringId)}|${p.period}`));

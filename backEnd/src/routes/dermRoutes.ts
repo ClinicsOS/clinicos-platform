@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { protect, authorize, requireActivePlan, requirePlanFeature } from "../middleware/auth";
+import { requireAccess } from "../auth/policy";
 import { requireSpecialty } from "../middleware/requireSpecialty";
 import { DERM_SPECIALTY_ID } from "../config/dermatology";
 import {
@@ -29,7 +30,7 @@ router.get("/patients/:patientId/map", getMap);
 router.get("/patients/:patientId/assessments", listAssessments);
 
 // Clinical writes: active plan + clinician roles only (same order as dentalRoutes / userRoutes).
-const clinical = [requireActivePlan, authorize("owner", "doctor")];
+const clinical = [requireActivePlan, requireAccess("clinicalWrite")];
 router.post("/patients/:patientId/assessments", ...clinical, createAssessment);
 router.patch("/patients/:patientId/assessments/:assessmentId", ...clinical, editAssessment);
 router.post("/patients/:patientId/assessments/:assessmentId/void", ...clinical, voidAssessment);

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { protect, authorize, requireActivePlan, requirePlanFeature } from "../middleware/auth";
+import { requireAccess } from "../auth/policy";
 import { requireSpecialty } from "../middleware/requireSpecialty";
 import { DENTAL_SPECIALTY_ID } from "../config/dental";
 import {
@@ -31,16 +32,16 @@ router.get("/patients/:patientId/record", getRecord);
 router.get("/patients/:patientId/teeth/:fdi/history", getToothHistory);
 
 // Clinical writes: active plan + clinician roles only (same order as userRoutes).
-router.put("/patients/:patientId/dentition", requireActivePlan, authorize("owner", "doctor"), setDentition);
-router.put("/patients/:patientId/current-teeth", requireActivePlan, authorize("owner", "doctor"), setCurrentTeeth);
-router.post("/patients/:patientId/teeth/:fdi/conditions", requireActivePlan, authorize("owner", "doctor"), addExistingCondition);
-router.post("/patients/:patientId/teeth/:fdi/diagnoses", requireActivePlan, authorize("owner", "doctor"), addDiagnosis);
-router.post("/patients/:patientId/events/:eventId/resolve", requireActivePlan, authorize("owner", "doctor"), resolveEvent);
+router.put("/patients/:patientId/dentition", requireActivePlan, requireAccess("clinicalWrite"), setDentition);
+router.put("/patients/:patientId/current-teeth", requireActivePlan, requireAccess("clinicalWrite"), setCurrentTeeth);
+router.post("/patients/:patientId/teeth/:fdi/conditions", requireActivePlan, requireAccess("clinicalWrite"), addExistingCondition);
+router.post("/patients/:patientId/teeth/:fdi/diagnoses", requireActivePlan, requireAccess("clinicalWrite"), addDiagnosis);
+router.post("/patients/:patientId/events/:eventId/resolve", requireActivePlan, requireAccess("clinicalWrite"), resolveEvent);
 
 // ---- Treatment plan / procedures (Phase 3). Same guards: reads = any role of the clinic; clinical writes = owner/doctor.
 router.get("/patients/:patientId/treatment-plan", getTreatmentPlan);
 router.get("/patients/:patientId/visits/:appointmentId/treatments", getVisitTreatments);
-const clinical = [requireActivePlan, authorize("owner", "doctor")];
+const clinical = [requireActivePlan, requireAccess("clinicalWrite")];
 router.post("/patients/:patientId/treatment-plan/items", ...clinical, createItem);
 router.put("/patients/:patientId/treatment-plan/items/:itemId", ...clinical, updateItem);
 router.put("/patients/:patientId/treatment-plan/phases", ...clinical, setPhases);

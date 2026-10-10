@@ -12,6 +12,9 @@ import {
   IconCar,
   IconHeartHandshake,
   IconDots,
+  IconFlask,
+  IconPackage,
+  IconCode,
 } from "@tabler/icons-react";
 import type { BillStatus } from "@/lib/types";
 
@@ -26,6 +29,9 @@ export const EXPENSE_CATEGORIES = [
   { id: "utilities", icon: IconBolt },
   { id: "salaries", icon: IconUsers },
   { id: "supplies", icon: IconFirstAidKit },
+  { id: "lab", icon: IconFlask },
+  { id: "materials", icon: IconPackage },
+  { id: "software", icon: IconCode },
   { id: "equipment", icon: IconDeviceDesktop },
   { id: "maintenance", icon: IconTool },
   { id: "marketing", icon: IconSpeakerphone },

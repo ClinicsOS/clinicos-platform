@@ -8,6 +8,8 @@ import { useAuth } from "@/store/auth";
 import { useToast } from "@/components/Toast";
 import { getToothMeta, isValidFdiFor, resolveCurrentTeeth, slotVariants, toothName, type DentitionType } from "@/lib/dental/fdi";
 import { deriveToothStates, emptyVisualState, toVisualState } from "@/lib/dental/toothStates";
+import { applyPlanToVisual } from "@/lib/dental/planVisual";
+import { CROWN_CSS, FILLING_CSS } from "@/lib/dental/visualTokens";
 import type { ToothVisualState } from "@/lib/dental/types";
 import { useDentalRecord, useSetCurrentTeeth, useSetDentition, useTreatmentPlan } from "@/lib/dental/hooks";
 import { detectWebGL } from "./engine/webgl";
@@ -60,20 +62,23 @@ export default function DentalChartTab({ patientId, onOpenPlan }: { patientId: s
   const visual = useMemo(() => {
     const out: Record<string, ToothVisualState> = {};
     Object.keys(states).forEach((k) => (out[k] = toVisualState(states[k])));
-    // Treatment-plan indicators: in progress > planned (small shape). "treated" = has completed treatment (history).
-    // Plan items never change the clinical state (existing conditions / diagnoses stay exactly as recorded).
-    for (const it of planItems ?? []) {
-      if (it.status === "cancelled") continue;
-      for (const fdi of it.toothNumbers) {
-        const cur = out[fdi] ?? emptyVisualState();
-        if (it.status === "completed") cur.treated = true;
-        else if (it.status === "in_progress") cur.plan = "in_progress";
-        else if (cur.plan !== "in_progress") cur.plan = "planned";
-        out[fdi] = cur;
-      }
-    }
-    return out;
+    // Treatment-plan pictures (status badge + Crown / Filling type) are DERIVED from the canonical treatment records, so this
+    // chart can never disagree with the Treatment Plan. They never change the clinical state: existing conditions and
+    // diagnoses stay exactly as recorded (a Caries diagnosis does NOT create a treatment, a treatment does not create a condition).
+    return applyPlanToVisual(out, planItems ?? [], emptyVisualState);
   }, [states, planItems]);
+
+  // Text twin of the Crown / Filling pictures (screen readers + "never colour alone"): exactly what the chart draws, one line per picture.
+  const restorations = useMemo(() => {
+    const rows: { fdi: string; kind: "crown" | "filling"; state: "existing" | "planned" | "in_progress" | "completed"; surfaces: string }[] = [];
+    Object.keys(visual).sort().forEach((fdi) => {
+      const v = visual[fdi];
+      if (v.restoration === "crown") rows.push({ fdi, kind: "crown", state: "existing", surfaces: "" });
+      if (v.hasFilling) rows.push({ fdi, kind: "filling", state: "existing", surfaces: v.fillings.join("") });
+      v.treatments.forEach((x) => rows.push({ fdi, kind: x.kind, state: x.status, surfaces: x.surfaces.join("") }));
+    });
+    return rows;
+  }, [visual]);
 
   // Teeth the chart shows NOW (dentition + the doctor's mixed choice). History exists per FDI regardless of this.
   const chartTeeth = useMemo(() => resolveCurrentTeeth(dentition, current).map((m) => m.fdi), [dentition, current]);
@@ -227,10 +232,38 @@ export default function DentalChartTab({ patientId, onOpenPlan }: { patientId: s
       </div>
       {dentition === "mixed" && <div className="text-[10px] text-mute">{t("dn.mixedNote")}</div>}
       {planQ.isError && <div role="status" className="text-[10px] text-amber-400">{t("dn.err.plan.load")}</div>}
+      <ul className="sr-only" aria-label={t("dn.a11y.summary")} data-testid="chart-restorations">
+        {restorations.map((r) => (
+          <li key={`${r.fdi}|${r.kind}|${r.state}|${r.surfaces}`} data-fdi={r.fdi} data-kind={r.kind} data-state={r.state} data-surfaces={r.surfaces}>
+            {t("dn.tooth")} {r.fdi}: {r.state === "existing" ? t(`dn.c.existing_${r.kind}`) : `${t(`dn.p.${r.kind}`)} — ${t(`dn.ps.${r.state}`)}`}{r.surfaces ? ` · ${r.surfaces}` : ""}
+          </li>
+        ))}
+      </ul>
       {hiddenHistory.length > 0 && (
         <div className="text-[10px] text-mute" dir="ltr">{t("dn.hiddenHistory")} <span className="font-mono text-sky">{hiddenHistory.join(", ")}</span></div>
       )}
     </div>
+  );
+
+  /** The ONE legend content, shared by the 3D overlay and the 2D fallback so it always describes what is drawn. */
+  const legendRows = (
+    <>
+      <span className="flex items-center gap-1.5"><i className="inline-block h-2 w-2 rounded-full bg-[#E8A93C]" /> {t("dn.legend.diagnosis")}</span>
+      <span className="flex items-center gap-1.5"><i className="inline-block h-2 w-2 rounded-full" style={{ background: FILLING_CSS }} /> {t("dn.legend.fillingLocal")}</span>
+      <span className="flex items-center gap-1.5"><i className="inline-block h-2 w-2.5 rounded-t-md" style={{ background: CROWN_CSS }} /> {t("dn.legend.crownWhole")}</span>
+      <span className="flex items-center gap-1.5"><i className="inline-block h-2 w-2.5 rounded-t-sm" style={{ background: "linear-gradient(90deg, #E1CC98 50%, #F3EFE4 50%)" }} /> {t("dn.legend.bridgeImplant")}</span>
+      <span className="flex items-center gap-1.5"><i className="inline-block h-2 w-2 rounded-sm border border-dashed border-[#8FB3CC]" /> {t("dn.legend.missing")}</span>
+      <span className="flex items-center gap-1.5"><i className="inline-block h-2 w-2 rounded-full border border-[#6CB6E8]" /> {t("dn.legend.planned")}</span>
+      <span className="flex items-center gap-1.5"><i className="inline-block h-2 w-2 rotate-45 bg-[#B49BFF]" /> {t("dn.legend.inprogress")}</span>
+      <span className="flex items-center gap-1.5"><span className="text-[10px] leading-none text-[#62D39A]">✓</span> {t("dn.legend.done")}</span>
+    </>
+  );
+  const legendGhost = (cls: string) => (
+    <span className={`flex items-center gap-1.5 ${cls}`}>
+      <i className="inline-block h-2 w-2.5 rounded-t-md border border-dashed bg-transparent" style={{ borderColor: CROWN_CSS }} />
+      <i className="inline-block h-2 w-2 rounded-full border bg-transparent" style={{ borderColor: FILLING_CSS }} />
+      {t("dn.legend.ghost")}
+    </span>
   );
 
   // ---------------- 2D chart: ONLY a genuine WebGL fallback ----------------
@@ -243,7 +276,14 @@ export default function DentalChartTab({ patientId, onOpenPlan }: { patientId: s
           <span>{t("dn.err.webgl")}. {t("dn.err.webglHint")}{glReason ? <span className="ms-1 opacity-70" dir="ltr">({glReason})</span> : null}</span>
         </div>
         <div className="grid gap-3 lg:grid-cols-[1fr_300px]">
-          <div className="card p-3"><ToothGrid2D dentition={dentition} states={states} plan={visual} selected={selected} onSelect={selectFdi} /></div>
+          <div className="card min-w-0 space-y-3 p-3">
+            <ToothGrid2D dentition={dentition} states={states} plan={visual} selected={selected} onSelect={selectFdi} />
+            <div data-testid="chart-legend-2d" className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-edge pt-2.5 text-[10px] text-mute">
+              <span className="text-[9px] tracking-wider">{t("dn.legend").toUpperCase()}</span>
+              {legendRows}
+              {legendGhost("")}
+            </div>
+          </div>
           {panel}
         </div>
         {editor && <TreatmentEditor patientId={patientId} dentition={dentition} prefill={editor} phases={planQ.data?.plan.phases ?? [{ number: 1 }]} onClose={() => setEditor(null)} />}
@@ -277,13 +317,8 @@ export default function DentalChartTab({ patientId, onOpenPlan }: { patientId: s
         {sceneReady && (
           <div className="dn-ui-in pointer-events-none absolute left-3 top-3 hidden flex-col gap-1 rounded-lg border border-white/10 bg-[#06263F]/70 px-2.5 py-2 text-[10px] text-[#CFE9F2] md:flex">
             <span className="text-[9px] tracking-wider text-[#8FB3CC]">{t("dn.legend").toUpperCase()}</span>
-            <span className="flex items-center gap-1.5"><i className="inline-block h-2 w-2 rounded-full bg-[#E8A93C]" /> {t("dn.legend.diagnosis")}</span>
-            <span className="flex items-center gap-1.5"><i className="inline-block h-2 w-2 rounded-sm bg-[#8E99A3]" /> {t("dn.legend.filling")}</span>
-            <span className="flex items-center gap-1.5"><i className="inline-block h-2 w-2.5 rounded-t-sm bg-[#D5DADD]" /> {t("dn.legend.crown")}</span>
-            <span className="flex items-center gap-1.5"><i className="inline-block h-2 w-2 rounded-sm border border-dashed border-[#8FB3CC]" /> {t("dn.legend.missing")}</span>
-            <span className="flex items-center gap-1.5"><i className="inline-block h-2 w-2 rounded-full border border-[#6CB6E8]" /> {t("dn.legend.planned")}</span>
-            <span className="flex items-center gap-1.5"><i className="inline-block h-2 w-2 rotate-45 bg-[#B49BFF]" /> {t("dn.legend.inprogress")}</span>
-            <span className="flex items-center gap-1.5"><span className="text-[10px] leading-none text-[#62D39A]">✓</span> {t("dn.legend.done")}</span>
+            {legendRows}
+            {legendGhost("mt-0.5 border-t border-white/10 pt-1.5 text-[#8FB3CC]")}
           </div>
         )}
 

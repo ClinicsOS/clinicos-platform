@@ -8,6 +8,7 @@ import { requireActivePlan, requirePlanFeature } from "../middleware/auth";
 import { loadPatient, populateEvents, serializeEvent, serializeRecord } from "./dentalController";
 import { planPayload } from "./dentalTreatmentController";
 import { DentalToothEvent } from "../models/DentalToothEvent";
+import { resolveDataScope, doctorMatch } from "../auth/policy";
 
 /**
  * GET /dental/patients/:patientId/report?financial=1
@@ -51,7 +52,9 @@ export const getDentalReport = asyncHandler(async (req: Request, res: Response) 
     if (!gate2.ok) return res.status(gate2.status).json(gate2.body);
     // Patient-level financial summary, from the SAME source the profile page's financial history already uses —
     // never derived from Treatment Plan estimates. Every dental Invoice item is still a normal Invoice item.
-    const invoices = (await Invoice.find({ clinicId: req.clinicId, patientId: patient._id }).select("total payments").lean()) as any[];
+    // PHASE 4 — a doctor's financial summary covers only the invoices attributed to them (owner / receptionist: the whole file).
+    const invScope = resolveDataScope(req, "invoices");
+    const invoices = (await Invoice.find({ clinicId: req.clinicId, patientId: patient._id, ...doctorMatch(invScope) }).select("total payments").lean()) as any[];
     const round = (n: number) => Math.round(n * 1000) / 1000;
     const totalInvoiced = round(invoices.reduce((s, i) => s + i.total, 0));
     const totalPaid = round(invoices.reduce((s, i) => s + i.payments.reduce((ps: number, p: any) => ps + p.amount, 0), 0));

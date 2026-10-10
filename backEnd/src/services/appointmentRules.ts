@@ -1,6 +1,7 @@
 import { PLANS, type Plan } from "../config/plans";
 import type { IClinic } from "../models/Clinic";
 import { timeToMinutes, intervalsOverlap, localDayOfWeek } from "../utils/workingHoursTime";
+import { DEFAULT_CLINIC_TIMEZONE } from "../utils/timezone";
 
 /**
  * Single source of truth for appointment business rules, so the human
@@ -56,7 +57,7 @@ export function checkAppointmentTiming(
   // Wall-clock minute-of-day for this appointment's start, in the clinic's
   // local timezone — used for both the hours-fit and break checks below.
   const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Amman",
+    timeZone: DEFAULT_CLINIC_TIMEZONE,
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,

@@ -79,6 +79,9 @@ const DentalChartTab = dynamic(() => import("@/components/dental/DentalChartTab"
   loading: () => <DentalLoading />,
 });
 
+// Clinical Record (all specialties): plain 2D, its own chunk, loaded only when the tab is opened.
+const ClinicalRecordTab = dynamic(() => import("@/components/clinical/ClinicalRecordTab"), { ssr: false, loading: () => <DentalLoading /> });
+
 // Dermatology & Aesthetics module — same rule: the 3D clinical map (and Three.js) is downloaded only when a
 // dermatology_aesthetics clinic opens the Clinical Map tab; no other specialty ever loads it.
 const DermMapTab = dynamic(() => import("@/components/derm/DermMapTab"), {
@@ -108,7 +111,7 @@ export default function PatientProfilePage() {
   const isDental = clinic?.specialty === "dentistry";
   // Dermatology & Aesthetics module: enabled ONLY for the stable specialty id (the server enforces it on every /derm call).
   const isDerm = clinic?.specialty === "dermatology_aesthetics";
-  const [tab, setTab] = useState<"overview" | "dental" | "plan" | "derm" | "dermplan" | "dermhistory">("overview");
+  const [tab, setTab] = useState<"overview" | "dental" | "plan" | "derm" | "dermplan" | "dermhistory" | "record">("overview");
 
   // NEW — always read the latest version of the file from the server (the
   // stored selection can be stale after an edit from another device).
@@ -285,7 +288,7 @@ export default function PatientProfilePage() {
       {/* ===== Dentistry module: tabs (dentistry clinics only) ===== */}
       {isDental && (
         <div className="mt-3 flex gap-1 border-b border-edge" role="tablist">
-          {(["overview", "dental", "plan"] as const).map((k) => (
+          {(["overview", "dental", "plan", "record"] as const).map((k) => (
             <button
               key={k}
               type="button"
@@ -296,26 +299,26 @@ export default function PatientProfilePage() {
                 tab === k ? "border-teal text-teal" : "border-transparent text-mute hover:text-ink"
               }`}
             >
-              {k === "overview" ? t("dn.tab.overview") : k === "dental" ? t("dn.tab.chart") : t("dn.tab.plan")}
+              {k === "overview" ? t("dn.tab.overview") : k === "dental" ? t("dn.tab.chart") : k === "plan" ? t("dn.tab.plan") : t("cr.tab")}
             </button>
           ))}
         </div>
       )}
       {isDental && tab === "dental" && (
         <div className="mt-3">
-          <DentalChartTab patientId={patient._id} patientName={patient.fullName} onOpenPlan={() => setTab("plan")} />
+          <DentalChartTab key={patient._id} patientId={patient._id} patientName={patient.fullName} onOpenPlan={() => setTab("plan")} />
         </div>
       )}
       {isDental && tab === "plan" && (
         <div className="mt-3">
-          <TreatmentPlanTab patientId={patient._id} patientName={patient.fullName} canWrite={canWriteDental} visits={visits} />
+          <TreatmentPlanTab key={patient._id} patientId={patient._id} patientName={patient.fullName} canWrite={canWriteDental} visits={visits} />
         </div>
       )}
 
       {/* ===== Dermatology & Aesthetics module: tabs (dermatology_aesthetics clinics only) ===== */}
       {isDerm && (
         <div className="mt-3 flex gap-1 border-b border-edge" role="tablist">
-          {(["overview", "derm", "dermplan", "dermhistory"] as const).map((k) => (
+          {(["overview", "derm", "dermplan", "dermhistory", "record"] as const).map((k) => (
             <button
               key={k}
               type="button"
@@ -326,7 +329,7 @@ export default function PatientProfilePage() {
                 tab === k ? "border-teal text-teal" : "border-transparent text-mute hover:text-ink"
               }`}
             >
-              {k === "overview" ? t("dn.tab.overview") : k === "derm" ? t("dm.tab.map") : k === "dermplan" ? t("dt.tab.plan") : t("dt.tab.history")}
+              {k === "overview" ? t("dn.tab.overview") : k === "derm" ? t("dm.tab.map") : k === "dermplan" ? t("dt.tab.plan") : k === "dermhistory" ? t("dt.tab.history") : t("cr.tab")}
             </button>
           ))}
         </div>
@@ -346,7 +349,32 @@ export default function PatientProfilePage() {
           <DermHistoryTab patientId={patient._id} canWrite={canWriteDental} onOpenMap={() => setTab("derm")} onOpenPlan={() => setTab("dermplan")} />
         </div>
       )}
-      {!((isDental || isDerm) && tab !== "overview") && (<>
+      {/* ===== Every other specialty: Overview | Clinical Record (dentistry / dermatology have their tabs above) ===== */}
+      {clinic && !isDental && !isDerm && (
+        <div className="mt-3 flex gap-1 border-b border-edge" role="tablist">
+          {(["overview", "record"] as const).map((k) => (
+            <button
+              key={k}
+              type="button"
+              role="tab"
+              aria-selected={tab === k}
+              onClick={() => setTab(k)}
+              className={`-mb-px border-b-2 px-3 py-2 text-xs font-medium transition-colors ${
+                tab === k ? "border-teal text-teal" : "border-transparent text-mute hover:text-ink"
+              }`}
+            >
+              {k === "overview" ? t("dn.tab.overview") : t("cr.tab")}
+            </button>
+          ))}
+        </div>
+      )}
+      {tab === "record" && (
+        <div className="mt-3">
+          <ClinicalRecordTab key={patient._id} patientId={patient._id} canWrite={canWriteDental} />
+        </div>
+      )}
+
+      {tab === "overview" && (<>
 
       {isDental && <DentalOverviewCard patientId={patient._id} onOpenChart={() => setTab("dental")} onOpenPlan={() => setTab("plan")} />}
       {isDerm && <DermOverviewCard patientId={patient._id} onOpenMap={() => setTab("derm")} onOpenPlan={() => setTab("dermplan")} />}
@@ -439,6 +467,7 @@ export default function PatientProfilePage() {
                 </div>
               </div>
             </div>
+            {role === "doctor" && <div className="mt-2 text-[9px] text-[#8FB3CC]">{t("md.inv.scopeSelf")}</div>}
             <Link href="/invoices" className="btn-teal mt-2.5 !px-3 !py-1.5 text-[10px]">{t("pp.pay")}</Link>
           </div>
 
@@ -614,7 +643,10 @@ export default function PatientProfilePage() {
 
           {/* ===== Visit timeline with spinning cube nodes ===== */}
           <div className="card mt-3 p-4">
-            <h2 className="mb-3 text-xs font-medium text-ink">{t("pp.history")}</h2>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h2 className="text-xs font-medium text-ink">{t("pp.history")}</h2>
+              <button type="button" className="text-[11px] text-sky hover:underline" onClick={() => setTab("record")}>{t("cr.openRecord")} →</button>
+            </div>
             <div className="relative ps-7">
               <span className="absolute inset-y-1 start-2 border-s border-dashed border-edge" />
               {historyVisits.length === 0 && <p className="py-4 text-xs text-mute">{t("pp.noHistory")}</p>}

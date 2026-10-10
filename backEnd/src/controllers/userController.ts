@@ -4,6 +4,8 @@ import { User } from "../models/User";
 import { Clinic } from "../models/Clinic";
 import { asyncHandler } from "../middleware/errorHandler";
 import { PLANS, type Plan } from "../config/plans";
+import { validateDoctorHours } from "../services/doctorSchedule";
+import { canManageClinic } from "../auth/policy";
 
 const createStaffSchema = z
   .object({
@@ -60,10 +62,50 @@ export const createStaff = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const listStaff = asyncHandler(async (req: Request, res: Response) => {
-  const staff = await User.find({ clinicId: req.clinicId })
-    .select("name email role phone isActive createdAt")
-    .sort({ createdAt: 1 });
+  // PHASE 4 — every role needs the team list (doctor pickers, the schedule), but only the owner manages staff: other roles get
+  // names, roles, status and working hours — not colleagues' e-mail addresses or phone numbers.
+  const fields = canManageClinic(req.role) ? "name email role phone isActive createdAt workingHours" : "name role isActive workingHours";
+  const staff = await User.find({ clinicId: req.clinicId }).select(fields).sort({ createdAt: 1 });
   return res.json(staff);
+});
+
+// ===== PUT /api/users/:id/working-hours — owner sets (or clears) one doctor's own weekly hours =====
+const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
+const doctorHoursSchema = z.object({
+  // null = remove the doctor's own hours: they follow the clinic's hours again
+  workingHours: z
+    .array(
+      z.object({
+        day: z.number().int().min(0).max(6),
+        isOpen: z.boolean(),
+        from: hhmm,
+        to: hhmm,
+        breakFrom: hhmm.optional().or(z.literal("")),
+        breakTo: hhmm.optional().or(z.literal("")),
+      })
+    )
+    .length(7)
+    .nullable(),
+});
+
+export const setDoctorWorkingHours = asyncHandler(async (req: Request, res: Response) => {
+  const data = doctorHoursSchema.parse(req.body);
+
+  const doctor = await User.findOne({ _id: req.params.id, clinicId: req.clinicId, role: "doctor" });
+  if (!doctor) return res.status(404).json({ message: "Doctor not found" });
+
+  if (data.workingHours === null) {
+    doctor.workingHours = undefined;
+  } else {
+    const clinic = await Clinic.findById(req.clinicId).select("workingHours");
+    if (!clinic) return res.status(404).json({ message: "Clinic not found" });
+    const hours = data.workingHours.map((h) => ({ ...h, breakFrom: h.breakFrom || undefined, breakTo: h.breakTo || undefined }));
+    const problem = validateDoctorHours(hours, clinic.workingHours);
+    if (problem) return res.status(400).json({ message: problem, code: "INVALID_WORKING_HOURS" });
+    doctor.workingHours = hours;
+  }
+  await doctor.save();
+  return res.json({ id: String(doctor._id), workingHours: doctor.workingHours ?? null });
 });
 
 const activeSchema = z.object({ isActive: z.boolean() });

@@ -110,5 +110,7 @@ const patientSchema = new Schema<IPatient>(
 
 patientSchema.index({ clinicId: 1, phone: 1 }, { unique: true });
 patientSchema.index({ clinicId: 1, fileNumber: 1 }, { unique: true });
+// PHASE 6 — registered / total patients by registration date (services/analytics/patients.ts)
+patientSchema.index({ clinicId: 1, createdAt: 1 });
 
 export const Patient = mongoose.model<IPatient>("Patient", patientSchema);

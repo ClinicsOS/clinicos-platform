@@ -378,3 +378,33 @@ body {
   .dm-pulse, .dm-scan { animation: none; }
   .dm-scan { display: none; }
 }
+
+/* ===== Appointments: calendar popover + schedule motion (transform/opacity only; disabled for reduced motion) ===== */
+@keyframes apCalNext { from { opacity: 0; transform: translateX(10px) } to { opacity: 1; transform: none } }
+@keyframes apCalPrev { from { opacity: 0; transform: translateX(-10px) } to { opacity: 1; transform: none } }
+@keyframes apFade { from { opacity: 0 } to { opacity: 1 } }
+@media (prefers-reduced-motion: no-preference) {
+  .ap-cal-next { animation: apCalNext 180ms ease-out both; }
+  .ap-cal-prev { animation: apCalPrev 180ms ease-out both; }
+  [dir="rtl"] .ap-cal-next { animation-name: apCalPrev; }
+  [dir="rtl"] .ap-cal-prev { animation-name: apCalNext; }
+  .ap-fade { animation: apFade 160ms ease-out both; }
+}
+
+/* ===== PHASE 6 — Analytics Center (charts follow the theme tokens; print = clean light report) ===== */
+.an-chart .recharts-cartesian-axis-tick-value { fill: var(--mute); font-size: 10px; }
+.an-chart .recharts-cartesian-grid line { stroke: var(--edge); }
+.an-chart .recharts-legend-item-text { color: var(--mute) !important; font-size: 10px; }
+.an-chart .recharts-surface:focus, .an-chart svg:focus { outline: none; }
+.an-print-only { display: none; }
+@media print {
+  aside, header, .an-noprint, .fixed { display: none !important; }
+  html, html.light, :root {
+    --base: #ffffff; --hero: #ffffff; --card: #ffffff; --card2: #ffffff; --edge: #d6e7f5; --ink: #0c2e4e; --mute: #5e86a5; --soft: #eff7fd;
+  }
+  body, .bg-base { background: #ffffff !important; color: #0c2e4e !important; }
+  main { padding: 0 !important; }
+  .an-print-only { display: block; }
+  .card { break-inside: avoid; }
+  .an-scroll { overflow: visible !important; }
+}

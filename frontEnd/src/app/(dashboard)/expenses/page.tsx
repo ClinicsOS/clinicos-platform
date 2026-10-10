@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errMsg } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
@@ -8,7 +8,9 @@ import { useToast } from "@/components/Toast";
 import { useConfirm } from "@/components/Confirm";
 import Modal from "@/components/Modal";
 import { Skeleton } from "@/components/Skeleton";
-import type { BillRow, ExpenseEntry, ExpenseOverview, ExpenseScope } from "@/lib/types";
+import type { BillRow, ExpenseEntry, ExpenseOverview, ExpenseScope, LedgerRow } from "@/lib/types";
+import { useAccess, useClinicDoctors } from "@/lib/access";
+import LedgerView, { type LedgerInitial } from "./LedgerView";
 import {
   EXPENSE_CATEGORIES,
   EXPENSE_METHODS,
@@ -40,7 +42,12 @@ import {
 } from "@tabler/icons-react";
 
 /**
- * NEW PAGE — /expenses (owner only).
+ * /expenses.
+ *  PHASE 5: the owner has two views — "Monthly view" (bills + month log, as before) and "All expenses" (filters, totals, paginated
+ *  ledger, attribution to a doctor). A doctor sees ONLY a read-only "My expenses" ledger (the server returns just the expenses
+ *  attributed to them). A receptionist has no access (the server answers 403; the sidebar link is hidden).
+ *
+ * Originally: owner-only month page.
  *
  *  - Monthly bills are entered once and come back every month.
  *  - The month ribbon places each bill on its due day, so the whole month's
@@ -62,10 +69,28 @@ export default function ExpensesPage() {
   const thisPeriod = ammanToday().slice(0, 7);
   const [period, setPeriod] = useState(thisPeriod);
   const [scopeFilter, setScopeFilter] = useState<"all" | ExpenseScope>("all");
+  const [tab, setTab] = useState<"monthly" | "all">("monthly");
   const [form, setForm] = useState<FormTarget | null>(null);
   const [paying, setPaying] = useState<PayTarget | null>(null);
 
   const isOwner = user?.role === "owner";
+  const access = useAccess();
+  const isDoctorReader = user?.role === "doctor" && access.level("expenses") === "self";
+
+  // PHASE 6 — drill-down from the Analytics Center: /expenses?from=…&to=…&category=…[&doctorId=…] opens the ledger already filtered.
+  // Values are shape-checked here only to avoid garbage in the inputs; the server validates and scopes every request regardless.
+  const [drill, setDrill] = useState<LedgerInitial | null>(null);
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const from = p.get("from") ?? "", to = p.get("to") ?? "", category = p.get("category") ?? "", doctorId = p.get("doctorId") ?? "";
+    const init: LedgerInitial = {
+      from: /^\d{4}-\d{2}-\d{2}$/.test(from) ? from : "",
+      to: /^\d{4}-\d{2}-\d{2}$/.test(to) ? to : "",
+      category: EXPENSE_CATEGORIES.some((c) => c.id === category) ? category : "",
+      doctorId: /^[a-f0-9]{24}$/i.test(doctorId) ? doctorId : "",
+    };
+    if (init.from || init.to || init.category || init.doctorId) { setDrill(init); setTab("all"); }
+  }, []);
 
   const { data, isLoading } = useQuery({
     queryKey: ["expenses", period],
@@ -116,12 +141,30 @@ export default function ExpensesPage() {
     const ok = await confirm({ title: t("ex.deleteExp.title"), message: t("ex.deleteExp.body"), variant: "danger", confirmText: t("ex.delete") });
     if (ok) run.mutate(() => api.delete(`/expenses/${e._id}`));
   };
+  const rowToEntry = (r: LedgerRow): ExpenseEntry => ({
+    _id: r._id, title: r.title, category: r.category, scope: r.scope, amount: r.amount, status: r.status, date: r.date, period: r.period,
+    method: r.method, recurringId: r.recurringId, notes: r.notes, doctorId: r.doctor?._id ?? null, doctorName: r.doctor?.name ?? null,
+    vendor: r.vendor, reference: r.reference,
+  });
   const togglePause = (b: BillRow) => run.mutate(() => api.put(`/expenses/recurring/${b._id}`, { isActive: !b.isActive }));
 
   const entries = useMemo(
     () => (data?.entries ?? []).filter((e) => scopeFilter === "all" || e.scope === scopeFilter),
     [data, scopeFilter]
   );
+
+  if (isDoctorReader) {
+    return (
+      <div>
+        <div className="mb-3">
+          <h1 className="text-lg font-medium text-ink">{t("ex.myTitle")}</h1>
+          <p className="text-[11px] text-mute">{t("ex.mySub")}</p>
+        </div>
+        <LedgerView key={drill ? "drill" : "plain"} mode="doctor" initial={drill ?? undefined} />
+        <p className="mt-3 flex items-center gap-1.5 text-[10px] text-mute"><IconLock size={11} /> {t("ex.readOnlyNote")}</p>
+      </div>
+    );
+  }
 
   if (!isOwner) {
     return (
@@ -160,7 +203,21 @@ export default function ExpensesPage() {
           <h1 className="text-lg font-medium text-ink">{t("ex.title")}</h1>
           <p className="text-[11px] text-mute">{t("ex.subtitle")}</p>
         </div>
-        <div className="flex items-center gap-1 rounded-lg border border-edge bg-card2 p-1">
+        <div className="flex gap-1 rounded-lg border border-edge bg-card2 p-1" role="tablist">
+          {(["monthly", "all"] as const).map((k) => (
+            <button
+              key={k}
+              role="tab"
+              aria-selected={tab === k}
+              data-testid={`ex-tab-${k}`}
+              onClick={() => setTab(k)}
+              className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${tab === k ? "bg-teal text-navy" : "text-mute hover:text-ink"}`}
+            >
+              {k === "monthly" ? t("ex.tab.monthly") : t("ex.tab.all")}
+            </button>
+          ))}
+        </div>
+        {tab === "monthly" && <div className="flex items-center gap-1 rounded-lg border border-edge bg-card2 p-1">
           <button onClick={() => setPeriod(shiftPeriod(period, -1))} className="rounded-md p-1.5 text-mute hover:text-ink" aria-label={t("ex.prevMonth")}>
             <IconChevronLeft size={14} className="rtl-flip" />
           </button>
@@ -168,8 +225,8 @@ export default function ExpensesPage() {
           <button onClick={() => setPeriod(shiftPeriod(period, 1))} className="rounded-md p-1.5 text-mute hover:text-ink" aria-label={t("ex.nextMonth")}>
             <IconChevronRight size={14} className="rtl-flip" />
           </button>
-        </div>
-        {!isCurrent && (
+        </div>}
+        {tab === "monthly" && !isCurrent && (
           <button onClick={() => setPeriod(thisPeriod)} className="btn-ghost !px-3 !py-2 text-[11px]">
             {t("ex.backToday")}
           </button>
@@ -179,7 +236,9 @@ export default function ExpensesPage() {
         </button>
       </div>
 
-      {isLoading || !data ? (
+      {tab === "all" ? (
+        <LedgerView key={drill ? "drill" : "plain"} mode="owner" initial={drill ?? undefined} onEdit={(r) => setForm({ kind: "entry", entry: rowToEntry(r) })} onDelete={(r) => deleteEntry(rowToEntry(r))} />
+      ) : isLoading || !data ? (
         <div className="grid gap-3">
           <Skeleton className="h-36" />
           <Skeleton className="h-28" />
@@ -325,7 +384,7 @@ export default function ExpensesPage() {
                       {e.status === "pending" && <span className="pill !py-0 bg-amber-500/15 text-amber-400">{t("ex.pendingTag")}</span>}
                     </div>
                     <div className="text-[10px] text-mute">
-                      {shortDate(e.date, lang)} · {e.scope === "clinic" ? t("ex.clinic") : t("ex.personal")}
+                      {shortDate(e.date, lang)} · {e.scope === "clinic" ? (e.doctorName ? `${t("ex.clinic")} · ${e.doctorName}` : t("ex.clinic")) : t("ex.personal")}
                       {e.method ? ` · ${t(`ex.method.${e.method}`)}` : ""}
                       {e.notes ? ` · ${e.notes}` : ""}
                     </div>
@@ -678,11 +737,16 @@ function ExpenseFormModal({ target, onClose, onSaved }: { target: FormTarget; on
   const [date, setDate] = useState(entry?.date ?? today);
   const [method, setMethod] = useState(entry?.method ?? "cash");
   const [notes, setNotes] = useState(bill?.notes ?? entry?.notes ?? "");
+  const [doctorId, setDoctorId] = useState<string>(bill?.doctorId ?? entry?.doctorId ?? ""); // "" = shared clinic expense
+  const [vendor, setVendor] = useState(bill?.vendor ?? entry?.vendor ?? "");
+  const [reference, setReference] = useState(entry?.reference ?? "");
   const [error, setError] = useState("");
+  const { doctors } = useClinicDoctors(true);
+  const knownDoctorName = bill?.doctorName ?? entry?.doctorName ?? "";
 
   const isNew = target.kind === "new";
   const amountNum = Number(amount);
-  const valid = amount.trim() !== "" && Number.isFinite(amountNum) && amountNum >= 0 && (kind === "monthly" || !!date);
+  const valid = amount.trim() !== "" && Number.isFinite(amountNum) && amountNum > 0 && (kind === "monthly" || !!date);
 
   // For new one-time expenses, start the category on something sensible.
   const switchKind = (k: "monthly" | "once") => {
@@ -695,13 +759,13 @@ function ExpenseFormModal({ target, onClose, onSaved }: { target: FormTarget; on
     mutationFn: async () => {
       const finalTitle = title.trim() || t(`ex.cat.${category}`);
       if (kind === "monthly") {
-        const body = { title: finalTitle, category, scope, amount: amountNum, dueDay, remindDaysBefore: remind, notes: notes.trim() };
+        const body = { title: finalTitle, category, scope, amount: amountNum, dueDay, remindDaysBefore: remind, notes: notes.trim(), doctorId: scope === "clinic" && doctorId ? doctorId : null, vendor: vendor.trim() };
         return bill ? api.put(`/expenses/recurring/${bill._id}`, body) : api.post("/expenses/recurring", body);
       }
       if (fromBill && entry) {
-        return api.put(`/expenses/${entry._id}`, { title: finalTitle, amount: amountNum, date, method, notes: notes.trim() });
+        return api.put(`/expenses/${entry._id}`, { title: finalTitle, amount: amountNum, date, method, notes: notes.trim(), doctorId: doctorId || null, vendor: vendor.trim(), reference: reference.trim() });
       }
-      const body: Record<string, unknown> = { title: finalTitle, category, scope, amount: amountNum, status, date, notes: notes.trim() };
+      const body: Record<string, unknown> = { title: finalTitle, category, scope, amount: amountNum, status, date, notes: notes.trim(), doctorId: scope === "clinic" && doctorId ? doctorId : null, vendor: vendor.trim(), reference: reference.trim() };
       if (status === "paid") body.method = method;
       else body.remindDaysBefore = remind;
       return entry ? api.put(`/expenses/${entry._id}`, body) : api.post("/expenses", body);
@@ -794,7 +858,7 @@ function ExpenseFormModal({ target, onClose, onSaved }: { target: FormTarget; on
         </div>
         <div>
           <label className="lbl">{t("ex.form.amount")}</label>
-          <input className="inp font-mono" dir="ltr" type="number" min={0} step="0.001" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <input className="inp font-mono" dir="ltr" type="number" min={0.001} step="0.001" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
         </div>
       </div>
 
@@ -873,11 +937,39 @@ function ExpenseFormModal({ target, onClose, onSaved }: { target: FormTarget; on
         </div>
       )}
 
+      {(scope === "clinic" || fromBill) && (
+        <div className="mt-3">
+          <label className="lbl">{t("ex.form.doctor")}</label>
+          <select className="inp" data-testid="ex-doctor" value={doctorId} onChange={(e) => setDoctorId(e.target.value)}>
+            <option value="">{t("ex.form.doctorNone")}</option>
+            {doctorId && !doctors.some((d) => d._id === doctorId) && <option value={doctorId}>{knownDoctorName || "—"}</option>}
+            {doctors.map((d) => (
+              <option key={d._id} value={d._id}>{d.name}</option>
+            ))}
+          </select>
+          <p className="mt-1 text-[10px] leading-snug text-mute">{t("ex.form.doctorHint")}</p>
+        </div>
+      )}
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div>
+          <label className="lbl">{t("ex.form.vendor")}</label>
+          <input className="inp" value={vendor} maxLength={100} onChange={(e) => setVendor(e.target.value)} />
+        </div>
+        {kind !== "monthly" && (
+          <div>
+            <label className="lbl">{t("ex.form.reference")}</label>
+            <input className="inp" dir="ltr" value={reference} maxLength={60} onChange={(e) => setReference(e.target.value)} />
+          </div>
+        )}
+      </div>
+      {category === "other" && !fromBill && <p className="mt-2 text-[10px] text-mute">{t("ex.form.otherHint")}</p>}
+
       <label className="lbl mt-3">{t("ex.form.notes")}</label>
       <textarea className="inp min-h-14" maxLength={500} value={notes} onChange={(e) => setNotes(e.target.value)} />
 
       <div className="sticky bottom-0 -mx-5 mt-5 border-t border-edge bg-card px-5 py-3">
         {error && <p className="mb-2 text-xs text-red-400">{error}</p>}
+        {amount.trim() !== "" && !(amountNum > 0) && <p className="mb-2 text-xs text-amber-400">{t("ex.form.amountInvalid")}</p>}
         <button className="btn-teal w-full" disabled={!valid || save.isPending} onClick={() => { setError(""); save.mutate(); }}>
           <IconCheck size={15} />
           {save.isPending ? t("common.loading") : kind === "monthly" ? t("ex.form.saveBill") : t("ex.form.save")}
@@ -925,7 +1017,7 @@ function PayModal({ target, onClose, onSaved }: { target: PayTarget; onClose: ()
         <p className="mb-3 text-[11px] text-mute">{periodLabel(target.bill.period, lang)}</p>
       )}
       <label className="lbl">{t("ex.pay.amount")}</label>
-      <input className="inp mb-3 font-mono" dir="ltr" type="number" min={0} step="0.001" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
+      <input className="inp mb-3 font-mono" dir="ltr" type="number" min={0.001} step="0.001" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
       <div className="mb-4 grid grid-cols-2 gap-2">
         <div>
           <label className="lbl">{t("ex.pay.date")}</label>
@@ -943,7 +1035,7 @@ function PayModal({ target, onClose, onSaved }: { target: PayTarget; onClose: ()
       {error && <p className="mb-2 text-xs text-red-400">{error}</p>}
       <button
         className="btn-teal w-full"
-        disabled={amount.trim() === "" || !Number.isFinite(amountNum) || amountNum < 0 || !date || pay.isPending}
+        disabled={amount.trim() === "" || !Number.isFinite(amountNum) || amountNum <= 0 || !date || pay.isPending}
         onClick={() => { setError(""); pay.mutate(); }}
       >
         <IconCheck size={15} /> {pay.isPending ? t("common.loading") : t("ex.pay.confirm")}

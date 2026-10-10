@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Appointment } from "../../../../models/Appointment";
 import type { AIToolDefinition } from "../../AIProvider";
 import type { ToolContext } from "../types";
+import { scopeOf, doctorMatch } from "../../../../auth/policy";
 
 export const cancelAppointmentDefinition: AIToolDefinition = {
   name: "cancelAppointment",
@@ -29,9 +30,10 @@ export async function cancelAppointmentExecute(
 ): Promise<Record<string, unknown>> {
   if (!ctx.clinicId) return { error: "Not authenticated" };
   const input = inputSchema.parse(rawInput);
+  const scope = scopeOf(ctx, "appointments"); // PHASE 4 — a doctor can cancel only their own appointments
 
   const appointment = await Appointment.findOneAndUpdate(
-    { _id: input.appointmentId, clinicId: ctx.clinicId },
+    { _id: input.appointmentId, clinicId: ctx.clinicId, ...doctorMatch(scope) },
     { $set: { status: "cancelled", cancelReason: input.reason } },
     { new: true }
   );

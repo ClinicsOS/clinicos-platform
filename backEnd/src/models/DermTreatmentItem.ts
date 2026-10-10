@@ -138,6 +138,8 @@ const itemSchema = new Schema<IDermTreatmentItem>(
 //  4. source-assessment lookups                      -> clinic+sourceAssessmentId (sparse by nature: only some items have one)
 //  5. idempotent create (unique per clinic)          -> clinic+clientRequestId
 itemSchema.index({ clinicId: 1, patientId: 1, status: 1 });
+// PHASE 6 — treatments started / completed / cancelled in a date range (services/analytics/treatments.ts): multikey on the status-history dates
+itemSchema.index({ clinicId: 1, "statusHistory.at": 1 });
 itemSchema.index({ clinicId: 1, patientId: 1, regionIds: 1 });
 itemSchema.index({ clinicId: 1, status: 1, updatedAt: -1 });
 itemSchema.index({ clinicId: 1, sourceAssessmentId: 1 });

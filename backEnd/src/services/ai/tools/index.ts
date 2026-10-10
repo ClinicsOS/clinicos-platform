@@ -1,5 +1,6 @@
 import type { AIToolDefinition } from "../AIProvider";
 import type { ToolContext } from "./types";
+import { PolicyError } from "../../../auth/policy";
 import { getPricingDefinition, getPricingExecute } from "./getPricing";
 import { createLeadDefinition, createLeadExecute } from "./createLead";
 import { listDoctorsDefinition, listDoctorsExecute } from "./dashboard/listDoctors";
@@ -27,7 +28,20 @@ const publicTools: Record<string, RegisteredTool> = {
   createLead: { definition: createLeadDefinition, execute: createLeadExecute },
 };
 
-const dashboardTools: Record<string, RegisteredTool> = {
+/** PHASE 4 — an authorization refusal inside a tool is reported back to the assistant as an ordinary tool error (never a crash). */
+const guarded = (t: RegisteredTool): RegisteredTool => ({
+  ...t,
+  execute: async (input, ctx) => {
+    try {
+      return await t.execute(input, ctx);
+    } catch (err) {
+      if (err instanceof PolicyError) return { error: err.message, code: err.code };
+      throw err;
+    }
+  },
+});
+
+const rawDashboardTools: Record<string, RegisteredTool> = {
   listDoctors: { definition: listDoctorsDefinition, execute: listDoctorsExecute },
   getClinicStats: { definition: getClinicStatsDefinition, execute: getClinicStatsExecute },
   listTodayAppointments: {
@@ -56,6 +70,8 @@ const dashboardTools: Record<string, RegisteredTool> = {
     requiresConfirmation: true,
   },
 };
+
+const dashboardTools: Record<string, RegisteredTool> = Object.fromEntries(Object.entries(rawDashboardTools).map(([k, v]) => [k, guarded(v)]));
 
 /**
  * Returns the tools the AI is allowed to call for this request.

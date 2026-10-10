@@ -5,6 +5,7 @@ import { DentalTreatmentItem } from "../models/DentalTreatmentItem";
 import { loadPatient } from "./dentalController";
 import { loadItem, populateItem, serializeItem } from "./dentalTreatmentController";
 import { billTreatmentItem, loadBillingViews } from "../services/dentalBilling";
+import { billingCtxOf } from "../services/doctorAttribution";
 
 /**
  * POST /dental/patients/:patientId/treatment-plan/items/:itemId/invoice
@@ -32,7 +33,7 @@ export const invoiceTreatment = asyncHandler(async (req: Request, res: Response)
   const body = billSchema.parse(req.body);
   if (Math.abs(body.price * 1000 - Math.round(body.price * 1000)) > 1e-6) return res.status(400).json({ message: "Price can have at most 3 decimals" });
 
-  const ctx = { clinicId: req.clinicId, userId: req.userId, patientId: patient._id };
+  const ctx = billingCtxOf(req, patient._id);
   const result = await billTreatmentItem(ctx, item._id, body);
   if (!result.ok) return res.status(result.status).json({ message: result.message, code: result.code });
 

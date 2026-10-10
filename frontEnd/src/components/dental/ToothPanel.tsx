@@ -10,7 +10,7 @@ import { SURFACES, SURFACE_LABELS, findItem, taxonomyFor, type EventCategory, ty
 import type { DentalEvent, TimelineEntry, TreatmentItem, VisitRef } from "@/lib/dental/types";
 import { procLabel } from "@/lib/dental/procedures";
 import type { EditorPrefill } from "./treatment/TreatmentEditor";
-import { BillingLine, StatusPill, TargetText, TimelineRow, money } from "./treatment/shared";
+import { BillingLine, ProcSwatch, StatusPill, TargetText, TimelineRow, money } from "./treatment/shared";
 import { useAddDentalEvent, useResolveDentalEvent } from "@/lib/dental/hooks";
 
 interface Props {
@@ -119,7 +119,7 @@ export default function ToothPanel(p: Props) {
           <Section title={t("dn.forTooth")}>
             {planItems.length ? planItems.map((i) => (
               <div key={i._id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-ink">
-                <span>{procLabel(t, i)}</span>
+                <span className="inline-flex items-center gap-1.5"><ProcSwatch code={i.procedureCode} status={i.status} />{procLabel(t, i)}</span>
                 <span className="text-[11px] text-mute"><TargetText targetType={i.targetType} toothNumbers={i.toothNumbers.filter((f) => f !== p.fdi || i.targetType === "tooth" || i.targetType === "surface")} surfaces={i.surfaces} /></span>
                 <StatusPill status={i.status} />
                 {i.estimatedPrice != null && <span className="text-[10px] text-mute" dir="ltr">{money(i.estimatedPrice)}</span>}
@@ -234,9 +234,12 @@ export default function ToothPanel(p: Props) {
 
 const shortWhen = (iso: string, lang: string, today: string) => {
   const d = new Date(iso), loc = lang === "ar" ? "ar-JO" : "en-GB";
-  return d.toDateString() === new Date().toDateString()
-    ? `${today} ${d.toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit" })}`
-    : d.toLocaleDateString(loc, { day: "numeric", month: "short" });
+  if (Number.isNaN(d.getTime())) return "";
+  // PHASE 7 — "today" and the printed day are the CLINIC's (Asia/Amman), not the browser's
+  const day = (x: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Amman" }).format(x);
+  return day(d) === day(new Date())
+    ? `${today} ${d.toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Amman" })}`
+    : d.toLocaleDateString(loc, { day: "numeric", month: "short", timeZone: "Asia/Amman" });
 };
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
@@ -315,7 +318,7 @@ function HistoryRow({ e, lang, canWrite, patientId }: { e: DentalEvent; lang: st
   const { t } = useI18n();
   const toast = useToast();
   const resolve = useResolveDentalEvent(patientId);
-  const when = new Date(e.createdAt).toLocaleString(lang === "ar" ? "ar-JO" : "en-GB", { dateStyle: "medium", timeStyle: "short" });
+  const when = new Date(e.createdAt).toLocaleString(lang === "ar" ? "ar-JO" : "en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Amman" });
   const act = async (reason: "resolved" | "entered_in_error") => {
     try { await resolve.mutateAsync({ eventId: e._id, reason }); }
     catch (er) { toast.error(t("dn.err.save"), errMsg(er, "")); }

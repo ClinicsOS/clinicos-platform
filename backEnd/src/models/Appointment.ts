@@ -15,6 +15,12 @@ export interface IAppointment extends Document {
   visitNote?: string;
   cancelReason?: string;
   refCode?: string;
+  // PHASE 3.5 — Walk-in only (both optional, so every existing document stays valid):
+  //   createdBy  — the staff member who registered the walk-in at reception (a real user reference, not a name).
+  //   requestKey — idempotency key ("clinic:patient:doctor:requestId") so a double-clicked / retried "Register walk-in"
+  //                can only ever create ONE record. Unique+sparse: records without a key are not constrained at all.
+  createdBy?: Types.ObjectId;
+  requestKey?: string;
   readBy: Types.ObjectId[];  // users who have "read" this notification
   createdAt: Date;
   updatedAt: Date;
@@ -70,6 +76,8 @@ const appointmentSchema = new Schema<IAppointment>(
     visitNote: { type: String },
     cancelReason: { type: String },
     refCode: { type: String },
+    createdBy: { type: Schema.Types.ObjectId, ref: "User" },
+    requestKey: { type: String, maxlength: 200 },
     readBy: [{ type: Schema.Types.ObjectId, ref: "User" }],
   },
   { timestamps: true }
@@ -90,5 +98,7 @@ appointmentSchema.index({ clinicId: 1, startAt: 1 });
 // field is missing entirely from the uniqueness constraint, so this only
 // ever governs the appointments that actually have a refCode.
 appointmentSchema.index({ refCode: 1 }, { unique: true, sparse: true });
+// PHASE 3.5 — walk-in double-submit guard (see `requestKey` above). Sparse: only walk-ins created with a request id carry one.
+appointmentSchema.index({ requestKey: 1 }, { unique: true, sparse: true });
 
 export const Appointment = mongoose.model<IAppointment>("Appointment", appointmentSchema);

@@ -4,6 +4,7 @@
  * (Brevo), which suffers the same intermittent "Connection timeout" issue
  * on Render as the rest of the app used to before the switch to Resend.
  */
+import { isProduction, maskEmail } from "../utils/logSafe";
 
 const apiKey = process.env.RESEND_API_KEY || "";
 const mailFromEmail = process.env.MAIL_FROM_EMAIL || "no-reply@clinicosjo.com";
@@ -63,6 +64,10 @@ export async function sendAdminCustomEmail(
   const html = wrap(subject, greeting + body);
 
   if (!apiKey) {
+    if (isProduction()) {
+      console.warn(`[ADMIN MAILER] RESEND_API_KEY is not set — e-mail "${subject}" to ${maskEmail(to)} was NOT sent`);
+      return;
+    }
     console.log("═══════════════════════════════════════════════════");
     console.log("📧 [ADMIN MAILER — dev mode, no RESEND_API_KEY configured]");
     console.log("To:      ", to);
@@ -93,9 +98,9 @@ export async function sendAdminCustomEmail(
       throw new Error(`Resend API ${res.status}: ${errBody}`);
     }
     const data = (await res.json()) as { id?: string };
-    console.log(`[ADMIN MAILER] ✔ Sent to ${to} — id: ${data.id}`);
+    console.log(`[ADMIN MAILER] ✔ Sent to ${maskEmail(to)} — id: ${data.id}`);
   } catch (err) {
-    console.error(`[ADMIN MAILER] ✗ Failed to send to ${to}:`, (err as Error).message);
+    console.error(`[ADMIN MAILER] ✗ Failed to send to ${maskEmail(to)}:`, (err as Error).message);
     throw err; // Rethrow so the API returns an error to the admin
   }
 }

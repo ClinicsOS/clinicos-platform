@@ -16,6 +16,7 @@ import {
 } from "../config/dermProcedures";
 import { DOC_SCHEMA_VERSION, groupsFor } from "../config/dermDocumentation";
 import { loadDermBillingViews, type BillingView } from "../services/dermBilling";
+import { billingCtxOf } from "../services/doctorAttribution";
 
 /**
  * SECURITY (same model as Phase 1): `protect` -> `requireSpecialty("dermatology_aesthetics")` (router level, from the DB)
@@ -168,7 +169,7 @@ export async function planPayload(req: Request, patient: any) {
   const visits: Record<string, { startAt: Date; source: string; status: string }> = {};
   visitDocs.forEach((v) => (visits[String(v._id)] = { startAt: v.startAt, source: v.source, status: v.status }));
 
-  const views = await loadDermBillingViews({ clinicId: req.clinicId, userId: req.userId, patientId: patient._id }, itemList);
+  const views = await loadDermBillingViews(billingCtxOf(req, patient._id), itemList);
   const stats = buildStats(itemList.map((i) => String(i._id)), sessionList, followUps as any[]);
   const count = (s: PlanStatus) => itemList.filter((i) => i.status === s).length;
   const sum = (list: any[]) => list.reduce((t, i) => t + (typeof i.estimatedPrice === "number" ? i.estimatedPrice : 0), 0);

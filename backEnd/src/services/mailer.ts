@@ -15,6 +15,7 @@
  */
 
 import { getSpecialtyLabel } from "../config/specialties";
+import { isProduction, maskEmail } from "../utils/logSafe";
 
 const apiKey = process.env.RESEND_API_KEY || "";
 const mailFromEmail = process.env.MAIL_FROM_EMAIL || "no-reply@clinicosjo.com";
@@ -52,6 +53,11 @@ interface SendArgs {
 
 async function send({ to, subject, html }: SendArgs): Promise<void> {
   if (!apiKey) {
+    // PHASE 7 — in production the e-mail body (a verification / reset LINK) and the address must never reach the log.
+    if (isProduction()) {
+      console.warn(`[MAILER] RESEND_API_KEY is not set — e-mail "${subject}" to ${maskEmail(to)} was NOT sent`);
+      return;
+    }
     // Dev fallback — print email to console so the developer can copy the link
     console.log("═══════════════════════════════════════════════════");
     console.log("📧 [MAILER — dev mode, no RESEND_API_KEY configured]");
@@ -82,9 +88,9 @@ async function send({ to, subject, html }: SendArgs): Promise<void> {
       throw new Error(`Resend API ${res.status}: ${body}`);
     }
     const data = (await res.json()) as { id?: string };
-    console.log(`[MAILER] ✔ Sent to ${to} — id: ${data.id}`);
+    console.log(`[MAILER] ✔ Sent to ${maskEmail(to)} — id: ${data.id}`);
   } catch (err) {
-    console.error(`[MAILER] ✗ Failed to send to ${to}:`, (err as Error).message);
+    console.error(`[MAILER] ✗ Failed to send to ${maskEmail(to)}:`, (err as Error).message);
   }
 }
 

@@ -9,6 +9,8 @@ import { DermTreatmentSession } from "../models/DermTreatmentSession";
 import { DermFollowUp } from "../models/DermFollowUp";
 import { getAmmanTodayRange } from "../utils/timezone";
 import { loadDermBillingViewsForClinic } from "../services/dermBilling";
+import { resolveDataScope, doctorMatch } from "../auth/policy";
+import { resolveTreatingDoctors } from "../services/doctorAttribution";
 
 /**
  * GET /api/derm/dashboard — ONE summary read for the Dermatology & Aesthetics operational dashboard.
@@ -23,9 +25,12 @@ const NEEDS_BILLING_SCAN = 200;
 export const getDermDashboard = asyncHandler(async (req: Request, res: Response) => {
   const clinicId = new mongoose.Types.ObjectId(req.clinicId);
   const { start: dayStart, end: dayEnd } = getAmmanTodayRange();
+  // PHASE 4 — a doctor's "Today" is their own schedule (the shared clinical overview below stays clinic-wide); owner / receptionist see all.
+  const apptScope = resolveDataScope(req, "appointments");
+  const restrictTo = apptScope.level === "self" ? apptScope.userId : undefined;
 
   // ---------- Today (existing Appointment/Visit source of truth; a "blocked" slot is not a patient visit)
-  const todays = (await Appointment.find({ clinicId, type: "appointment", startAt: { $gte: dayStart, $lte: dayEnd } }).select("status source").lean()) as any[];
+  const todays = (await Appointment.find({ clinicId, type: "appointment", ...doctorMatch(apptScope), startAt: { $gte: dayStart, $lte: dayEnd } }).select("status source").lean()) as any[];
   const today = { total: todays.length, scheduled: 0, confirmed: 0, completed: 0, cancelled: 0, noShow: 0, walkIns: 0 };
   for (const a of todays) {
     if (a.status === "scheduled") today.scheduled++;
@@ -53,8 +58,13 @@ export const getDermDashboard = asyncHandler(async (req: Request, res: Response)
 
   // ---------- Needs Billing: COMPLETED and not linked to an invoice line. Eligibility comes from the ONE billing service.
   const completed = (await DermTreatmentItem.find({ clinicId, status: "completed" }).sort({ updatedAt: -1 }).limit(NEEDS_BILLING_SCAN).lean()) as any[];
-  const views = await loadDermBillingViewsForClinic(clinicId, completed);
-  const needsAll = completed.filter((i) => views.get(String(i._id))?.state === "none");
+  const views = await loadDermBillingViewsForClinic(clinicId, completed, restrictTo);
+  let needsAll = completed.filter((i) => views.get(String(i._id))?.state === "none");
+  if (restrictTo) {
+    // a doctor is only offered treatments THEY completed (the only ones they may bill); one batched lookup, no per-item query
+    const treating = await resolveTreatingDoctors(clinicId, needsAll);
+    needsAll = needsAll.filter((i) => treating.get(String(i._id)) === restrictTo);
+  }
   const needsBilling = { count: needsAll.length, capped: completed.length >= NEEDS_BILLING_SCAN, items: needsAll.slice(0, LIMIT) };
 
   // ---------- Follow-Ups: review dates the CLINICIAN chose on a session, not yet documented

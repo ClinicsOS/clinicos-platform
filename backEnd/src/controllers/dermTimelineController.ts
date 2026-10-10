@@ -12,6 +12,7 @@ import { loadPatient, isKnownRegionId, populateAssessment, serializeAssessment, 
 import { populateSession, serializeSession, populateItem } from "./dermTreatmentController";
 import { populateFollowUp, serializeFollowUp } from "./dermFollowUpController";
 import { loadDermBillingViews } from "../services/dermBilling";
+import { billingCtxOf } from "../services/doctorAttribution";
 
 /**
  * UNIFIED TIMELINE (read-only normalisation layer). Phase 1 records are NEVER rewritten: assessments, treatment status
@@ -132,7 +133,7 @@ export const getPatientOverview = asyncHandler(async (req: Request, res: Respons
     DermFollowUp.findOne({ ...scope, status: "active" }).sort({ createdAt: -1 }).select("createdAt").lean() as Promise<any>,
   ]);
   const n = (s: string) => byStatus.find((r) => r._id === s)?.count ?? 0;
-  const views = await loadDermBillingViews({ clinicId: req.clinicId, userId: req.userId, patientId: patient._id }, completed);
+  const views = await loadDermBillingViews(billingCtxOf(req, patient._id), completed);
   const needsBilling = completed.filter((i) => views.get(String(i._id))?.state === "none").length;
   const times = [lastA?.createdAt, lastI?.updatedAt, lastS?.startedAt, lastF?.createdAt].filter(Boolean).map((d) => new Date(d));
   return res.json({

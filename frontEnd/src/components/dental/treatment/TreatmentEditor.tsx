@@ -1,5 +1,6 @@
 "use client";
 import { useRef, useState } from "react";
+import axios from "axios";
 import { useI18n } from "@/lib/i18n";
 import { errMsg } from "@/lib/api";
 import { useToast } from "@/components/Toast";
@@ -93,7 +94,10 @@ export default function TreatmentEditor(p: {
       toast.success(t("dn.saved"));
       p.onClose();
     } catch (e) {
-      setError(errMsg(e, t("dn.err.save"))); // shown inline — nothing is presented as saved
+      // shown inline — nothing is presented as saved. A twin of this treatment already exists (e.g. saved from the other
+      // screen a moment ago): say so in the user's language instead of the server's English text.
+      const dup = axios.isAxiosError(e) && (e.response?.data as { code?: string } | undefined)?.code === "DUPLICATE_ITEM";
+      setError(dup ? t("dn.err.duplicate") : errMsg(e, t("dn.err.save")));
     } finally { lock.current = false; }
   };
 

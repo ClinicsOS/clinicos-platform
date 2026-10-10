@@ -37,7 +37,7 @@ const handler = (fn: (req: Request, res: Response, next: NextFunction) => Promis
   });
 
 const CONTROL = /[\u0000-\u001f\u007f]/g;
-const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapeRegex = (s: string) => s.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); // PHASE 7 — a NUL / control character makes MongoDB reject the pattern (was a 500)
 const oidOf = (v: string) => new Types.ObjectId(v);
 
 /* ---------- DTOs (explicit allow-lists: nothing internal such as `seq` / `enrolledBy` leaks) ---------- */

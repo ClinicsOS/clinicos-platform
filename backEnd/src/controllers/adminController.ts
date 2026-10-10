@@ -15,6 +15,7 @@ import { asyncHandler } from "../middleware/errorHandler";
 import { PLANS, PLAN_PRICES, type Plan } from "../config/plans";
 import { logActivity } from "../services/activityLogger";
 import { purgeClinicLoyaltyData } from "../services/loyaltyService";
+import { purgeClinicData, exportClinicContent } from "../services/clinicPurge";
 import { LoyaltySettings } from "../models/LoyaltySettings";
 import { LoyaltyAccount } from "../models/LoyaltyAccount";
 import { LoyaltyTransaction } from "../models/LoyaltyTransaction";
@@ -626,6 +627,7 @@ export const deleteClinic = asyncHandler(
       Patient.deleteMany({ clinicId: id }),
       User.deleteMany({ clinicId: id }),
       SubscriptionRequest.deleteMany({ clinicId: id }),
+      purgeClinicData(id), // PHASE 7 — every clinic-owned clinical / financial collection
       purgeClinicLoyaltyData(id), // Loyalty accounts + ledger + settings (no-op if never used)
       Clinic.deleteOne({ _id: id }),
     ]);
@@ -672,6 +674,7 @@ export const exportClinic = asyncHandler(
       loyaltyRewards,
       loyaltyRedemptions,
       loyaltyTierHistory,
+      content,
     ] = await Promise.all([
       Clinic.findById(id).lean(),
       User.find({ clinicId: id })
@@ -688,6 +691,7 @@ export const exportClinic = asyncHandler(
       LoyaltyReward.find({ clinicId: id }).sort({ createdAt: 1 }).lean(),
       LoyaltyRedemption.find({ clinicId: id }).sort({ requestedAt: 1 }).lean(),
       LoyaltyTierHistory.find({ clinicId: id }).sort({ changedAt: 1 }).lean(),
+      exportClinicContent(id),
     ]);
 
     if (!clinic) return res.status(404).json({ message: "Clinic not found" });
@@ -710,6 +714,7 @@ export const exportClinic = asyncHandler(
       appointments,
       invoices,
       subscriptionRequests,
+      ...content, // PHASE 7 — clinical notes, dental/derm records + plans, expenses
       loyalty: { settings: loyaltySettings, accounts: loyaltyAccounts, transactions: loyaltyTransactions, checkIns: loyaltyCheckIns, rewards: loyaltyRewards, redemptions: loyaltyRedemptions, tierHistory: loyaltyTierHistory },
     });
   },

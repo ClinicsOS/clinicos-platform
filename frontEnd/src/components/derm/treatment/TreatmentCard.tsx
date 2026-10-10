@@ -107,7 +107,8 @@ export default function TreatmentCard({ item: it, sessions, visits, patientId, p
               <span className="rounded-full border border-emerald-400/40 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-medium text-emerald-300">{t("dt.billing.invoiced")}</span>
               <span dir="ltr" className="font-mono text-ink">{invLabel(it.billing.invoiceNumber ?? 0)}</span>
               {it.billing.amount != null && <span dir="ltr" className="text-mute">{money(it.billing.amount)}</span>}
-              <Link href={invHref(it.billing.invoiceNumber ?? 0)} className="ms-auto inline-flex items-center gap-1 text-teal underline"><IconReceipt size={12} />{t("dt.billing.view")}</Link>
+              {/* PHASE 4: a colleague's invoice is redacted for a doctor (no invoiceId) — no link to a page they can't open */}
+              {it.billing.invoiceId ? <Link href={invHref(it.billing.invoiceNumber ?? 0)} className="ms-auto inline-flex items-center gap-1 text-teal underline"><IconReceipt size={12} />{t("dt.billing.view")}</Link> : null}
             </div>
           )}
           {bs === "pending" && <span className="text-mute">{t("dt.billing.pending")}</span>}

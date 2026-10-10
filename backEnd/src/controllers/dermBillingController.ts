@@ -5,6 +5,7 @@ import { DermTreatmentItem } from "../models/DermTreatmentItem";
 import { loadPatient } from "./dermController";
 import { loadItem, populateItem, serializeItem } from "./dermTreatmentController";
 import { billDermTreatmentItem, loadDermBillingViews } from "../services/dermBilling";
+import { billingCtxOf } from "../services/doctorAttribution";
 
 /**
  * POST /derm/patients/:patientId/treatment-plan/items/:itemId/invoice
@@ -31,7 +32,7 @@ export const invoiceDermTreatment = asyncHandler(async (req: Request, res: Respo
   const body = billSchema.parse(req.body);
   if (Math.abs(body.price * 1000 - Math.round(body.price * 1000)) > 1e-6) return res.status(400).json({ message: "Price can have at most 3 decimals" });
 
-  const ctx = { clinicId: req.clinicId, userId: req.userId, patientId: patient._id };
+  const ctx = billingCtxOf(req, patient._id);
   const result = await billDermTreatmentItem(ctx, item._id, body);
   if (!result.ok) return res.status(result.status).json({ message: result.message, code: result.code });
 

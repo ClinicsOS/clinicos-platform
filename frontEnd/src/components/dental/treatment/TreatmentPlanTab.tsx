@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { IconAlertTriangle, IconCalendarPlus, IconPencil, IconPlus, IconRefresh } from "@tabler/icons-react";
+import { IconAlertTriangle, IconCalendarPlus, IconNotes, IconPencil, IconPlus, IconRefresh } from "@tabler/icons-react";
 import axios from "axios";
 import { useI18n } from "@/lib/i18n";
 import { errMsg } from "@/lib/api";
@@ -14,7 +14,8 @@ import type { TreatmentItem, TreatmentPlanResponse } from "@/lib/dental/types";
 import { procLabel } from "@/lib/dental/procedures";
 import TreatmentEditor from "./TreatmentEditor";
 import AddToInvoiceModal from "./AddToInvoiceModal";
-import { BillingLine, PriorityPill, StatusPill, TargetText, TimelineRow, money, scheduleNextVisitHref, shortDate, visitText } from "./shared";
+import NoteEditorModal from "@/components/clinical/NoteEditorModal";
+import { BillingLine, PriorityPill, ProcSwatch, StatusPill, TargetText, TimelineRow, money, scheduleNextVisitHref, shortDate, visitText } from "./shared";
 
 const isSameDay = (a: string, b: Date) => new Date(a).toDateString() === b.toDateString();
 
@@ -165,6 +166,7 @@ function ItemCard({ it, d, canWrite, onEdit, onStart, onBill, patientId, patient
   const [cancelling, setCancelling] = useState(false);
   const [reason, setReason] = useState("");
   const [open, setOpen] = useState(false);
+  const [noting, setNoting] = useState(false); // "Add clinical note" about THIS treatment (linked automatically)
   const lock = useRef(false);
   const sessions = d.sessions.filter((s) => s.itemId === it._id);
   const active = it.status === "planned" || it.status === "in_progress";
@@ -182,7 +184,7 @@ function ItemCard({ it, d, canWrite, onEdit, onStart, onBill, patientId, patient
       <div className="flex flex-wrap items-start gap-x-3 gap-y-1.5">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[13px] font-medium text-ink">{procLabel(t, it)}</span>
+            <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-ink"><ProcSwatch code={it.procedureCode} status={it.status} />{procLabel(t, it)}</span>
             <StatusPill status={it.status} />
             <PriorityPill priority={it.priority} />
           </div>
@@ -190,13 +192,24 @@ function ItemCard({ it, d, canWrite, onEdit, onStart, onBill, patientId, patient
           {it.notes && <p className="mt-1 text-[11px] text-mute">{it.notes}</p>}
           {it.status === "cancelled" && it.cancelReason && <p className="mt-1 text-[11px] italic text-mute">{it.cancelReason}</p>}
         </div>
-        {it.estimatedPrice != null && (
-          <div className="text-end">
-            <div className="text-[9px] text-mute">{t("dn.price")}</div>
-            <div className="text-[12px] font-medium text-ink" dir="ltr">{money(it.estimatedPrice)}</div>
-          </div>
-        )}
+        <div className="flex flex-col items-end gap-1">
+          {it.estimatedPrice != null && (
+            <div className="text-end">
+              <div className="text-[9px] text-mute">{t("dn.price")}</div>
+              <div className="text-[12px] font-medium text-ink" dir="ltr">{money(it.estimatedPrice)}</div>
+            </div>
+          )}
+          {canWrite && (
+            <button type="button" className="inline-flex items-center gap-1 text-[10px] text-mute hover:text-ink" onClick={() => setNoting(true)}>
+              <IconNotes size={11} /> {t("cr.addNoteShort")}
+            </button>
+          )}
+        </div>
       </div>
+      {noting && (
+        <NoteEditorModal patientId={patientId} onClose={() => setNoting(false)}
+          context={{ sourceType: "dental_treatment", sourceId: it._id, label: `${procLabel(t, it)} — ${it.toothNumbers.length ? it.toothNumbers.join(", ") : t("dn.tg.general")}` }} />
+      )}
 
       {/* Financial LINK only: estimate above is never overwritten by the invoiced amount; balances live in the invoice. */}
       {it.status === "completed" && (
@@ -276,7 +289,7 @@ function StartVisitModal({ item, visits, patientId, lang, onClose }: { item: Tre
               {visits.map((v) => (
                 <button key={v._id} type="button" aria-pressed={sel === v._id} onClick={() => setSel(v._id)}
                   className={`flex w-full items-center gap-2 rounded-lg border px-2.5 py-2 text-start text-[11px] ${sel === v._id ? "border-teal bg-teal/10 text-ink" : "border-edge bg-card2 text-mute hover:border-sky"}`}>
-                  <span dir="ltr" className="font-mono">{new Date(v.startAt).toLocaleDateString(lang === "ar" ? "ar-JO" : "en-GB", { day: "numeric", month: "short" })} {new Date(v.startAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                  <span dir="ltr" className="font-mono">{new Date(v.startAt).toLocaleDateString(lang === "ar" ? "ar-JO" : "en-GB", { day: "numeric", month: "short", timeZone: "Asia/Amman" })} {new Date(v.startAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Amman" })}</span>
                   {v.source === "walk_in" && <span className="rounded-full border border-edge px-1.5 text-[9px]">{t("dn.walkIn")}</span>}
                   <span className="ms-auto">{docName(v)}</span>
                   <span className="text-[9px]">{t(`status.${v.status}`)}</span>

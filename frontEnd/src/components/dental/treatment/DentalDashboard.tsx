@@ -20,7 +20,10 @@ import { procLabel } from "@/lib/dental/procedures";
  * checks that), and reads from ONE summary endpoint — it owns nothing (Appointment/Invoice/Treatment stay
  * authoritative). No 3D bundle is loaded here; that lives only in the Dental Chart.
  */
-export default function DentalDashboard() {
+export default function DentalDashboard({ part = "all" }: { part?: "all" | "today" | "rest" }) {
+  // part: "all" (default — owner / unchanged) renders the whole cockpit. A doctor / receptionist dashboard renders "today" FIRST (the schedule),
+  // then its own KPI cards and week chart, then "rest" (treatment overview, active, needs billing, recent, quick actions). Both parts call the
+  // SAME hook/query key, so react-query serves them from one request.
   const { t, lang } = useI18n();
   const router = useRouter();
   const select = useSelectedPatient((s) => s.select);
@@ -33,6 +36,7 @@ export default function DentalDashboard() {
   const openVisit = (appointmentId: string) => router.push(`/appointments?appt=${appointmentId}`);
 
   if (q.isError) {
+    if (part === "rest") return null;
     return (
       <div className="card mb-3 flex flex-col items-center gap-3 p-8 text-center" role="alert">
         <IconAlertTriangle size={20} className="text-amber-400" />
@@ -41,15 +45,15 @@ export default function DentalDashboard() {
       </div>
     );
   }
-  if (q.isLoading || !q.data) return <DashboardSkeleton />;
+  if (q.isLoading || !q.data) return part === "rest" ? null : <DashboardSkeleton />;
   const d = q.data;
 
   return (
-    <div className="mb-4 space-y-3">
-      <h1 className="text-lg font-medium text-ink">{t("dn.dash.title")}</h1>
+    <div className={part === "today" ? "mb-3" : "mb-4 space-y-3"}>
+      {part === "all" && <h1 className="text-lg font-medium text-ink">{t("dn.dash.title")}</h1>}
 
       {/* ---- Today ---- */}
-      <div className="card p-4">
+      {part !== "rest" && <div className="card p-4">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-xs font-medium text-ink">{t("dn.dash.today")}</h2>
           <div className="flex items-center gap-2 text-[10px] text-mute">
@@ -64,7 +68,7 @@ export default function DentalDashboard() {
           <div className="space-y-1.5">
             {d.today.appointments.slice(0, 8).map((a) => (
               <div key={a._id} className="flex flex-wrap items-center gap-2 rounded-lg border border-edge bg-card2 px-2.5 py-2">
-                <span className="w-14 shrink-0 font-mono text-[10px] text-mute" dir="ltr">{new Date(a.startAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                <span className="w-14 shrink-0 font-mono text-[10px] text-mute" dir="ltr">{new Date(a.startAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Amman" })}</span>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
                     <span className="truncate text-[12px] font-medium text-ink">{a.patientName ?? "—"}</span>
@@ -85,8 +89,9 @@ export default function DentalDashboard() {
             ))}
           </div>
         )}
-      </div>
+      </div>}
 
+      {part !== "today" && <>
       {/* ---- Treatment Overview ---- */}
       <div className="grid grid-cols-3 gap-3">
         {(["planned", "inProgress", "completed"] as const).map((k) => (
@@ -190,6 +195,7 @@ export default function DentalDashboard() {
       </div>
 
       {billing && <AddToInvoiceModal patientId={billing.patientId} item={billing.item} onClose={() => setBilling(null)} />}
+      </>}
     </div>
   );
 }

@@ -45,7 +45,7 @@ function SignInContent() {
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-hero px-6 py-10">
+    <main className="flex min-h-screen items-center overflow-x-hidden justify-center bg-hero px-6 py-10">
       {/* Ambient background */}
       <div
         className="pointer-events-none absolute inset-0 opacity-30"

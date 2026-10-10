@@ -118,7 +118,9 @@ export interface Subscription {
   addons?: ClinicAddons;
 }
 
-export interface Staff { _id: string; name: string; email: string; role: string; phone?: string; isActive: boolean; }
+// PHASE 4 — email/phone are only returned to the owner; workingHours is the doctor's OPTIONAL own schedule (absent = follows clinic).
+export interface DoctorHoursDay { day: number; isOpen: boolean; from: string; to: string; breakFrom?: string; breakTo?: string; }
+export interface Staff { _id: string; name: string; email?: string; role: string; phone?: string; isActive: boolean; workingHours?: DoctorHoursDay[]; }
 
 export interface MedicalFlag { has: boolean; details?: string; }
 
@@ -150,6 +152,7 @@ export interface Appointment {
   visitType?: "consultation" | "procedure";
   procedureNote?: string;
   visitNote?: string; cancelReason?: string; refCode?: string;
+  createdBy?: string; // walk-ins: the staff user who registered the visit
   readBy?: string[];
 }
 
@@ -159,11 +162,15 @@ export interface Invoice {
   _id: string; invoiceNumber: number; patientId: Patient;
   items: InvoiceItem[]; discount: number; total: number;
   payments: Payment[]; status: string; createdAt: string;
+  // PHASE 4 — treating doctor (optional: legacy invoices have none = "unassigned"). Populated {_id,name} by GET /invoices.
+  doctorId?: { _id: string; name: string } | string | null;
 }
 
 export interface Stats {
-  today: { total: number; completed: number; cancelled: number; noShow: number; revenue: number };
+  today: { total: number; completed: number; cancelled: number; noShow: number; revenue: number | null };
   week: { date: string; count: number }[];
+  // PHASE 4 — what the server actually scoped this response to.
+  scope?: { level: "clinic" | "self"; doctorId: string | null; showsRevenue: boolean };
 }
 
 export const paidOf = (inv: Invoice) => inv.payments.reduce((s, p) => s + p.amount, 0);
@@ -184,6 +191,9 @@ export interface BillRow {
   isActive: boolean;
   notes?: string;
   period: string;
+  doctorId?: string | null; // PHASE 5 — financial owner (a clinic doctor); null/absent = shared clinic expense
+  doctorName?: string | null;
+  vendor?: string;
   dueDate: string; // YYYY-MM-DD
   daysUntil: number;
   status: BillStatus;
@@ -203,6 +213,50 @@ export interface ExpenseEntry {
   remindDaysBefore?: number;
   recurringId?: string;
   notes?: string;
+  doctorId?: string | null; // PHASE 5
+  doctorName?: string | null;
+  vendor?: string;
+  reference?: string;
+}
+
+/** PHASE 5 — a row of GET /expenses/ledger. */
+export type ExpenseKind = "clinic" | "doctor" | "personal";
+export interface LedgerRow {
+  _id: string;
+  title: string;
+  category: string;
+  scope: ExpenseScope;
+  kind: ExpenseKind;
+  amount: number;
+  status: "paid" | "pending";
+  date: string; // YYYY-MM-DD (the financial date)
+  period: string;
+  method?: string;
+  vendor?: string;
+  reference?: string;
+  notes?: string;
+  recurringId?: string;
+  doctor: { _id: string; name: string } | null;
+  createdBy: { _id: string; name: string } | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+export interface LedgerPage {
+  items: LedgerRow[];
+  total: number;
+  page: number;
+  limit: number;
+  pages: number;
+  scope?: { level: "clinic" | "self"; doctorId: string | null };
+}
+export interface ExpenseSummary {
+  currency: string;
+  count: number;
+  totals: { business: number; clinic: number; doctor: number; personal: number };
+  pending: number;
+  byCategory: { category: string; total: number; clinic: number; doctor: number; personal: number }[];
+  byDoctor: { doctorId: string; name: string; total: number }[];
+  scope?: { level: "clinic" | "self"; doctorId: string | null };
 }
 
 export interface ExpenseOverview {

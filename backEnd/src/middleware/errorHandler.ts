@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { ZodError } from "zod";
+import { safeErrorText } from "../utils/logSafe";
 
 export const asyncHandler =
   (fn: (req: Request, res: Response, next: NextFunction) => Promise<unknown>) =>
@@ -13,10 +14,12 @@ export const errorHandler = (
   res: Response,
   _next: NextFunction
 ) => {
-  // Phase 10 — the Loyalty APIs never describe the database model back to the caller (field paths / model names).
-  const loyaltyPath = /^\/api\/(public\/)?loyalty(\/|\?|$)/.test(_req.originalUrl || "");
-  console.error("🔴", err.message || err);
+  console.error("🔴", safeErrorText(err)); // PHASE 7 — never the submitted VALUE of a duplicate / cast / validation error (patient phone, e-mail…)
 
+  // Phase 4 — authorization / data-scope refusals raised by auth/policy.ts
+  if (err?.name === "PolicyError" && typeof err.status === "number") {
+    return res.status(err.status).json({ message: err.message, code: err.code });
+  }
   if (err instanceof ZodError) {
     return res.status(400).json({
       message: "Invalid input",
@@ -27,7 +30,8 @@ export const errorHandler = (
     return res.status(409).json({ message: "Duplicate value — already exists" });
   }
   if (err.name === "ValidationError") {
-    return res.status(400).json({ message: loyaltyPath ? "Invalid input" : err.message });
+    // PHASE 7 — a Mongoose message names model fields and echoes values; the client gets a controlled message everywhere.
+    return res.status(400).json({ message: "Invalid input" });
   }
   if (err.name === "CastError") {
     return res.status(400).json({ message: "Invalid ID format" });

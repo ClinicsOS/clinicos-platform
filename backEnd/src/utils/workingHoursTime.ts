@@ -1,3 +1,5 @@
+import { DEFAULT_CLINIC_TIMEZONE } from "./timezone";
+
 /**
  * Minute-of-day helpers for working-hours interval math.
  *
@@ -88,7 +90,7 @@ const WEEKDAY_SHORT_TO_INDEX: Record<string, number> = {
  */
 export function localDayOfWeek(date: Date): number {
   const weekday = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Amman",
+    timeZone: DEFAULT_CLINIC_TIMEZONE,
     weekday: "short",
   }).format(date);
   return WEEKDAY_SHORT_TO_INDEX[weekday];

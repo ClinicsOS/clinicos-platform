@@ -131,6 +131,8 @@ const itemSchema = new Schema<IDentalTreatmentItem>(
   { timestamps: true }
 );
 itemSchema.index({ clinicId: 1, patientId: 1, status: 1 });
+// PHASE 6 — treatments started / completed / cancelled in a date range (services/analytics/treatments.ts): multikey on the status-history dates
+itemSchema.index({ clinicId: 1, "statusHistory.at": 1 });
 itemSchema.index({ clinicId: 1, patientId: 1, toothNumbers: 1 });
 
 export const DentalTreatmentItem = mongoose.model<IDentalTreatmentItem>("DentalTreatmentItem", itemSchema);

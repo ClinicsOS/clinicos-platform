@@ -8,6 +8,8 @@ import { useToast } from "@/components/Toast";
 import DepthIcon from "@/components/DepthIcon";
 import Modal from "@/components/Modal";
 import { useSelectedPatient } from "@/store/patient";
+import { useAccess, useClinicDoctors } from "@/lib/access";
+import { newRequestId } from "@/lib/clinical/hooks";
 import { paidOf, type Invoice, type Patient } from "@/lib/types";
 import {
   IconCoin,
@@ -36,6 +38,9 @@ interface ItemRow {
   qty: string;
 }
 
+const curDoctorOf = (inv: Invoice) => (inv.doctorId && typeof inv.doctorId === "object" ? inv.doctorId._id : (inv.doctorId as string | null | undefined) || "");
+const docNameOf = (inv: Invoice) => (inv.doctorId && typeof inv.doctorId === "object" ? inv.doctorId.name : "");
+
 export default function InvoicesPage() {
   const { t } = useI18n();
   const qc = useQueryClient();
@@ -43,8 +48,18 @@ export default function InvoicesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const selectPatient = useSelectedPatient((s) => s.select);
+  // PHASE 4 — treating doctor on invoices. Owner/receptionist see all invoices and can filter by doctor (incl. "unassigned" legacy ones);
+  // a doctor only ever receives their own invoices from the server. Only the owner may re-assign a doctor on an existing invoice.
+  const access = useAccess();
+  const { doctors: clinicDoctors } = useClinicDoctors(!access.isDoctor);
+  const [docFilter, setDocFilter] = useState("all");
+  const [newDoctor, setNewDoctor] = useState("");
+  const [editDoctor, setEditDoctor] = useState("");
+  const showDoctorCol = !access.isDoctor;
   const [creating, setCreating] = useState(false);
   const [paying, setPaying] = useState<Invoice | null>(null);
+  // PHASE 7 — one token per "Record payment" dialog: a double click / network retry can never record the payment twice.
+  const payRequestId = useMemo(() => (paying ? newRequestId() : ""), [paying?._id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [editing, setEditing] = useState<Invoice | null>(null);
   const [error, setError] = useState("");
 
@@ -131,7 +146,7 @@ export default function InvoicesPage() {
   }, [period]);
 
   const { data: rawInvoices, isFetching } = useQuery({
-    queryKey: ["invoices", period, statusFilter, search, sort === "total" ? "total" : "newest"],
+    queryKey: ["invoices", period, statusFilter, search, sort === "total" ? "total" : "newest", access.isDoctor ? "self" : docFilter],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (dateRange) {
@@ -141,6 +156,7 @@ export default function InvoicesPage() {
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (search) params.set("search", search);
       if (sort === "total") params.set("sort", "total");
+      if (!access.isDoctor && docFilter !== "all") params.set("doctorId", docFilter);
       return (await api.get<Invoice[]>(`/invoices?${params.toString()}`)).data;
     },
     placeholderData: (prev) => prev,
@@ -228,6 +244,7 @@ export default function InvoicesPage() {
     setPatientSearch("");
     setItems([{ description: "", price: "", qty: "1" }]);
     setDiscount("0");
+    setNewDoctor("");
     setError("");
   };
 
@@ -243,6 +260,8 @@ export default function InvoicesPage() {
             qty: Number(it.qty) || 1,
           })),
         discount: Number(discount) || 0,
+        // a doctor's invoices are attributed to themselves by the server; owner/receptionist may pick the treating doctor (optional)
+        ...(!access.isDoctor && newDoctor ? { doctorId: newDoctor } : {}),
       };
       return (await api.post<Invoice>("/invoices", body)).data;
     },
@@ -266,6 +285,7 @@ export default function InvoicesPage() {
           amount: Number(amount),
           method,
           note: paymentNote.trim() || undefined,
+          ...(payRequestId ? { requestId: payRequestId } : {}),
         })
       ).data;
     },
@@ -296,6 +316,7 @@ export default function InvoicesPage() {
             qty: Number(it.qty) || 1,
           })),
         discount: Number(editDiscount) || 0,
+        ...(access.isOwner && editDoctor !== curDoctorOf(editing!) ? { doctorId: editDoctor || null } : {}),
       };
       return (await api.put<Invoice>(`/invoices/${editing!._id}`, body)).data;
     },
@@ -312,9 +333,15 @@ export default function InvoicesPage() {
     },
   });
 
+  // POLISH — "collected this month" and "outstanding" are CLINIC financial totals: a receptionist does not get those cards at all (not rendered, not
+  // merely hidden). They still see each invoice's own total / paid / balance in the list below, which is what collecting a payment needs.
   const cards = [
-    { icon: <IconCoin size={16} />, v: `${summary.month.toFixed(2)} JD`, l: t("inv.month"), d: 0 },
-    { icon: <IconHourglass size={16} />, v: `${summary.outstanding.toFixed(2)} JD`, l: t("inv.out"), d: 0.8 },
+    ...(access.isReceptionist
+      ? []
+      : [
+          { icon: <IconCoin size={16} />, v: `${summary.month.toFixed(2)} JD`, l: t("inv.month"), d: 0 },
+          { icon: <IconHourglass size={16} />, v: `${summary.outstanding.toFixed(2)} JD`, l: t("inv.out"), d: 0.8 },
+        ]),
     { icon: <IconReceipt size={16} />, v: summary.count, l: t("inv.count"), d: 1.6 },
   ];
 
@@ -328,7 +355,7 @@ export default function InvoicesPage() {
       </div>
 
       {/* Summary cards with 3D depth icons */}
-      <div className="mb-3 grid grid-cols-3 gap-3">
+      <div className={`mb-3 grid gap-3 ${cards.length === 3 ? "grid-cols-3" : "grid-cols-1 sm:max-w-xs"}`}>
         {cards.map((c) => (
           <div key={c.l} className="card flex items-center gap-3 p-3.5">
             <DepthIcon delay={c.d}>{c.icon}</DepthIcon>
@@ -422,6 +449,7 @@ export default function InvoicesPage() {
         <select
           className="inp !w-auto !py-1.5 text-[11px]"
           value={statusFilter}
+          aria-label={t("inv.filterAll")}
           onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
         >
           <option value="all">{t("inv.filterAll")}</option>
@@ -441,6 +469,19 @@ export default function InvoicesPage() {
           <option value="balance">{t("inv.sortBalance")}</option>
         </select>
 
+        {!access.isDoctor && (
+          <select
+            className="inp !w-auto !py-1.5 text-[11px]"
+            value={docFilter}
+            onChange={(e) => setDocFilter(e.target.value)}
+            aria-label={t("md.filter.doctor")}
+          >
+            <option value="all">{t("md.filter.doctor")}: {t("md.filter.all")}</option>
+            {clinicDoctors.map((d) => <option key={d._id} value={d._id}>{d.name}</option>)}
+            <option value="unassigned">{t("md.filter.unassigned")}</option>
+          </select>
+        )}
+
         {search && invoices && (
           <span className="ms-auto text-[10px] text-mute">
             {invoices.length} {t("inv.results")}
@@ -450,9 +491,10 @@ export default function InvoicesPage() {
 
       {/* Table */}
       <div className="card overflow-x-auto">
-        <div className="flex min-w-[640px] border-b border-edge bg-card2 px-4 py-2 text-[9px] font-medium tracking-widest text-mute">
+        <div className="flex min-w-[720px] border-b border-edge bg-card2 px-4 py-2 text-[9px] font-medium tracking-widest text-mute">
           <span className="w-24 shrink-0">{t("inv.invoice")}</span>
           <span className="flex-[1.2]">{t("pt.patient")}</span>
+          {showDoctorCol && <span className="w-28 shrink-0 uppercase">{t("md.invoice.doctor")}</span>}
           <span className="flex-1">{t("inv.paidTotal")}</span>
           <span className="w-20 shrink-0">{t("inv.status")}</span>
           <span className="w-44 shrink-0 text-end">{t("pt.actions")}</span>
@@ -491,7 +533,7 @@ export default function InvoicesPage() {
           const paid = paidOf(inv);
           const pct = inv.total ? Math.min(100, Math.round((paid / inv.total) * 100)) : 100;
           return (
-            <div key={inv._id} className="flex min-w-[640px] items-center border-b border-edge px-4 py-2.5 last:border-0">
+            <div key={inv._id} className="flex min-w-[720px] items-center border-b border-edge px-4 py-2.5 last:border-0">
               <span className="w-24 shrink-0 font-mono text-[10px] text-blue">
                 INV-{String(inv.invoiceNumber).padStart(4, "0")}
               </span>
@@ -512,6 +554,11 @@ export default function InvoicesPage() {
                   </span>
                 )}
               </span>
+              {showDoctorCol && (
+                <span className="w-28 shrink-0 truncate pe-2 text-[10px]">
+                  {docNameOf(inv) ? <span className="text-ink">{docNameOf(inv)}</span> : <span className="text-mute">{t("md.invoice.unassigned")}</span>}
+                </span>
+              )}
               <span className="flex-1 pe-3">
                 <span className="font-mono text-[10px] text-ink">
                   {paid.toFixed(2)} / {inv.total.toFixed(2)} JD
@@ -538,6 +585,7 @@ export default function InvoicesPage() {
                       }))
                     );
                     setEditDiscount(String(inv.discount));
+                    setEditDoctor(curDoctorOf(inv));
                     setEditError("");
                   }}
                   className="btn-ghost whitespace-nowrap !px-2.5 !py-1 text-[10px]"
@@ -600,6 +648,18 @@ export default function InvoicesPage() {
               )}
             </div>
           )}
+
+          {!access.isDoctor && (
+            <>
+              <label className="lbl">{t("md.invoice.doctorOptional")}</label>
+              <select className="inp mb-1" value={newDoctor} onChange={(e) => setNewDoctor(e.target.value)}>
+                <option value="">{t("md.invoice.noDoctor")}</option>
+                {clinicDoctors.map((d) => <option key={d._id} value={d._id}>{d.name}</option>)}
+              </select>
+              <p className="mb-3 text-[10px] text-mute">{t("md.invoice.doctorHint")}</p>
+            </>
+          )}
+          {access.isDoctor && <p className="mb-3 text-[10px] text-mute">{t("md.invoice.doctorSelf")}</p>}
 
           <label className="lbl">{t("inv.items")}</label>
           {items.map((it, i) => (
@@ -677,6 +737,19 @@ export default function InvoicesPage() {
             <p className="mb-3 rounded-lg bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
               {t("inv.editPaidWarning").replace("{amount}", String(editPaidSoFar))}
             </p>
+          )}
+
+          {access.isOwner && (
+            <>
+              <label className="lbl">{t("md.invoice.doctor")}</label>
+              <select className="inp mb-3" value={editDoctor} onChange={(e) => setEditDoctor(e.target.value)}>
+                <option value="">{t("md.invoice.unassigned")}</option>
+                {editDoctor && !clinicDoctors.some((d) => d._id === editDoctor) && editing && (
+                  <option value={editDoctor}>{docNameOf(editing)}</option>
+                )}
+                {clinicDoctors.map((d) => <option key={d._id} value={d._id}>{d.name}</option>)}
+              </select>
+            </>
           )}
 
           <label className="lbl">{t("inv.items")}</label>

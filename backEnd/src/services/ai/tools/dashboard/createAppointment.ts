@@ -5,6 +5,8 @@ import { User } from "../../../../models/User";
 import { Clinic } from "../../../../models/Clinic";
 import type { AIToolDefinition } from "../../AIProvider";
 import type { ToolContext } from "../types";
+import { scopeOf, assertWritableDoctor } from "../../../../auth/policy";
+import { checkDoctorTiming } from "../../../doctorSchedule";
 import {
   checkAppointmentTiming,
   checkAppointmentPlanCap,
@@ -50,6 +52,7 @@ export async function createAppointmentExecute(
 ): Promise<Record<string, unknown>> {
   if (!ctx.clinicId) return { error: "Not authenticated" };
   const input = inputSchema.parse(rawInput);
+  assertWritableDoctor(scopeOf(ctx, "appointments"), input.doctorId); // PHASE 4 — a doctor books only for themself
 
   const startAt = new Date(input.startAt);
 
@@ -68,6 +71,8 @@ export async function createAppointmentExecute(
   // working-hours fit, break window.
   const timing = checkAppointmentTiming(clinic, startAt, duration);
   if (timing) return { error: timing.message, code: timing.code };
+  const doctorTiming = checkDoctorTiming(doctor.workingHours, startAt, duration); // PHASE 4 — the doctor's own hours
+  if (doctorTiming) return { error: doctorTiming.message, code: doctorTiming.code };
 
   // Same trial appointment cap as the human dashboard flow.
   const count = await Appointment.countDocuments({ clinicId: ctx.clinicId });
@@ -86,6 +91,7 @@ export async function createAppointmentExecute(
     startAt,
     duration,
     source: "dashboard",
+    createdBy: ctx.userId,
     visitType: input.visitType,
     procedureNote: input.visitType === "procedure" ? input.procedureNote : undefined,
   });

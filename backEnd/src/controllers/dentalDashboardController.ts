@@ -8,6 +8,9 @@ import { DentalTreatmentSession } from "../models/DentalTreatmentSession";
 import { DentalToothEvent } from "../models/DentalToothEvent";
 import { getAmmanTodayRange } from "../utils/timezone";
 import { loadBillingViewsForClinic } from "../services/dentalBilling";
+import { Invoice } from "../models/Invoice";
+import { resolveDataScope, doctorMatch } from "../auth/policy";
+import { resolveTreatingDoctors } from "../services/doctorAttribution";
 
 /**
  * GET /api/dental/dashboard — one summary read for the Dentistry operational dashboard.
@@ -29,9 +32,12 @@ const LIMIT = 8;
 export const getDentalDashboard = asyncHandler(async (req: Request, res: Response) => {
   const clinicId = new mongoose.Types.ObjectId(req.clinicId);
   const { start: dayStart, end: dayEnd, dateStr } = getAmmanTodayRange(); // Asia/Amman wall-clock day, same helper reminders already use
+  // PHASE 4 — a doctor's "Today" is their own schedule (the shared clinical overview below stays clinic-wide); owner / receptionist see all.
+  const apptScope = resolveDataScope(req, "appointments");
+  const restrictTo = apptScope.level === "self" ? apptScope.userId : undefined;
 
   // ---------- Today (existing Appointment/Visit source of truth; a "blocked" slot is not a patient visit) ----------
-  const todaysAppts = (await Appointment.find({ clinicId, type: "appointment", startAt: { $gte: dayStart, $lte: dayEnd } })
+  const todaysAppts = (await Appointment.find({ clinicId, type: "appointment", ...doctorMatch(apptScope), startAt: { $gte: dayStart, $lte: dayEnd } })
     .sort({ startAt: 1 })
     .populate("doctorId", "name")
     .select("patientId doctorId startAt status source")
@@ -68,8 +74,14 @@ export const getDentalDashboard = asyncHandler(async (req: Request, res: Respons
 
   // ---------- Needs Billing: COMPLETED items, eligibility from the ONE authoritative billing service (not re-derived here) ----------
   const completedCandidates = (await DentalTreatmentItem.find({ clinicId, status: "completed" }).sort({ updatedAt: -1 }).limit(40).lean()) as any[];
-  const billingViews = await loadBillingViewsForClinic(clinicId, completedCandidates);
-  const needsBillingItems = completedCandidates.filter((i) => billingViews.get(String(i._id))?.state === "none").slice(0, LIMIT);
+  const billingViews = await loadBillingViewsForClinic(clinicId, completedCandidates, restrictTo);
+  let needsBillingAll = completedCandidates.filter((i) => billingViews.get(String(i._id))?.state === "none");
+  if (restrictTo) {
+    // a doctor is only offered treatments THEY completed (the only ones they may bill); one batched lookup, no per-item query
+    const treating = await resolveTreatingDoctors(clinicId, needsBillingAll);
+    needsBillingAll = needsBillingAll.filter((i) => treating.get(String(i._id)) === restrictTo);
+  }
+  const needsBillingItems = needsBillingAll.slice(0, LIMIT);
 
   // ---------- Recent Activity: diagnoses, treatment status changes, and invoicing — merged and trimmed ----------
   const recentDiagnoses = (await DentalToothEvent.find({ clinicId, category: "diagnosis" }).sort({ createdAt: -1 }).limit(LIMIT).lean()) as any[];
@@ -77,6 +89,12 @@ export const getDentalDashboard = asyncHandler(async (req: Request, res: Respons
   const recentBilled = (await DentalTreatmentItem.find({ clinicId, "billing.state": "invoiced" }).sort({ "billing.at": -1 }).limit(LIMIT).lean()) as any[];
 
   type Feed = { at: Date; kind: string; patientId: string; procedureCode?: string; customName?: string; targetType?: string; toothNumbers?: string[]; invoiceNumber?: number; amount?: number };
+  // PHASE 4 — a doctor sees the invoiced AMOUNT only of invoices attributed to them (one batched lookup, only for that role).
+  let ownInvoiceIds: Set<string> | null = null;
+  if (restrictTo && recentBilled.length) {
+    const invs = (await Invoice.find({ _id: { $in: recentBilled.map((i) => i.billing.invoiceId) }, clinicId, doctorId: restrictTo }).select("_id").lean()) as any[];
+    ownInvoiceIds = new Set(invs.map((v) => String(v._id)));
+  } else if (restrictTo) ownInvoiceIds = new Set();
   const feed: Feed[] = [
     ...recentDiagnoses.map((e) => ({ at: e.createdAt as Date, kind: "diagnosis", patientId: String(e.patientId), procedureCode: e.code, toothNumbers: [e.fdi] })),
     ...recentStatusItems.map((i) => ({
@@ -84,7 +102,7 @@ export const getDentalDashboard = asyncHandler(async (req: Request, res: Respons
       kind: i.status === "in_progress" ? "treatment_started" : i.status === "completed" ? "treatment_completed" : "treatment_cancelled",
       patientId: String(i.patientId), procedureCode: i.procedureCode, customName: i.customName ?? undefined, targetType: i.targetType, toothNumbers: i.toothNumbers,
     })),
-    ...recentBilled.map((i) => ({ at: i.billing.at as Date, kind: "invoiced", patientId: String(i.patientId), procedureCode: i.procedureCode, customName: i.customName ?? undefined, targetType: i.targetType, toothNumbers: i.toothNumbers, invoiceNumber: i.billing.invoiceNumber, amount: i.billing.amount })),
+    ...recentBilled.map((i) => ({ at: i.billing.at as Date, kind: "invoiced", patientId: String(i.patientId), procedureCode: i.procedureCode, customName: i.customName ?? undefined, targetType: i.targetType, toothNumbers: i.toothNumbers, invoiceNumber: i.billing.invoiceNumber, ...(ownInvoiceIds && !ownInvoiceIds.has(String(i.billing.invoiceId)) ? {} : { amount: i.billing.amount }) })),
   ]
     .sort((a, b) => +new Date(b.at) - +new Date(a.at))
     .slice(0, LIMIT);

@@ -37,6 +37,7 @@ export default function ForgotPasswordPage() {
         </button>
         <button
           onClick={toggle}
+          aria-label={lang === "ar" ? "تبديل المظهر" : "Toggle theme"}
           className="rounded-full border border-sky/40 p-1 text-[color:var(--hero-text-mute)]"
         >
           {theme === "dark" ? <IconSun size={12} /> : <IconMoon size={12} />}

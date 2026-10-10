@@ -1,6 +1,8 @@
 import { Appointment } from "../../../../models/Appointment";
 import type { AIToolDefinition } from "../../AIProvider";
 import type { ToolContext } from "../types";
+import { scopeOf, doctorMatch } from "../../../../auth/policy";
+import { clinicTodayRange } from "../../../../utils/timezone";
 
 export const listTodayAppointmentsDefinition: AIToolDefinition = {
   name: "listTodayAppointments",
@@ -21,17 +23,17 @@ export async function listTodayAppointmentsExecute(
 ): Promise<Record<string, unknown>> {
   if (!ctx.clinicId) return { error: "Not authenticated" };
 
-  const todayStart = new Date();
-  todayStart.setUTCHours(0, 0, 0, 0);
-  const todayEnd = new Date(todayStart);
-  todayEnd.setUTCDate(todayEnd.getUTCDate() + 1);
+  // PHASE 7 — "today" = the clinic-local calendar day, not the UTC day.
+  const { start: todayStart, end: todayEnd } = clinicTodayRange();
 
   const filter: Record<string, unknown> = {
     clinicId: ctx.clinicId,
     type: { $ne: "blocked" },
     startAt: { $gte: todayStart, $lt: todayEnd },
   };
-  if (typeof input.doctorId === "string" && input.doctorId) filter.doctorId = input.doctorId;
+  // PHASE 4 — same rule as the schedule board: a doctor's scope is always their own appointments.
+  const scope = scopeOf(ctx, "appointments", typeof input.doctorId === "string" ? input.doctorId : undefined);
+  Object.assign(filter, doctorMatch(scope));
 
   const appointments = await Appointment.find(filter)
     .sort({ startAt: 1 })

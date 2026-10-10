@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { safeErrorText } from "../utils/logSafe";
 import mongoose from "mongoose";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
@@ -7,6 +8,7 @@ import { User, generateToken, hashToken } from "../models/User";
 import { asyncHandler } from "../middleware/errorHandler";
 import { PLANS } from "../config/plans";
 import { SPECIALTY_IDS } from "../config/specialties";
+import { accessFor } from "../auth/policy";
 import {
   sendVerificationEmail,
   sendPasswordResetEmail,
@@ -126,7 +128,7 @@ export const registerClinic = asyncHandler(async (req: Request, res: Response) =
 
     // Fire-and-forget: don't block the sign-up response on the email delivery
     sendVerificationEmail(data.email, data.ownerName, verifyPlain).catch((err) =>
-      console.error("[registerClinic] failed to send verification email:", err)
+      console.error("[registerClinic] failed to send verification email:", safeErrorText(err))
     );
 
     // Fire-and-forget: let the platform admin know a new clinic just signed up
@@ -212,7 +214,7 @@ export const forgotPassword = asyncHandler(async (req: Request, res: Response) =
     await user.save();
 
     sendPasswordResetEmail(user.email, user.name, plain).catch((err) =>
-      console.error("[forgotPassword] failed to send reset email:", err)
+      console.error("[forgotPassword] failed to send reset email:", safeErrorText(err))
     );
   }
 
@@ -362,5 +364,8 @@ export const me = asyncHandler(async (req: Request, res: Response) => {
     email: user.email,
     role: user.role,
     emailVerified: user.emailVerified,
+    // PHASE 4 — what this role may see, from the server's access matrix (auth/policy.ts). The UI uses it only to decide what to
+    // SHOW; every endpoint still enforces the same table on its own.
+    access: accessFor(user.role),
   });
 });

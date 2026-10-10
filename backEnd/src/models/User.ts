@@ -9,6 +9,17 @@ export interface IUser extends Document {
   password: string;
   role: "owner" | "doctor" | "receptionist";
   phone?: string;
+  // PHASE 4 — OPTIONAL per-doctor working hours (same shape as Clinic.workingHours, always 7 entries when present).
+  // Absent = the doctor simply follows the clinic's hours. When present they can only NARROW the clinic's hours: the clinic's
+  // own rules (closed days, hours, breaks) always still apply, and the doctor's are checked in addition.
+  workingHours?: {
+    day: number;
+    isOpen: boolean;
+    from: string;
+    to: string;
+    breakFrom?: string;
+    breakTo?: string;
+  }[];
   isActive: boolean;
   emailVerified: boolean;
   // Bumped whenever we need to invalidate every previously-issued JWT for this
@@ -51,6 +62,22 @@ const userSchema = new Schema<IUser>(
       required: true,
     },
     phone: { type: String },
+    workingHours: {
+      type: [
+        new Schema(
+          {
+            day: { type: Number, min: 0, max: 6, required: true },
+            isOpen: { type: Boolean, default: true },
+            from: { type: String, default: "09:00" },
+            to: { type: String, default: "17:00" },
+            breakFrom: { type: String },
+            breakTo: { type: String },
+          },
+          { _id: false }
+        ),
+      ],
+      default: undefined, // absent (not []) for every existing user
+    },
     isActive: { type: Boolean, default: true },
     emailVerified: { type: Boolean, default: false },
     tokenVersion: { type: Number, default: 0 },
