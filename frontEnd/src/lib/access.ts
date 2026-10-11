@@ -9,7 +9,7 @@ import { useAuth } from "@/store/auth";
 export type AccessLevel = "clinic" | "self" | "none";
 export type AccessResource =
   | "appointments" | "patients" | "patientClinical" | "clinicalWrite" | "invoices" | "payments"
-  | "reports" | "reportsClinic" | "dashboardCounts" | "dashboardRevenue" | "expenses" | "expensesManage" | "staff" | "clinicSettings";
+  | "reports" | "reportsClinic" | "dashboardCounts" | "dashboardRevenue" | "expenses" | "expensesManage" | "staff" | "clinicSettings" | "internalChat";
 export type AccessMap = Partial<Record<AccessResource, AccessLevel>>;
 
 const T = (owner: AccessLevel, doctor: AccessLevel, receptionist: AccessLevel) => ({ owner, doctor, receptionist });
@@ -29,6 +29,8 @@ const FALLBACK: Record<AccessResource, Record<string, AccessLevel>> = {
   expensesManage: T("clinic", "none", "none"),
   staff: T("clinic", "none", "none"),
   clinicSettings: T("clinic", "none", "none"),
+  // ClinicOS Connect: every role may use the chat (which conversations is decided by membership on the server); the PRO plan is checked separately.
+  internalChat: T("clinic", "clinic", "clinic"),
 };
 
 export function useAccess() {

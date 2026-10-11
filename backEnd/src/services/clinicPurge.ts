@@ -26,6 +26,9 @@ import { ExpenseReminderLog } from "../models/ExpenseReminderLog";
 import { ReminderLog } from "../models/ReminderLog";
 import { SubscriptionReminderLog } from "../models/SubscriptionReminderLog";
 import { Conversation } from "../models/Conversation";
+import { ConnectConversation } from "../models/ConnectConversation";
+import { ConnectMessage } from "../models/ConnectMessage";
+import { ConnectReadState } from "../models/ConnectReadState";
 
 type Finder = { find: (f: any) => any; deleteMany: (f: any) => Promise<unknown> };
 
@@ -52,6 +55,10 @@ const CLINIC_SYSTEM_MODELS: Finder[] = [
   ReminderLog as unknown as Finder,
   SubscriptionReminderLog as unknown as Finder,
   Conversation as unknown as Finder,
+  // ClinicOS Connect — internal staff chat. Purged with the clinic; deliberately NOT in the owner export (private DMs are not the owner's to export).
+  ConnectConversation as unknown as Finder,
+  ConnectMessage as unknown as Finder,
+  ConnectReadState as unknown as Finder,
 ];
 
 /** Delete every clinic-owned collection above (the callers keep deleting the core ones + loyalty themselves). */

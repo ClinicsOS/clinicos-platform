@@ -12,7 +12,7 @@ type PlanMap = Record<string, Pick<ToothVisualState, "plan" | "treated" | "treat
  * dentition, which has no 3D model yet. It drives the SAME selection + panel + API as the 3D view.
  * Rows are in clinical view order (viewer-left -> viewer-right): 18…11 | 21…28 and 48…41 | 31…38.
  */
-function Tooth({ fdi, st, pv, selected, onSelect }: { fdi: string; st?: ToothClinicalState; pv?: PlanMap[string]; selected: boolean; onSelect: (f: string) => void }) {
+function Tooth({ fdi, st, pv, selected, onSelect, title }: { fdi: string; st?: ToothClinicalState; pv?: PlanMap[string]; selected: boolean; onSelect: (f: string) => void; title?: string }) {
   const { t } = useI18n();
   const meta = getToothMeta(fdi)!;
   const hasDx = !!st?.diagnoses.length;
@@ -30,7 +30,7 @@ function Tooth({ fdi, st, pv, selected, onSelect }: { fdi: string; st?: ToothCli
       type="button"
       onClick={() => onSelect(fdi)}
       aria-pressed={selected}
-      title={`${fdi} — ${toothName(meta, t)}`}
+      title={title ?? `${fdi} — ${toothName(meta, t)}`}
       className={`relative flex h-11 w-8 shrink-0 flex-col items-center justify-center rounded-md border text-[10px] font-mono transition-colors sm:w-9 ${
         selected ? "border-teal bg-teal/20 text-teal" : "border-edge bg-card2 text-ink hover:border-sky"
       } ${st?.missing ? "border-dashed opacity-50 line-through" : ""} ${restored ? "!border-slate-300/70" : ""}`}
@@ -56,20 +56,20 @@ function Tooth({ fdi, st, pv, selected, onSelect }: { fdi: string; st?: ToothCli
   );
 }
 
-function ArchRow({ fdis, states, plan, selected, onSelect }: { fdis: string[]; states: Record<string, ToothClinicalState>; plan?: PlanMap; selected: string | null; onSelect: (f: string) => void }) {
+function ArchRow({ fdis, states, plan, selected, onSelect, titleFor }: { fdis: string[]; states: Record<string, ToothClinicalState>; plan?: PlanMap; selected: string | null; onSelect: (f: string) => void; titleFor?: (f: string) => string }) {
   const half = fdis.length / 2;
   return (
     <div className="flex items-center justify-center gap-1" dir="ltr">
       {fdis.map((f, i) => (
         <span key={f} className={`flex ${i === half ? "ms-2 border-s border-edge ps-2" : ""}`}>
-          <Tooth fdi={f} st={states[f]} pv={plan?.[f]} selected={selected === f} onSelect={onSelect} />
+          <Tooth fdi={f} st={states[f]} pv={plan?.[f]} selected={selected === f} onSelect={onSelect} title={titleFor?.(f)} />
         </span>
       ))}
     </div>
   );
 }
 
-export default function ToothGrid2D({ dentition, states, plan, selected, onSelect }: { dentition: DentitionType; states: Record<string, ToothClinicalState>; plan?: PlanMap; selected: string | null; onSelect: (fdi: string) => void }) {
+export default function ToothGrid2D({ dentition, states, plan, selected, onSelect, titleFor }: { dentition: DentitionType; states: Record<string, ToothClinicalState>; plan?: PlanMap; selected: string | null; onSelect: (fdi: string) => void; titleFor?: (fdi: string) => string }) {
   const { t } = useI18n();
   const sets: Array<{ key: "permanent" | "primary"; label: string }> = [];
   if (dentition !== "primary") sets.push({ key: "permanent", label: t("dn.permanentTeeth") });
@@ -79,8 +79,8 @@ export default function ToothGrid2D({ dentition, states, plan, selected, onSelec
       {sets.map((s) => (
         <div key={s.key} className="min-w-max space-y-1.5">
           {sets.length > 1 && <div className="text-center text-[10px] font-medium tracking-wide text-mute">{s.label}</div>}
-          <ArchRow fdis={jawRowFdis("upper", s.key)} states={states} plan={plan} selected={selected} onSelect={onSelect} />
-          <ArchRow fdis={jawRowFdis("lower", s.key)} states={states} plan={plan} selected={selected} onSelect={onSelect} />
+          <ArchRow fdis={jawRowFdis("upper", s.key)} states={states} plan={plan} selected={selected} onSelect={onSelect} titleFor={titleFor} />
+          <ArchRow fdis={jawRowFdis("lower", s.key)} states={states} plan={plan} selected={selected} onSelect={onSelect} titleFor={titleFor} />
         </div>
       ))}
     </div>

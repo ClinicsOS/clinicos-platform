@@ -1,11 +1,14 @@
 import "dotenv/config";
+import http from "http";
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import { connectDB } from "./config/db";
 import { errorHandler } from "./middleware/errorHandler";
 import { securityHeaders } from "./middleware/securityHeaders";
-import { assertProductionConfig } from "./config/env"; // Phase 10 — refuse to start production with a missing / weak secret
+import { assertProductionConfig } from "./config/env";
+import { allowedOrigins } from "./config/origins"; // one definition of "which browser origins may call the API" (HTTP CORS and Connect realtime)
+import { attachConnectRealtime } from "./services/connect/realtime"; // C3 — Connect realtime delivery layer (Socket.IO) // Phase 10 — refuse to start production with a missing / weak secret
 
 import authRoutes from "./routes/authRoutes";
 import userRoutes from "./routes/userRoutes";
@@ -27,6 +30,10 @@ import dermRoutes from "./routes/dermRoutes"; // NEW — Dermatology & Aesthetic
 import { repairLoyaltyTransactionIndexes } from "./models/LoyaltyTransaction"; // NEW — one-time ledger index repair (see model)
 import loyaltyRoutes from "./routes/loyaltyRoutes"; // NEW — ClinicOS Loyalty engine (paid add-on; entitlement-gated server-side)
 import loyaltyPublicRoutes from "./routes/loyaltyPublicRoutes"; // NEW — public patient Loyalty (slug + short-lived Loyalty-only session)
+import connectRoutes from "./routes/connectRoutes"; // NEW — ClinicOS Connect (C1): internal staff chat, Pro-only, enforced server-side
+import { ConnectConversation } from "./models/ConnectConversation";
+import { ConnectMessage } from "./models/ConnectMessage";
+import { ConnectReadState } from "./models/ConnectReadState";
 
 /** Phase 10 — Loyalty staff responses hold members' balances and activity: never let a browser / proxy keep them. */
 const noStore = (_req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -47,11 +54,7 @@ app.use(securityHeaders);
 // is allowed (rather than the previous `true`, which reflected any origin).
 // Development: the local Next.js dev server is also allowed, so local work
 // keeps working without needing FRONTEND_URL set.
-const frontendUrl = process.env.FRONTEND_URL;
-const isProduction = process.env.NODE_ENV === "production";
-const corsOrigin: string[] | false = isProduction
-  ? (frontendUrl ? [frontendUrl] : false)
-  : (frontendUrl ? [frontendUrl, "http://localhost:3000"] : ["http://localhost:3000"]);
+const corsOrigin = allowedOrigins();
 app.use(
   cors({
     origin: corsOrigin,
@@ -82,6 +85,7 @@ app.use("/api/expenses", expenseRoutes); // NEW — clinic & owner expenses
 app.use("/api/dental", dentalRoutes); // NEW — Dentistry module (specialty-gated server-side)
 app.use("/api/derm", dermRoutes); // NEW — Dermatology & Aesthetics module (specialty-gated server-side)
 app.use("/api/loyalty", noStore, loyaltyRoutes); // NEW — ClinicOS Loyalty (requires the active paid add-on)
+app.use("/api/connect", noStore, connectRoutes); // NEW — ClinicOS Connect C1 (Pro plan; staff messages are never cached)
 
 app.use(errorHandler);
 
@@ -94,8 +98,21 @@ const start = async () => {
   await repairLoyaltyTransactionIndexes()
     .then((d) => d.length && console.log("[loyalty] repaired legacy ledger indexes:", d.join(", ")))
     .catch((e) => console.error("[loyalty] ledger index repair skipped:", e instanceof Error ? e.message : e));
-  app.listen(PORT, () => {
+  // ClinicOS Connect: make sure the unique indexes (one direct conversation per pair, one Clinic Team per clinic) exist BEFORE serving traffic.
+  await Promise.all([ConnectConversation.init(), ConnectMessage.init(), ConnectReadState.init()]).catch((e) =>
+    console.error("[connect] index build failed:", e instanceof Error ? e.message : e),
+  );
+  // C3: Connect realtime shares this HTTP server (and its port); it only DELIVERS what the C1 HTTP services have already persisted.
+  const server = http.createServer(app);
+  const realtime = attachConnectRealtime(server);
+  server.listen(PORT, () => {
     console.log(`🚀 ClinicOS API running on port ${PORT}`);
+  });
+  // Render sends SIGTERM on deploy / restart: close sockets cleanly (clients reconnect and reconcile over HTTP), then stop.
+  process.once("SIGTERM", () => {
+    const force = setTimeout(() => process.exit(0), 8000);
+    force.unref();
+    (realtime ? realtime.close() : Promise.resolve()).finally(() => server.close(() => process.exit(0)));
   });
 };
 

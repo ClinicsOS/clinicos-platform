@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { IconAlertTriangle, IconRefresh } from "@tabler/icons-react";
 import { useI18n } from "@/lib/i18n";
@@ -9,6 +9,8 @@ import { useToast } from "@/components/Toast";
 import { getToothMeta, isValidFdiFor, resolveCurrentTeeth, slotVariants, toothName, type DentitionType } from "@/lib/dental/fdi";
 import { deriveToothStates, emptyVisualState, toVisualState } from "@/lib/dental/toothStates";
 import { applyPlanToVisual } from "@/lib/dental/planVisual";
+import { buildToothSummary, indexTreatmentsByTooth, treatmentsOf } from "@/lib/dental/toothSummary";
+import { procLabel } from "@/lib/dental/procedures";
 import { CROWN_CSS, FILLING_CSS } from "@/lib/dental/visualTokens";
 import type { ToothVisualState } from "@/lib/dental/types";
 import { useDentalRecord, useSetCurrentTeeth, useSetDentition, useTreatmentPlan } from "@/lib/dental/hooks";
@@ -17,6 +19,7 @@ import type { DentalEngine } from "./engine/DentalEngine";
 import type { Mode, PresetName } from "./engine/interactionMachine";
 import DentalScene3D from "./DentalScene3D";
 import ToothPanel from "./ToothPanel";
+import ToothHoverSummary from "./ToothHoverSummary";
 import ToothGrid2D from "./ToothGrid2D";
 import TreatmentEditor, { type EditorPrefill } from "./treatment/TreatmentEditor";
 import AddToInvoiceModal from "./treatment/AddToInvoiceModal";
@@ -48,6 +51,9 @@ export default function DentalChartTab({ patientId, onOpenPlan }: { patientId: s
   const canWrite = role === "owner" || role === "doctor";
   const desktop = useMedia("(min-width: 1024px)");
   const reduced = useMedia("(prefers-reduced-motion: reduce)");
+  // Hover is an ENHANCEMENT for mouse-like pointers only. Touch / pen-less devices never get a fake hover: tapping a tooth opens the same
+  // information in the tooth panel (the primary interaction on every device).
+  const canHover = useMedia("(hover: hover) and (pointer: fine)");
 
   const q = useDentalRecord(patientId);
   const setDent = useSetDentition(patientId);
@@ -59,6 +65,8 @@ export default function DentalChartTab({ patientId, onOpenPlan }: { patientId: s
   const current = q.data?.record.currentTeeth ?? null;
 
   const states = useMemo(() => deriveToothStates(events ?? []), [events]);
+  // ONE in-memory index of the (already loaded) Treatment Plan by tooth: hover and the tooth panel both read it, no request per tooth / per hover.
+  const byTooth = useMemo(() => indexTreatmentsByTooth(planItems), [planItems]);
   const visual = useMemo(() => {
     const out: Record<string, ToothVisualState> = {};
     Object.keys(states).forEach((k) => (out[k] = toVisualState(states[k])));
@@ -149,7 +157,7 @@ export default function DentalChartTab({ patientId, onOpenPlan }: { patientId: s
 
   const toothEvents = useMemo(() => (selected ? (events ?? []).filter((e) => e.fdi === selected) : []), [events, selected]);
   const focusing = mode === "ENTERING_FOCUS" || mode === "FOCUS";
-  const toothPlan = useMemo(() => (selected ? (planItems ?? []).filter((i) => i.toothNumbers.includes(selected)) : []), [planItems, selected]);
+  const toothPlan = useMemo(() => (selected ? treatmentsOf(byTooth, selected) : []), [byTooth, selected]);
   const toothTimeline = useMemo(() => (selected ? (planQ.data?.timeline ?? []).filter((e) => e.toothNumbers.includes(selected)) : []), [planQ.data, selected]);
   const [editor, setEditor] = useState<EditorPrefill | null>(null);
   const [billingItem, setBillingItem] = useState<TreatmentItem | null>(null);
@@ -157,20 +165,51 @@ export default function DentalChartTab({ patientId, onOpenPlan }: { patientId: s
   // composition offset: keeps the subject left of the side panel (desktop only)
   const viewShift = use3D && desktop && selected ? (PANEL_W + 12) / 2 : 0;
 
+  // Hover summary position. Imperative (no React render per pointer move): follow the cursor, keep the card inside the chart and out of the
+  // side panel by flipping to the other side of the cursor when it would overflow. Re-run when the card's content (so its size) changes.
+  const pointer = useRef({ x: 0, y: 0 });
+  const panelBlock = useRef(0);
+  panelBlock.current = selected && desktop ? PANEL_W + 24 : 0;
+  const placeTip = useCallback(() => {
+    const tip = tipRef.current, stage = stageRef.current;
+    if (!tip || !stage) return;
+    const r = stage.getBoundingClientRect();
+    const w = tip.offsetWidth, h = tip.offsetHeight, M = 8, GAP = 14;
+    const px = pointer.current.x - r.left, py = pointer.current.y - r.top;
+    const maxX = r.width - panelBlock.current - M;
+    let x = px + GAP, y = py + GAP + 2;
+    if (x + w > maxX) x = px - GAP - w; // flip to the left of the cursor
+    if (y + h > r.height - M) y = py - GAP - h; // flip above the cursor
+    x = Math.max(M, Math.min(x, maxX - w));
+    y = Math.max(M, Math.min(y, r.height - h - M));
+    tip.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+  }, []);
+
   const handlers = useMemo(() => ({
     onSelect: (f: string | null) => setSelected(f),
     onHover: (f: string | null, x: number, y: number) => {
       setHover((p) => (p === f ? p : f));
-      if (tipRef.current && stageRef.current && f) {
-        const r = stageRef.current.getBoundingClientRect();
-        tipRef.current.style.transform = `translate(${x - r.left + 14}px, ${y - r.top + 16}px)`;
-      }
+      if (f) { pointer.current = { x, y }; placeTip(); }
     },
     onMode: (m: Mode) => setMode(m),
     onJaw: (a: number) => setJawOpen(a > 0.2),
     onReady: () => setSceneReady(true),
     onFailure: (msg: string) => { setGl("failed"); setGlReason(msg); setSceneReady(false); },
-  }), []);
+  }), [placeTip]);
+
+  const hoverSummary = useMemo(() => (hover ? buildToothSummary(hover, states[hover]?.diagnoses, byTooth) : null), [hover, states, byTooth]);
+  // the card is mounted AFTER the hover state changes: place it before the browser paints so it never flashes in the corner
+  useLayoutEffect(() => { if (hoverSummary) placeTip(); }, [hoverSummary, placeTip, selected, desktop, planQ.isSuccess]);
+
+  // 2D fallback (no WebGL): the same summary as plain text in the native tooltip
+  const titleFor = useCallback((fdi: string) => {
+    const meta = getToothMeta(fdi);
+    const head = meta ? `${fdi} — ${toothName(meta, t)}` : fdi;
+    if (!planQ.isSuccess) return head;
+    const list = treatmentsOf(byTooth, fdi);
+    if (!list.length) return `${head}\n${t("dn.tt.none")}`;
+    return `${head}\n${list.slice(0, 4).map((x) => `• ${procLabel(t, x)} — ${t(`dn.ps.${x.status}`)}`).join("\n")}${list.length > 4 ? `\n${t("dn.tt.more").replace("{n}", String(list.length - 4))}` : ""}`;
+  }, [byTooth, planQ.isSuccess, t]);
 
   // ---------------- states: forbidden / loading / error ----------------
   if (q.isError) {
@@ -277,7 +316,7 @@ export default function DentalChartTab({ patientId, onOpenPlan }: { patientId: s
         </div>
         <div className="grid gap-3 lg:grid-cols-[1fr_300px]">
           <div className="card min-w-0 space-y-3 p-3">
-            <ToothGrid2D dentition={dentition} states={states} plan={visual} selected={selected} onSelect={selectFdi} />
+            <ToothGrid2D dentition={dentition} states={states} plan={visual} selected={selected} onSelect={selectFdi} titleFor={titleFor} />
             <div data-testid="chart-legend-2d" className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-edge pt-2.5 text-[10px] text-mute">
               <span className="text-[9px] tracking-wider">{t("dn.legend").toUpperCase()}</span>
               {legendRows}
@@ -293,7 +332,6 @@ export default function DentalChartTab({ patientId, onOpenPlan }: { patientId: s
   }
 
   // ---------------- 3D workspace (Permanent / Primary / Mixed) ----------------
-  const hoverMeta = hover ? getToothMeta(hover) : undefined;
   return (
     <div className="space-y-3">
       {header}
@@ -307,12 +345,7 @@ export default function DentalChartTab({ patientId, onOpenPlan }: { patientId: s
 
         {!sceneReady && <div className="absolute inset-0 flex items-center justify-center text-sm text-[#8FB3CC] animate-pulse">{t("dn.loading3d")}</div>}
 
-        {hoverMeta && (
-          <div ref={tipRef} className="pointer-events-none absolute left-0 top-0 z-10 rounded-lg border border-white/10 bg-[#06263F]/90 px-2.5 py-1.5 text-[11px] text-[#E6F3FA] shadow-lg">
-            <div className="font-mono text-teal">{hoverMeta.fdi}</div>
-            <div>{toothName(hoverMeta, t)}</div>
-          </div>
-        )}
+        {canHover && hoverSummary && <ToothHoverSummary ref={tipRef} summary={hoverSummary} planReady={planQ.isSuccess} />}
 
         {sceneReady && (
           <div className="dn-ui-in pointer-events-none absolute left-3 top-3 hidden flex-col gap-1 rounded-lg border border-white/10 bg-[#06263F]/70 px-2.5 py-2 text-[10px] text-[#CFE9F2] md:flex">

@@ -19,6 +19,7 @@ export interface PlanLimits {
   whiteLabel: boolean;
   customBookingColor: boolean;
   aiAssistant: boolean;
+  internalChat: boolean; // ClinicOS Connect — Pro only (the server enforces it on every /api/connect request)
   supportSlaHours: number;
   trialDays: number;
 }

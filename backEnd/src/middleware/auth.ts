@@ -7,6 +7,8 @@ import { PLANS, type Plan, type PlanLimits } from "../config/plans";
 interface JwtPayload {
   userId: string;
   tokenVersion?: number;
+  /** seconds since epoch, set by jsonwebtoken from `expiresIn` (C5: the realtime layer enforces it on long-lived sockets). */
+  exp?: number;
 }
 
 /**
@@ -114,7 +116,7 @@ export const requireActivePlan = async (
  * Usage: requirePlanFeature("exports") or requirePlanFeature("invoicing")
  */
 export const requirePlanFeature =
-  (feature: keyof Pick<PlanLimits, "invoicing" | "reports" | "exports" | "whiteLabel" | "customBookingColor">) =>
+  (feature: keyof Pick<PlanLimits, "invoicing" | "reports" | "exports" | "whiteLabel" | "customBookingColor" | "internalChat">) =>
   async (req: Request, res: Response, next: NextFunction) => {
     const clinic = await Clinic.findById(req.clinicId);
     if (!clinic) return res.status(404).json({ message: "Clinic not found" });

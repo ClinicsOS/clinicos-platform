@@ -3,6 +3,7 @@ import { z } from "zod";
 import { Patient } from "../models/Patient";
 import { nextNumber, retryPause, NUMBER_ATTEMPTS } from "../services/numbering";
 import { asyncHandler } from "../middleware/errorHandler";
+import { patientSearchFilter } from "../services/patientSearch";
 import {
   MEDICAL_KEYS,
   BLOOD_TYPES,
@@ -14,9 +15,6 @@ import {
 // ===================================================================
 // Validation
 // ===================================================================
-
-/** Escapes user input so it can be used safely inside a RegExp. */
-const escapeRegex = (s: string) => s.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); // PHASE 7 — a NUL / control character makes MongoDB reject the pattern (was a 500)
 
 const optText = (max: number) => z.string().trim().max(max).optional();
 
@@ -245,21 +243,7 @@ export const listPatients = asyncHandler(async (req: Request, res: Response) => 
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = 20;
 
-  const filter: Record<string, any> = {
-    clinicId: req.clinicId,
-    isArchived: false,
-  };
-
-  if (search) {
-    // Escaped so characters like "(" or "+" can't crash the query.
-    const rx = new RegExp(escapeRegex(search), "i");
-    const or: Record<string, unknown>[] = [{ fullName: rx }, { phone: rx }, { email: rx }];
-    // Phone numbers are often stored with spaces ("079 123 4567") — match
-    // the digits even when the user types them without spaces.
-    const digits = search.replace(/\D/g, "");
-    if (digits.length >= 3) or.push({ phone: new RegExp(digits.split("").join("\\D*")) });
-    filter.$or = or;
-  }
+  const filter = patientSearchFilter(req.clinicId, search);
 
   const [patients, total] = await Promise.all([
     Patient.find(filter)

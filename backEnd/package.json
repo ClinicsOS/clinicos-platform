@@ -20,6 +20,7 @@
     "nodemailer": "^6.9.16",
     "otplib": "^13.5.0",
     "qrcode": "^1.5.4",
+    "socket.io": "^4.8.4",
     "zod": "^3.23.8"
   },
   "devDependencies": {
@@ -30,6 +31,7 @@
     "@types/jsonwebtoken": "^9.0.6",
     "@types/nodemailer": "^6.4.24",
     "@types/qrcode": "^1.5.6",
+    "socket.io-client": "^4.8.4",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.5.4"
   }

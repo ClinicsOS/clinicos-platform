@@ -46,6 +46,7 @@ export const RESOURCES = [
   "expensesManage", // PHASE 5 — create / edit / delete expenses, monthly bills, the owner's personal expenses, the month overview; owner only
   "staff", // create / edit / (de)activate staff, per-doctor working hours
   "clinicSettings", // clinic profile, working hours, export, delete
+  "internalChat", // CLINICOS CONNECT (C1) — may use the internal chat at all. Every role may; WHICH conversations is decided by membership (services/connect), never by role
 ] as const;
 export type Resource = (typeof RESOURCES)[number];
 
@@ -65,6 +66,7 @@ export const ACCESS: Readonly<Record<Resource, Readonly<Record<Role, AccessLevel
   expensesManage: { owner: "clinic", doctor: "none", receptionist: "none" },
   staff: { owner: "clinic", doctor: "none", receptionist: "none" },
   clinicSettings: { owner: "clinic", doctor: "none", receptionist: "none" },
+  internalChat: { owner: "clinic", doctor: "clinic", receptionist: "clinic" },
 };
 
 export const accessOf = (role: Role | undefined, resource: Resource): AccessLevel =>

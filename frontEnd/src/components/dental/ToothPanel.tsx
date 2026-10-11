@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { IconX, IconFocus2, IconPlus, IconHistory, IconArrowBackUp, IconAlertTriangle } from "@tabler/icons-react";
+import { IconX, IconFocus2, IconPlus, IconHistory, IconArrowBackUp, IconAlertTriangle, IconArrowRight } from "@tabler/icons-react";
 import { useI18n } from "@/lib/i18n";
 import { errMsg } from "@/lib/api";
 import { useToast } from "@/components/Toast";
@@ -31,7 +31,7 @@ interface Props {
   onChooseTooth?: (fdi: string) => void;
   choosing?: boolean;
   /** Phase 3: treatment items + treatment history (derived from plan items/sessions) that target THIS tooth. */
-  plan?: TreatmentItem[];
+  plan?: readonly TreatmentItem[];
   treatmentEntries?: TimelineEntry[];
   visits?: Record<string, VisitRef>;
   onAddTreatment?: (prefill: EditorPrefill) => void;
@@ -80,7 +80,7 @@ export default function ToothPanel(p: Props) {
       : "w-full";
 
   return (
-    <aside dir={lang === "ar" ? "rtl" : "ltr"} className={wrap} aria-label={`${t("dn.tooth")} ${p.fdi}`}>
+    <aside data-testid="tooth-panel" data-fdi={p.fdi} dir={lang === "ar" ? "rtl" : "ltr"} className={wrap} aria-label={`${t("dn.tooth")} ${p.fdi}`}>
       <div className={`card flex max-h-full flex-col overflow-hidden shadow-2xl ${p.variant === "sheet" ? "rounded-b-none" : ""}`}>
         {/* header */}
         <div className="flex items-start gap-2 border-b border-edge px-3.5 py-3">
@@ -104,7 +104,7 @@ export default function ToothPanel(p: Props) {
             )) : <Empty>{t("dn.none")}</Empty>}
           </Section>
 
-          <Section title={t("dn.diagnoses")}>
+          <Section title={t("dn.diagnoses")} testId="tooth-panel-diagnoses">
             {diagnoses.length ? diagnoses.map((e) => (
               <div key={e._id} className="flex items-center gap-2 text-[12px] text-ink">
                 <span className="min-w-0 flex-1"><span className="text-amber-400">●</span> {t(`dn.c.${e.code}`)}<SurfacePills s={e.surfaces} /></span>
@@ -116,17 +116,20 @@ export default function ToothPanel(p: Props) {
             )) : <Empty>{t("dn.none")}</Empty>}
           </Section>
 
-          <Section title={t("dn.forTooth")}>
+          <Section title={t("dn.forTooth")} testId="tooth-panel-plan">
             {planItems.length ? planItems.map((i) => (
-              <div key={i._id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-ink">
-                <span className="inline-flex items-center gap-1.5"><ProcSwatch code={i.procedureCode} status={i.status} />{procLabel(t, i)}</span>
+              <div key={i._id} data-testid="panel-tx" data-code={i.procedureCode} data-status={i.status} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-ink">
+                <span className="inline-flex min-w-0 max-w-full items-start gap-1.5"><ProcSwatch code={i.procedureCode} status={i.status} /><span className="min-w-0 break-words">{procLabel(t, i)}</span></span>
                 <span className="text-[11px] text-mute"><TargetText targetType={i.targetType} toothNumbers={i.toothNumbers.filter((f) => f !== p.fdi || i.targetType === "tooth" || i.targetType === "surface")} surfaces={i.surfaces} /></span>
                 <StatusPill status={i.status} />
                 {i.estimatedPrice != null && <span className="text-[10px] text-mute" dir="ltr">{money(i.estimatedPrice)}</span>}
                 {i.status === "completed" && <div className="w-full"><BillingLine billing={i.billing} canBill={!!p.onBill} onAdd={() => p.onBill?.(i)} /></div>}
               </div>
-            )) : <Empty>{t("dn.none")}</Empty>}
-            {p.onOpenPlan && <button type="button" className="text-[11px] font-medium text-sky hover:underline" onClick={p.onOpenPlan}>{t("dn.viewPlan")}</button>}
+            )) : <Empty>{t("dn.tt.none")}</Empty>}
+            {p.onOpenPlan && (
+              <button type="button" data-testid="panel-view-plan" onClick={p.onOpenPlan}
+                className={`inline-flex items-center gap-1 text-[11px] font-medium text-sky hover:underline ${p.variant === "sheet" ? "min-h-[44px]" : ""}`}>{t("dn.viewPlan")} <IconArrowRight size={12} className="rtl-flip" aria-hidden /></button>
+            )}
           </Section>
 
           {surfaces.length > 0 && (
@@ -242,8 +245,8 @@ const shortWhen = (iso: string, lang: string, today: string) => {
     : d.toLocaleDateString(loc, { day: "numeric", month: "short", timeZone: "Asia/Amman" });
 };
 
-const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-  <div>
+const Section = ({ title, children, testId }: { title: string; children: React.ReactNode; testId?: string }) => (
+  <div data-testid={testId}>
     <div className="mb-1 text-[10px] font-medium tracking-wide text-mute">{title}</div>
     <div className="space-y-1">{children}</div>
   </div>

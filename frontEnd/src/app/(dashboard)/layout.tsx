@@ -14,6 +14,8 @@ import LoyaltyBoot from "@/components/loyalty/shell/LoyaltyBoot";
 import { SHELL_FLAG } from "@/lib/loyaltyNav";
 import DigitalClock from "@/components/DigitalClock";
 import { useAccess } from "@/lib/access";
+import { useConnectUnread } from "@/lib/connect/hooks";
+import { ConnectRealtime } from "@/lib/connect/realtime/provider";
 import {
   IconLayoutDashboard,
   IconCalendar,
@@ -29,6 +31,7 @@ import {
   IconWallet,
   IconDiamond,
   IconMenu2,
+  IconMessages,
 } from "@tabler/icons-react";
 
 const planLabel = (plan: string | undefined, t: (k: string) => string) => {
@@ -173,6 +176,11 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   });
   const redeemWaiting = redeemSummary?.pending ?? 0;
 
+  // ClinicOS Connect — total unread for the "Messages" menu item. Asked only when the plan has the feature and the role may use it
+  // (the server enforces both on /api/connect/unread-count as well). Polls slowly and pauses while the tab is hidden.
+  const connectOn = hydrated && !!token && clinic?.status === "active" && clinic?.planInfo?.limits.internalChat === true && access.can("internalChat");
+  const { total: messagesUnread } = useConnectUnread(connectOn);
+
   const pendingCount = (allAppts ?? []).filter(
     (a) =>
       a.source === "public" &&
@@ -200,6 +208,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       : []),
     ...(subscription?.addons?.loyalty?.enabled
       ? [{ href: "/loyalty", label: lang === "ar" ? "الولاء" : "Loyalty", icon: IconDiamond }]
+      : []),
+    // ClinicOS Connect (Pro). Presentation only — the server enforces the plan + membership on every /api/connect request.
+    ...(clinic?.planInfo?.limits.internalChat && access.can("internalChat")
+      ? [{ href: "/messages", label: t("nav.messages"), icon: IconMessages }]
       : []),
     { href: "/settings", label: t("nav.settings"), icon: IconSettings },
   ];
@@ -254,6 +266,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-screen bg-base">
+      {/* ClinicOS Connect (C3): ONE live connection for the whole dashboard, only for entitled clinics/roles. It renders nothing. */}
+      <ConnectRealtime enabled={connectOn} />
       {/* ===== Sidebar — always navy for brand consistency ===== */}
       {navOpen && <div className="fixed inset-0 z-30 bg-black/50 md:hidden" onClick={() => setNavOpen(false)} aria-hidden="true" />}
       <aside
@@ -288,6 +302,14 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               }`}
             >
               <n.icon size={16} /> {n.label}
+              {n.href === "/messages" && messagesUnread > 0 && (
+                <>
+                  <span className="ms-auto min-w-[18px] rounded-full bg-blue px-1.5 text-center text-[10px] font-semibold leading-[18px] text-white" aria-hidden="true" data-testid="nav-messages-badge">
+                    {messagesUnread > 99 ? "99+" : messagesUnread}
+                  </span>
+                  <span className="sr-only">{messagesUnread} {t("msg.unreadAria")}</span>
+                </>
+              )}
               {showDot && (
                 <span className="ms-auto flex h-2 w-2">
                   <span className={`absolute inline-flex h-2 w-2 animate-ping rounded-full opacity-75 ${dotRed ? "bg-red-400" : "bg-amber-400"}`} />

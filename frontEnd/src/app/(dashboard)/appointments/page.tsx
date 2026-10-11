@@ -148,6 +148,7 @@ const VisitDentalSection = dynamic(() => import("@/components/dental/treatment/V
 export default function AppointmentsPage() {
   const { t, lang } = useI18n();
   const qc = useQueryClient();
+  const toast = useToast();
 
   // ==== Day selection ====
   const [date, setDate] = useState(todayLocal());
@@ -181,13 +182,24 @@ export default function AppointmentsPage() {
   // the same deep-link pattern already used by /invoices?invoice=. Reads today's list (the default `date`), so it
   // only resolves same-day appointments; nothing here changes scheduling or the default view for a plain visit.
   const searchParams = useSearchParams();
+  // C4 (Connect "View Appointment"): /appointments?appt=<id>&date=<YYYY-MM-DD> jumps to that clinic day first. This only picks which day's schedule
+  // to load — the appointment is still looked up in what the normal API returned for THIS user, so a card never reveals a visit the user may not see.
+  const deepDate = searchParams.get("appt") ? searchParams.get("date") : null;
+  const validDeepDate = deepDate && /^\d{4}-\d{2}-\d{2}$/.test(deepDate) ? deepDate : null;
+  useEffect(() => {
+    if (validDeepDate) setDate(validDeepDate);
+  }, [validDeepDate]);
+  const openedAppt = useRef<string | null>(null);
   useEffect(() => {
     const apptParam = searchParams.get("appt");
-    if (apptParam && appointments) {
+    if (apptParam && appointments && openedAppt.current !== apptParam) {
+      if (validDeepDate && date !== validDeepDate) return; // wait for the requested day's schedule
+      openedAppt.current = apptParam; // open it once; closing the modal must not re-open it on the next refresh
       const found = appointments.find((a) => a._id === apptParam);
       if (found) setEditing(found);
+      else if (validDeepDate) toast.error(t("share.unavailable"));
     }
-  }, [searchParams, appointments]);
+  }, [searchParams, appointments, date, validDeepDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // /appointments?schedule=<patientId>&name=&doctor=&note= — "Schedule Next Visit" from a Dental treatment
   // session opens straight into New Appointment with the patient (and doctor/context note) pre-filled. The
