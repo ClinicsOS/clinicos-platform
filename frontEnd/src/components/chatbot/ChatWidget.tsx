@@ -54,17 +54,24 @@ export function ChatWidget() {
   if (!hydrated || !canShow || pathname?.startsWith("/c/")) return null;
 
   return (
+    // Interaction vs. visuals are separate concerns: the fixed wrapper keeps
+    // its z-50 stacking (visual), but is pointer-events-none so the empty box
+    // around the bubble (tooltip slot, margins, pulse-ring overflow) never
+    // swallows clicks meant for page controls underneath. Only the real
+    // interactive pieces below opt back in with pointer-events-auto.
     <div
-      className={`fixed z-50 bottom-5 ${isRtl ? "left-5" : "right-5"} flex flex-col items-end`}
+      className={`fixed z-50 bottom-5 ${isRtl ? "left-5" : "right-5"} flex flex-col items-end pointer-events-none`}
       dir={isRtl ? "rtl" : "ltr"}
     >
+      {/* ChatWindow's root carries pointer-events-auto (see ChatWindow.tsx). */}
       {open && <ChatWindow onClose={() => setOpen(false)} />}
 
       {!open && (
         <div className="relative flex flex-col items-center">
+          {/* Purely informational label — never interactive, even while visible. */}
           <span
-            className={`mb-2 px-3 py-1.5 rounded-lg bg-card2 border border-edge text-ink text-sm whitespace-nowrap shadow-lg transition-all duration-200 ${
-              hovered ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1 pointer-events-none"
+            className={`pointer-events-none mb-2 px-3 py-1.5 rounded-lg bg-card2 border border-edge text-ink text-sm whitespace-nowrap shadow-lg transition-all duration-200 ${
+              hovered ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"
             }`}
           >
             {BOT_NAME[lang]}
@@ -74,11 +81,12 @@ export function ChatWidget() {
             onClick={() => setOpen(true)}
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
-            className="relative w-16 h-16 rounded-full flex items-center justify-center"
+            className="pointer-events-auto relative w-16 h-16 rounded-full flex items-center justify-center"
             aria-label={BOT_NAME[lang]}
           >
-            <span className="pulse-ring absolute inset-0 rounded-full bg-teal/40" />
-            <span className="pulse-ring absolute inset-0 rounded-full bg-teal/40" style={{ animationDelay: "1s" }} />
+            {/* Decorative pulse rings scale to 1.7x (beyond the button box) — must not catch clicks/hover. */}
+            <span className="pulse-ring pointer-events-none absolute inset-0 rounded-full bg-teal/40" />
+            <span className="pulse-ring pointer-events-none absolute inset-0 rounded-full bg-teal/40" style={{ animationDelay: "1s" }} />
             <span className="relative w-14 h-14 rounded-full bg-card2 border border-edge shadow-2xl flex items-center justify-center overflow-hidden hover:brightness-110 transition">
               <Cube3D size={34} spin />
             </span>

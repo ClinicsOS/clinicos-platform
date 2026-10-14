@@ -112,7 +112,7 @@ export function ChatWindow({ onClose }: { onClose: () => void }) {
   const showQuickReplies = !isAuthed && messages.length === 1;
 
   return (
-    <div className="mb-3 w-[380px] max-w-[92vw] h-[560px] max-h-[78vh] rounded-2xl border border-edge bg-card shadow-2xl flex flex-col overflow-hidden">
+    <div className="pointer-events-auto mb-3 w-[380px] max-w-[92vw] h-[560px] max-h-[78vh] rounded-2xl border border-edge bg-card shadow-2xl flex flex-col overflow-hidden">
       <div className="flex items-center gap-3 px-4 py-3 border-b border-edge bg-gradient-to-r from-card2 to-card">
         <div className="w-9 h-9 rounded-full bg-soft flex items-center justify-center overflow-hidden shrink-0">
           <Cube3D size={24} spin={false} />
