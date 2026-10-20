@@ -1,3 +1,4 @@
+import type { SurfaceId } from "./taxonomy";
 import type { ToothTreatmentVisual, ToothVisualState, TreatmentItem } from "./types";
 
 /**
@@ -15,7 +16,11 @@ import type { ToothTreatmentVisual, ToothVisualState, TreatmentItem } from "./ty
  *   treatments[]  the TYPE picture for Crown and Filling only (status decides ghost vs solid in the renderer)
  * Cancelled items are never drawn (the record itself stays in the plan history).
  */
-type PlanItemLike = Pick<TreatmentItem, "status" | "procedureCode" | "targetType" | "toothNumbers" | "surfaces">;
+/** Surfaces drawn on tooth `fdi` for a treatment: its own per-tooth list when it has one, otherwise the shared list. (Lives here, import-free at runtime, so plain Node can load this module in the unit tests.) */
+export const surfacesForTooth = (x: { surfaces: readonly SurfaceId[]; toothSurfaces?: Record<string, SurfaceId[]> | null }, fdi: string): SurfaceId[] =>
+  x.toothSurfaces?.[fdi] ? [...x.toothSurfaces[fdi]] : [...x.surfaces];
+
+type PlanItemLike = Pick<TreatmentItem, "status" | "procedureCode" | "targetType" | "toothNumbers" | "surfaces"> & Partial<Pick<TreatmentItem, "toothSurfaces">>;
 
 const kindOf = (procedureCode: string): ToothTreatmentVisual["kind"] | null =>
   procedureCode === "crown" ? "crown" : procedureCode === "filling" ? "filling" : null;
@@ -31,13 +36,14 @@ export function applyPlanToVisual(
   for (const it of items) {
     if (it.status === "cancelled") continue;
     const kind = kindOf(it.procedureCode);
-    const typed = kind !== null && (it.targetType === "tooth" || it.targetType === "surface");
+    // PHASE 5: a serial / multi-tooth Crown or Filling is drawn on EVERY selected tooth, with that tooth's own surfaces when they differ.
+    const typed = kind !== null && (it.targetType === "tooth" || it.targetType === "surface" || it.targetType === "multi_tooth");
     for (const fdi of it.toothNumbers) {
       const cur = out[fdi] ?? empty();
       if (it.status === "completed") cur.treated = true;
       else if (it.status === "in_progress") cur.plan = "in_progress";
       else if (cur.plan !== "in_progress") cur.plan = "planned";
-      if (typed) cur.treatments.push({ kind, status: it.status, surfaces: kind === "filling" ? [...it.surfaces] : [] });
+      if (typed) cur.treatments.push({ kind, status: it.status, surfaces: kind === "filling" ? surfacesForTooth(it, fdi) : [] });
       out[fdi] = cur;
       touched.add(fdi);
     }

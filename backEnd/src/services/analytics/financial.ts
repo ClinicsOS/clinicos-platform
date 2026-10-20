@@ -1,4 +1,4 @@
-import { Invoice } from "../../models/Invoice";
+import { Invoice, ACTIVE_INVOICE } from "../../models/Invoice";
 import { DentalTreatmentItem } from "../../models/DentalTreatmentItem";
 import { DermTreatmentItem } from "../../models/DermTreatmentItem";
 import type { AnalyticsScope } from "./scope";
@@ -12,7 +12,9 @@ import { dayOf, round3 } from "./agg";
  * ┌ Collected revenue ─ Source: Invoice.payments[]   Date: payments.paidAt (clinic-local day)
  * │    Formula: Σ payments.amount of every payment whose paidAt falls in the range. NOT the invoice total.
  * │    Doctor attribution: Invoice.doctorId (the TREATING doctor, Phase 4). Never Invoice.createdBy. No doctorId → "unassigned / legacy".
- * │    ClinicOS has no void / refund state on a payment or an invoice, so every stored payment is a valid payment.
+ * │    ClinicOS has no void / refund state on a payment, so every stored payment of an ACTIVE invoice is a valid payment.
+ * │    PHASE 2: a soft-deleted invoice (Deleted Invoices) is NOT part of any figure below — every pipeline starts from ACTIVE_INVOICE; restoring it
+ * │    brings it back with its original payments and status.
  * ├ Invoiced revenue ─ Source: Invoice.total   Date: Invoice.createdAt (the invoice's issue date; there is no separate one)
  * │    Formula: Σ invoice.total (net of the invoice discount) of invoices created in the range.
  * ├ Outstanding ─ Source: Invoice   Date: AS OF NOW (a balance, not a flow — it has no "previous period")
@@ -25,7 +27,7 @@ const idStr = (v: unknown) => (v ? String(v) : null);
 export const UNASSIGNED = "unassigned";
 
 const paymentsInRange = (s: AnalyticsScope, r: DateRange, group: Row) => [
-  { $match: { clinicId: s.clinicOid, ...doctorFilter(s), "payments.paidAt": { $gte: r.start, $lt: r.end } } },
+  { $match: { clinicId: s.clinicOid, ...doctorFilter(s), ...ACTIVE_INVOICE, "payments.paidAt": { $gte: r.start, $lt: r.end } } },
   { $unwind: "$payments" },
   { $match: { "payments.paidAt": { $gte: r.start, $lt: r.end } } },
   { $group: group },
@@ -57,7 +59,7 @@ export async function collectedByMethod(s: AnalyticsScope, r: DateRange): Promis
   return rows.map((x: Row) => ({ method: String(x._id ?? "other"), amount: round3(x.total ?? 0), payments: x.n ?? 0 })).sort((a, b) => b.amount - a.amount || (a.method < b.method ? -1 : 1));
 }
 
-const invoicesIn = (s: AnalyticsScope, r: DateRange) => ({ clinicId: s.clinicOid, ...doctorFilter(s), createdAt: { $gte: r.start, $lt: r.end } });
+const invoicesIn = (s: AnalyticsScope, r: DateRange) => ({ clinicId: s.clinicOid, ...doctorFilter(s), ...ACTIVE_INVOICE, createdAt: { $gte: r.start, $lt: r.end } });
 
 /** Invoiced revenue in the range. */
 export async function invoicedTotal(s: AnalyticsScope, r: DateRange): Promise<{ amount: number; invoices: number }> {
@@ -73,7 +75,7 @@ export async function invoicedByDay(s: AnalyticsScope, r: DateRange): Promise<Ma
 /** Outstanding balance as of now (see header). Sub-fil float noise (< 0.0005 JD) is not a balance. */
 export async function outstanding(s: AnalyticsScope): Promise<{ amount: number; invoices: number }> {
   const rows = await Invoice.aggregate([
-    { $match: { clinicId: s.clinicOid, ...doctorFilter(s), status: { $in: ["unpaid", "partially_paid"] } } },
+    { $match: { clinicId: s.clinicOid, ...doctorFilter(s), ...ACTIVE_INVOICE, status: { $in: ["unpaid", "partially_paid"] } } },
     { $addFields: { paid: { $sum: "$payments.amount" } } },
     { $addFields: { balance: { $subtract: ["$total", "$paid"] } } },
     { $match: { balance: { $gt: 0.0005 } } },

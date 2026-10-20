@@ -51,8 +51,8 @@ export default function DermPrintExportMenu({ patientId }: { patientId: string }
       </button>
       {open && pos && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div role="menu" className="fixed z-50 max-h-[80vh] overflow-y-auto rounded-xl border border-edge bg-card p-2 shadow-xl" style={{ top: pos.top, left: pos.left, width: Math.min(304, typeof window !== "undefined" ? window.innerWidth - 16 : 304) }}>
+          <div className="fixed inset-0 z-popover" onClick={() => setOpen(false)} />
+          <div role="menu" className="fixed z-popover max-h-[80vh] overflow-y-auto rounded-xl border border-edge bg-card p-2 shadow-xl" style={{ top: pos.top, left: pos.left, width: Math.min(304, typeof window !== "undefined" ? window.innerWidth - 16 : 304) }}>
             <button type="button" role="menuitem" className="flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-start text-[12px] hover:bg-soft" onClick={() => openReport("full")}>
               <IconFileText size={15} className="mt-0.5 shrink-0 text-teal" /><span className="font-medium text-ink">{t("dr.menu.full")}</span>
             </button>

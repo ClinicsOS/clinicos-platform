@@ -20,7 +20,8 @@ export default function RootLayout({
           {children}
           <ChatWidget />
         </Providers>
-        <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID!} />
+        {/* PHASE 6 — only when a measurement id is configured (an unset variable used to request gtag/js?id=undefined). */}
+        {process.env.NEXT_PUBLIC_GA_ID ? <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID} /> : null}
       </body>
     </html>
   );

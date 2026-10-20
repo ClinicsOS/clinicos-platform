@@ -1014,7 +1014,7 @@ function PendingReviewScreen({
   const planName = plan === "basic" ? t("sub.basic") : t("sub.pro");
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-modal flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
       <div className="relative w-full max-w-md rounded-2xl border border-teal/40 bg-card p-6 text-center shadow-[0_30px_60px_-20px_rgba(0,0,0,0.6)]">
         {/* Spinning 3D hourglass */}
         <div className="mx-auto mb-4 flex justify-center" style={{ perspective: 500 }}>

@@ -19,6 +19,8 @@ export type PresetName = "front" | "upper" | "lower" | "left" | "right";
 export type Intent =
   | { type: "SELECT"; fdi: string }
   | { type: "FOCUS" }
+  | { type: "UNFOCUS" } // PHASE 5 — leave Focus / Isolation: back to the plain selected-tooth view (the tooth stays selected)
+  | { type: "REAIM" } // PHASE 5 — same selection, new target for the camera (a surface was chosen, isolation toggled…)
   | { type: "BACK" } // also used for Reset
   | { type: "DENTITION" }
   | { type: "PRESET"; name: PresetName };
@@ -54,6 +56,17 @@ export class InteractionMachine {
         if (!this._selected || this.isFocusing) return null;
         this._mode = "ENTERING_FOCUS";
         return this.make("focus");
+      }
+      case "UNFOCUS": {
+        if (!this._selected) return null;
+        this._mode = "SELECTING_TOOTH";
+        return this.make("select");
+      }
+      case "REAIM": {
+        if (!this._selected) return null;
+        if (this.isFocusing) { this._mode = "ENTERING_FOCUS"; return this.make("focus"); }
+        this._mode = "SELECTING_TOOTH";
+        return this.make("select");
       }
       case "BACK": {
         this._selected = null;

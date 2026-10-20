@@ -506,13 +506,20 @@ export async function requestRedemption(input: { clinicId: string; accountId: st
  * Redemption — desk side
  * ============================================================ */
 
-export async function countPendingRedemptions(clinicId: string): Promise<number> {
-  return LoyaltyRedemption.countDocuments({ clinicId: oid(clinicId), status: { $in: ["pending", "confirming"] } });
+/**
+ * `scope` (multi-doctor patient isolation): omitted / null = whole clinic (owner, front desk); an array = only the requests of those
+ * patients (a doctor never sees, counts or resolves another doctor's patient's request).
+ */
+export type PatientScope = Types.ObjectId[] | null | undefined;
+const scoped = (scope: PatientScope): Record<string, unknown> => (scope ? { patientId: { $in: scope } } : {});
+
+export async function countPendingRedemptions(clinicId: string, scope?: PatientScope): Promise<number> {
+  return LoyaltyRedemption.countDocuments({ clinicId: oid(clinicId), status: { $in: ["pending", "confirming"] }, ...scoped(scope) });
 }
 
 /** The queue: open requests, oldest first. */
-export async function listPendingRedemptions(clinicId: string): Promise<{ rows: RedemptionRow[]; total: number }> {
-  const filter = { clinicId: oid(clinicId), status: { $in: ["pending", "confirming"] } };
+export async function listPendingRedemptions(clinicId: string, scope?: PatientScope): Promise<{ rows: RedemptionRow[]; total: number }> {
+  const filter = { clinicId: oid(clinicId), status: { $in: ["pending", "confirming"] }, ...scoped(scope) };
   const [docs, total] = await Promise.all([LoyaltyRedemption.find(filter).sort({ requestedAt: 1, _id: 1 }).limit(REDEMPTION.pendingListMax).lean(), LoyaltyRedemption.countDocuments(filter)]);
   return { rows: await toRows(clinicId, docs), total };
 }
@@ -532,9 +539,9 @@ export interface HistoryFilter {
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** History: resolved requests by default (confirmed / rejected / reversed), newest first, paged and filterable. */
-export async function listRedemptionHistory(clinicId: string, f: HistoryFilter): Promise<{ rows: RedemptionRow[]; total: number; page: number; pages: number }> {
+export async function listRedemptionHistory(clinicId: string, f: HistoryFilter, scope?: PatientScope): Promise<{ rows: RedemptionRow[]; total: number; page: number; pages: number }> {
   const cid = oid(clinicId);
-  const filter: Record<string, any> = { clinicId: cid };
+  const filter: Record<string, any> = { clinicId: cid, ...scoped(scope) };
   if (f.status === "pending") filter.status = { $in: ["pending", "confirming"] };
   else if (f.status === "confirmed") filter.status = { $in: ["confirmed", "reversing"] };
   else if (f.status) filter.status = f.status;
@@ -551,8 +558,8 @@ export async function listRedemptionHistory(clinicId: string, f: HistoryFilter):
     if (q) {
       const or: Record<string, unknown>[] = [{ fullName: { $regex: escapeRe(q), $options: "i" } }, { phone: { $regex: escapeRe(q) } }];
       if (/^\d{1,9}$/.test(q)) or.push({ fileNumber: Number(q) });
-      const matches = await Patient.find({ clinicId: cid, $or: or }).select("_id").limit(200).lean();
-      filter.patientId = { $in: matches.map((m) => m._id) };
+      const matches = await Patient.find({ clinicId: cid, ...(scope ? { _id: { $in: scope } } : {}), $or: or }).select("_id").limit(200).lean();
+      filter.patientId = { $in: matches.map((m) => m._id) }; // already inside the caller's scope (the patient search above was)
     }
   }
   const [docs, total] = await Promise.all([
@@ -585,9 +592,9 @@ export async function rewardsSummary(clinicId: string) {
 
 const newToken = () => crypto.randomBytes(12).toString("hex");
 
-async function loadRedemption(clinicId: string, id: string) {
+async function loadRedemption(clinicId: string, id: string, scope?: PatientScope) {
   if (!isOid(id)) throw new RewardError("REDEMPTION_NOT_FOUND", "Redemption request not found", 404);
-  const doc = await LoyaltyRedemption.findOne({ _id: oid(id), clinicId: oid(clinicId) }).lean();
+  const doc = await LoyaltyRedemption.findOne({ _id: oid(id), clinicId: oid(clinicId), ...scoped(scope) }).lean();
   if (!doc) throw new RewardError("REDEMPTION_NOT_FOUND", "Redemption request not found", 404);
   return doc;
 }
@@ -610,9 +617,9 @@ export interface ConfirmResult {
  * Staff confirm that the reward was given → deduct `pointsCostSnapshot` through the ledger. See the file header for the
  * claim / debit / finalize sequence. If the member can't afford it any more the request stays pending (nothing moved).
  */
-export async function confirmRedemption(input: { clinicId: string; redemptionId: string; userId: string }): Promise<ConfirmResult> {
+export async function confirmRedemption(input: { clinicId: string; redemptionId: string; userId: string; scope?: PatientScope }): Promise<ConfirmResult> {
   const { clinicId, userId } = input;
-  const doc = await loadRedemption(clinicId, input.redemptionId);
+  const doc = await loadRedemption(clinicId, input.redemptionId, input.scope);
   if (doc.status === "confirmed" || doc.status === "rejected" || doc.status === "reversed" || doc.status === "reversing") throw notPending(doc.status);
   await assertEntitled(clinicId);
 
@@ -693,10 +700,10 @@ function cleanReason(v: unknown, max: number): string | null {
 }
 
 /** Staff reject an open request. ZERO points move; the request is kept (status "rejected"). */
-export async function rejectRedemption(input: { clinicId: string; redemptionId: string; userId: string; reason?: string | null }): Promise<RedemptionRow> {
+export async function rejectRedemption(input: { clinicId: string; redemptionId: string; userId: string; reason?: string | null; scope?: PatientScope }): Promise<RedemptionRow> {
   const { clinicId } = input;
   const reason = cleanReason(input.reason, REDEMPTION.rejectionReasonMax);
-  const doc = await loadRedemption(clinicId, input.redemptionId);
+  const doc = await loadRedemption(clinicId, input.redemptionId, input.scope);
   await assertEntitled(clinicId);
   const res = await LoyaltyRedemption.findOneAndUpdate(
     { _id: doc._id, clinicId: oid(clinicId), status: "pending" },
@@ -723,11 +730,11 @@ export interface ReverseResult {
  * never edited). A redemption can be reversed once: the claim guards the record, and the ledger's unique
  * `reversesTransactionId` guards the row.
  */
-export async function reverseRedemption(input: { clinicId: string; redemptionId: string; userId: string; reason: string }): Promise<ReverseResult> {
+export async function reverseRedemption(input: { clinicId: string; redemptionId: string; userId: string; reason: string; scope?: PatientScope }): Promise<ReverseResult> {
   const { clinicId, userId } = input;
   const reason = cleanReason(input.reason, 300);
   if (!reason || reason.length < 3) throw new RewardError("REWARD_INVALID", "A reason (at least 3 characters) is required to reverse a redemption");
-  const doc = await loadRedemption(clinicId, input.redemptionId);
+  const doc = await loadRedemption(clinicId, input.redemptionId, input.scope);
   if (doc.status === "reversed") throw new RewardError("REDEMPTION_NOT_CONFIRMED", "This redemption was already reversed", 409, { status: "reversed" });
   if (doc.status === "pending" || doc.status === "confirming" || doc.status === "rejected") {
     throw new RewardError("REDEMPTION_NOT_CONFIRMED", "Only a confirmed redemption can be reversed", 409, { status: displayStatus(doc.status) });

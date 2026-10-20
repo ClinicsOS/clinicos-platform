@@ -269,10 +269,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       {/* ClinicOS Connect (C3): ONE live connection for the whole dashboard, only for entitled clinics/roles. It renders nothing. */}
       <ConnectRealtime enabled={connectOn} />
       {/* ===== Sidebar — always navy for brand consistency ===== */}
-      {navOpen && <div className="fixed inset-0 z-30 bg-black/50 md:hidden" onClick={() => setNavOpen(false)} aria-hidden="true" />}
+      {navOpen && <div className="fixed inset-0 z-drawer bg-black/50 md:hidden" onClick={() => setNavOpen(false)} aria-hidden="true" />}
       <aside
         id="app-nav"
-        className={`fixed inset-y-0 start-0 z-40 flex w-52 shrink-0 flex-col overflow-y-auto p-3 transition-transform duration-200 md:static md:z-auto md:!translate-x-0 md:overflow-visible ${
+        className={`fixed inset-y-0 start-0 z-drawer flex w-52 shrink-0 flex-col overflow-y-auto p-3 transition-transform duration-200 md:static md:z-auto md:!translate-x-0 md:overflow-visible ${
           navOpen ? "translate-x-0" : "ltr:-translate-x-full rtl:translate-x-full"
         }`}
         style={{ background: "#06263F" }}
@@ -463,7 +463,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             {theme === "dark" ? <IconSun size={15} /> : <IconMoon size={15} />}
           </button>
         </header>
-        <main className="px-3 pb-8 pt-3 md:px-5">{children}</main>
+        {/* PHASE 6 — bottom room so the last row of any page can always be scrolled clear of the floating Nabd launcher (56 px + 20 px offset + safe area). */}
+        <main className="px-3 pb-24 pt-3 md:px-5">{children}</main>
       </div>
     </div>
   );

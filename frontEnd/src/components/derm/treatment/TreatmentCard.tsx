@@ -10,6 +10,7 @@ import { useCancelTreatment, useFollowUps } from "@/lib/derm/treatmentHooks";
 import { RecordTypeBadge, fmtDate, fmtDateTime } from "../dermUi";
 import FollowUpCard from "./FollowUpCard";
 import { PriorityPill, StatusPill, TargetChips, billingState, invHref, invLabel, money, scheduleNextVisitHref, treatmentErrorKey, useProcLabel, useTargetText, visitText } from "./shared";
+import { useFocusTarget } from "@/lib/history/focus";
 
 interface Props {
   item: TreatmentItem;
@@ -44,6 +45,7 @@ export default function TreatmentCard({ item: it, sessions, visits, patientId, p
   const [reason, setReason] = useState("");
   const [cancelErr, setCancelErr] = useState<string | null>(null);
   const fuQ = useFollowUps(patientId, { itemId: it._id }, open);
+  const f = useFocusTarget("item", it._id); // Phase 3 deep link
 
   const active = it.status === "planned" || it.status === "in_progress";
   const mine = sessions.filter((s) => s.itemId === it._id);
@@ -58,7 +60,7 @@ export default function TreatmentCard({ item: it, sessions, visits, patientId, p
   };
 
   return (
-    <article id={`dt-item-${it._id}`} className={`rounded-xl border bg-card p-3 ${highlight ? "border-teal" : "border-edge"} ${it.status === "cancelled" ? "opacity-75" : ""}`} aria-label={procLabel(it.procedureCode)}>
+    <article ref={f.ref} {...f.attrs} id={`dt-item-${it._id}`} className={`rounded-xl border bg-card p-3 ${highlight ? "border-teal" : "border-edge"} ${it.status === "cancelled" ? "opacity-75" : ""} ${f.className}`} aria-label={procLabel(it.procedureCode)}>
       <div className="flex flex-wrap items-center gap-1.5">
         <RecordTypeBadge type={it.recordType} />
         <StatusPill status={it.status} />

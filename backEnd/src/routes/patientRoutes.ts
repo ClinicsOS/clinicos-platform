@@ -10,6 +10,7 @@ import {
 
 import { listNotes, createNote, updateNote, listRevisions } from "../controllers/clinicalNoteController";
 import { getClinicalTimeline } from "../controllers/clinicalTimelineController";
+import { getClinicalHistoryHandler } from "../controllers/clinicalHistoryController";
 
 const router = Router();
 router.use(protect);
@@ -18,6 +19,7 @@ router.get("/:id", getPatient);
 // ---- Clinical record (Phase 3). Reads: any role of the clinic (same as the patient file). Writes: active plan + owner/doctor
 // (the same clinical-write rule as the dental routes). Every handler re-loads the patient with the caller's clinicId.
 router.get("/:id/clinical-timeline", getClinicalTimeline);
+router.get("/:id/clinical-history", getClinicalHistoryHandler); // PHASE 3 — unified clinical history (notes from every source)
 router.get("/:id/clinical-notes", listNotes);
 router.get("/:id/clinical-notes/:noteId/revisions", listRevisions);
 router.post("/:id/clinical-notes", requireActivePlan, requireAccess("clinicalWrite"), createNote);

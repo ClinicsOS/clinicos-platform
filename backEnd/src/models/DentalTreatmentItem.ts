@@ -56,6 +56,8 @@ export interface IDentalTreatmentItem extends Document {
   targetType: TargetType;
   toothNumbers: string[]; // FDI codes (array — never a comma-separated string)
   surfaces: SurfaceId[];
+  /** PHASE 5 — only on a multi-tooth treatment of a surface-capable procedure whose teeth have DIFFERENT surfaces: { "16": ["O"], "17": ["M","O"] }. `surfaces` stays the union. */
+  toothSurfaces?: Record<string, SurfaceId[]>;
   status: PlanStatus;
   priority: Priority;
   phase: number;
@@ -67,7 +69,10 @@ export interface IDentalTreatmentItem extends Document {
   statusHistory: IStatusEntry[];
   billing?: IBilling;
   billingHistory: IBillingEvent[]; // append-only
-  createdBy: Types.ObjectId;
+  createdBy: Types.ObjectId; // the doctor/user who created it — NEVER changed by later edits (no silent ownership transfer)
+  updatedBy?: Types.ObjectId; // PHASE 4 — who made the latest change (edit / status change); audit only, ownership stays with createdBy
+  activeTwinKey?: string; // PHASE 4 — "procedure|target|teeth|surfaces" while planned / in progress (unset once completed / cancelled): lets the DATABASE refuse two simultaneous identical creates
+  clientRequestId?: string; // PHASE 4 — idempotency key sent by the UI on create: a double click / retry returns the SAME record
   createdAt: Date;
   updatedAt: Date;
 }
@@ -83,6 +88,7 @@ const itemSchema = new Schema<IDentalTreatmentItem>(
     targetType: { type: String, enum: TARGET_TYPES, required: true },
     toothNumbers: { type: [String], default: [] },
     surfaces: { type: [{ type: String, enum: SURFACES }], default: [] },
+    toothSurfaces: { type: Schema.Types.Mixed }, // PHASE 5 — optional per-tooth surfaces (validated by validateTarget; absent for every older record)
     status: { type: String, enum: PLAN_STATUSES, default: "planned", required: true },
     priority: { type: String, enum: PRIORITIES, default: "normal" },
     phase: { type: Number, default: 1, min: 1, max: 20 },
@@ -127,6 +133,9 @@ const itemSchema = new Schema<IDentalTreatmentItem>(
       },
     ],
     createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    updatedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    clientRequestId: { type: String, trim: true, maxlength: 64 },
+    activeTwinKey: { type: String, maxlength: 400 },
   },
   { timestamps: true }
 );
@@ -134,5 +143,12 @@ itemSchema.index({ clinicId: 1, patientId: 1, status: 1 });
 // PHASE 6 — treatments started / completed / cancelled in a date range (services/analytics/treatments.ts): multikey on the status-history dates
 itemSchema.index({ clinicId: 1, "statusHistory.at": 1 });
 itemSchema.index({ clinicId: 1, patientId: 1, toothNumbers: 1 });
+// PHASE 3 — unified clinical History reads this patient's records newest-first (keyset on the date field).
+itemSchema.index({ clinicId: 1, patientId: 1, createdAt: -1 });
+// PHASE 4 — create idempotency: the same (clinic, patient, request id) can only ever produce ONE record, even for two simultaneous requests.
+// PHASE 4 — atomic duplicate guard: at most one ACTIVE item per (patient, procedure, target). Complements the application-level twin check (which still
+// covers items created before this field existed) by closing the "two requests pass the check at the same instant" window.
+itemSchema.index({ clinicId: 1, patientId: 1, activeTwinKey: 1 }, { unique: true, partialFilterExpression: { activeTwinKey: { $type: "string" } } });
+itemSchema.index({ clinicId: 1, patientId: 1, clientRequestId: 1 }, { unique: true, partialFilterExpression: { clientRequestId: { $type: "string" } } });
 
 export const DentalTreatmentItem = mongoose.model<IDentalTreatmentItem>("DentalTreatmentItem", itemSchema);

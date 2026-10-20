@@ -72,7 +72,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       </div>
 
       {navOpen && (
-        <div className="fixed inset-0 z-[60] lg:hidden" role="dialog" aria-modal="true" aria-label="Admin menu">
+        <div className="fixed inset-0 z-drawer lg:hidden" role="dialog" aria-modal="true" aria-label="Admin menu">
           <button
             type="button"
             aria-label="Close menu"

@@ -4,6 +4,8 @@ import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment
 import type { DentitionType } from "@/lib/dental/fdi";
 import type { ToothVisualState } from "@/lib/dental/types";
 import { emptyVisualState } from "@/lib/dental/toothStates";
+import type { SurfaceId } from "@/lib/dental/taxonomy";
+import { applyFocusTargets, computeFocusTargets, focusSummaryOf, type FocusLevel } from "./focusModel";
 import { JawModel, JAW_ANGLE } from "./JawModel";
 import type { ToothMeshProvider } from "./toothGeometry";
 import { CameraDirector, type CameraPose } from "./cameraDirector";
@@ -24,6 +26,12 @@ import { buildDentitionConfig, type DentitionConfig } from "./dentitionConfig";
  */
 export interface EngineCallbacks {
   onSelect?: (fdi: string | null) => void;
+  /** PHASE 5 — serial (multi) selection mode: a click on a tooth asks the owner to toggle it. The engine never moves the camera for it. */
+  onToggle?: (fdi: string) => void;
+  /** PHASE 5 — isolation was left or entered by the engine itself (Reset view, jaw swap). */
+  onIsolationChange?: (isolated: boolean) => void;
+  /** PHASE 5 — the focus summary changed ("isolate|26|M|25:0.04,27:0.04"); the scene exposes it as `data-focus`. */
+  onFocusChange?: (summary: string) => void;
   onHover?: (fdi: string | null, clientX: number, clientY: number) => void;
   onModeChange?: (mode: Mode) => void;
   onJawChange?: (angle: number) => void;
@@ -74,6 +82,8 @@ export class DentalEngine {
   private pendingSwap: { at: number; cfg: DentitionConfig; token: number } | null = null;
 
   private lastMs = 0;
+  private frames = 0;
+  private needsWarm = false;
   private startMs = 0;
   private time = 0;
   private disposed = false;
@@ -84,6 +94,15 @@ export class DentalEngine {
   private pointerClient = { x: 0, y: 0 };
   private down: { x: number; y: number } | null = null;
   private hoverFdi: string | null = null;
+
+  // PHASE 5 — focus / isolation / surface / serial selection (all derived into per-tooth targets by focusModel.ts)
+  private isolated = false;
+  private surface: SurfaceId | null = null;
+  private multiMode = false;
+  private multiSel = new Set<string>();
+  private linkedSet = new Set<string>();
+  private focusLevel: FocusLevel = "none";
+  private focusSummary = "none|||";
 
   private gumEmph = 1;
   private gumTarget = 1;
@@ -174,6 +193,13 @@ export class DentalEngine {
   get jawAngle(): number { return this.jaw.angle; }
   get dentitionKey(): string { return this.pendingSwap ? this.pendingSwap.cfg.key : this.dentition.key; }
   get dentitionType(): DentitionType { return (this.pendingSwap ? this.pendingSwap.cfg : this.dentition).type; }
+  get selectedSurface(): SurfaceId | null { return this.surface; }
+  get isolation(): boolean { return this.isolated; }
+  get selectionMode(): "single" | "multi" { return this.multiMode ? "multi" : "single"; }
+  /** "isolate|26|M|25:0.04,27:0.04" — level | selected tooth | surface | faded teeth (also exposed as the chart's `data-focus`). */
+  focusState(): string { return this.focusSummary; }
+  /** Per-tooth look right now (opacity, lift, material identity…) — diagnostics + the headless isolation tests. */
+  toothDebug(fdi: string) { return this.model.teeth.get(fdi)?.debugState() ?? null; }
   hasTooth(fdi: string): boolean { return this.model.teeth.has(fdi); }
   teethFdis(): string[] { return Array.from(this.model.teeth.keys()); }
   debug() {
@@ -182,16 +208,74 @@ export class DentalEngine {
   }
 
   /** THE tooth-selection pipeline (mouse, finder, panel, double-click). Returns false for a tooth not in the current jaw. */
-  selectTooth(fdi: string): boolean {
+  selectTooth(fdi: string, opts?: { surface?: SurfaceId | null; isolate?: boolean }): boolean {
     if (this.pendingSwap || !this.model.teeth.has(fdi)) return false;
+    if (this.multiMode) return false; // serial mode never selects ONE tooth (it would pull it out of the arch)
+    const changedTooth = fdi !== this.machine.selectedFdi;
+    if (changedTooth) { this.isolated = false; this.surface = null; this.model.teeth.forEach((v) => v.setSurfaceCue(null)); }
+    if (opts && "surface" in opts) this.surface = opts.surface ?? null;
+    if (opts?.isolate) this.isolated = true;
     const t = this.machine.dispatch({ type: "SELECT", fdi });
-    if (t) this.run(t);
+    if (t) {
+      if (this.isolated) { const f = this.machine.dispatch({ type: "FOCUS" }); this.run(f ?? t); }
+      else this.run(t);
+    } else if (opts && ("surface" in opts || opts.isolate)) {
+      if (this.isolated && !this.machine.isFocusing) { const f = this.machine.dispatch({ type: "FOCUS" }); if (f) this.run(f); }
+      else this.reaim();
+    }
     return true;
   }
   focusSelected() { if (this.pendingSwap) return; const t = this.machine.dispatch({ type: "FOCUS" }); if (t) this.run(t); }
-  /** Back to full jaw (also the panel's close / Reset). */
-  backToJaw() { if (this.pendingSwap) return; const t = this.machine.dispatch({ type: "BACK" }); if (t) this.run(t); }
+  /** PHASE 5 — choose (or clear) the surface being examined: the camera goes to that side, an M/D neighbour fades, a cue ring marks it. */
+  setSurfaceFocus(surface: SurfaceId | null) {
+    if (this.pendingSwap || !this.machine.selectedFdi) return;
+    if (surface === this.surface) return;
+    this.surface = surface;
+    this.reaim();
+  }
+  /** PHASE 5 — Isolate Tooth (on) / Exit Isolation (off). Isolation implies the close-up; leaving it returns to the plain selected-tooth view. */
+  setIsolation(on: boolean): boolean {
+    if (this.pendingSwap || !this.machine.selectedFdi) return false;
+    if (on === this.isolated) return true;
+    this.isolated = on;
+    if (on) { const t = this.machine.dispatch(this.machine.isFocusing ? { type: "REAIM" } : { type: "FOCUS" }); if (t) this.run(t); }
+    else { const t = this.machine.dispatch({ type: "UNFOCUS" }); if (t) this.run(t); }
+    this.cb.onIsolationChange?.(this.isolated);
+    return true;
+  }
+  /** Serial-teeth mode: clicks toggle membership (owner decides); the camera stays where it is. Entering it clears the single selection. */
+  setSelectionMode(mode: "single" | "multi") {
+    const multi = mode === "multi";
+    if (multi === this.multiMode) return;
+    this.multiMode = multi;
+    if (multi) { this.clearHover(); this.backToJaw(); }
+    else { this.multiSel = new Set(); }
+    this.applyEmphasis();
+  }
+  /** Teeth of a multi-tooth treatment that a deep link points at (soft outline, no camera move). */
+  setLinkedTeeth(fdis: Iterable<string>) {
+    this.linkedSet = new Set(fdis);
+    this.model.teeth.forEach((v, f) => v.setLinked(this.linkedSet.has(f)));
+  }
+  setMultiSelection(fdis: Iterable<string>) {
+    this.multiSel = new Set(Array.from(fdis).filter((f) => this.model.teeth.has(f)));
+    this.applyEmphasis();
+  }
+  /** Back to full jaw (also the panel's close / Reset). Clears isolation and the surface. */
+  backToJaw() {
+    if (this.pendingSwap) return;
+    const wasIso = this.isolated;
+    this.isolated = false; this.surface = null;
+    this.model.teeth.forEach((v) => v.setSurfaceCue(null));
+    const t = this.machine.dispatch({ type: "BACK" });
+    if (t) this.run(t); else this.applyEmphasis();
+    if (wasIso) this.cb.onIsolationChange?.(false);
+  }
   resetView() { this.backToJaw(); }
+  private reaim() {
+    const t = this.machine.dispatch({ type: "REAIM" });
+    if (t) this.run(t);
+  }
   setPreset(name: PresetName) {
     if (this.pendingSwap) return;
     if (name === "upper" || name === "lower") this.animateJaw(JAW_ANGLE.open); // open enough to inspect the arch
@@ -203,10 +287,27 @@ export class DentalEngine {
   /** Horizontal composition offset (px) so the subject sits left of the side panel. */
   setViewShift(px: number) { this.viewShiftTarget = px; }
 
+  /** PHASE 4 — gentle one-shot glow on the teeth a just-confirmed treatment change touched. Skipped under reduced motion. */
+  flashTeeth(fdis: readonly string[]) {
+    if (this.reduced) return;
+    for (const f of fdis) this.model.teeth.get(f)?.flash();
+  }
+
+  /** Read-only summary of the treatment state currently APPLIED to the 3D teeth ("26:planned:filling/planned/D;…") — diagnostics + acceptance tests. */
+  appliedSummary(): string {
+    const out: string[] = [];
+    this.stateSig.forEach((sig, fdi) => {
+      const s = JSON.parse(sig) as ToothVisualState;
+      if (s.plan || s.treated || s.treatments?.length) out.push(`${fdi}:${s.plan ?? (s.treated ? "treated" : "")}:${(s.treatments ?? []).map((x) => `${x.kind}/${x.status}/${x.surfaces.join("")}`).join("+")}`);
+    });
+    return out.sort().join(";");
+  }
+
   /** Apply derived clinical state to the 3D teeth (keyed by FDI). Unchanged teeth are skipped. */
   setToothStates(states: Record<string, ToothVisualState>) {
     this.lastStates = states;
     this.applyStates();
+    if (this.needsWarm && !this.pendingSwap) this.warmUp(); // now (data load), not in the middle of the first selection
   }
 
   /**
@@ -222,7 +323,10 @@ export class DentalEngine {
     const t = this.machine.dispatch({ type: "DENTITION" });
     if (!t) return;
     this.clearHover();
-    this.model.teeth.forEach((v) => { v.setSelected(false); v.setHero(0); v.setEmphasisTarget(0.12); });
+    const wasIso = this.isolated;
+    this.isolated = false; this.surface = null; this.multiSel = new Set();
+    this.model.teeth.forEach((v) => { v.setSelected(false); v.setHero(0); v.setMultiSelected(false); v.setNeighborAlpha(1); v.setSurfaceCue(null); v.setEmphasisTarget(0.12); });
+    if (wasIso) this.cb.onIsolationChange?.(false);
     this.gumTarget = 0.12;
     this.fogTarget = 0;
     const k = this.reduced ? 0.02 : 1;
@@ -248,6 +352,7 @@ export class DentalEngine {
     this.stateSig.clear();
     this.applyStates();
     this.refreshPickList();
+    this.focusSummary = "none|||";
     this.controls.maxDistance = Math.max(24, this.framing.halfH * 8);
   }
 
@@ -280,6 +385,23 @@ export class DentalEngine {
       v.applyState(s);
     });
     this.refreshPickList();
+    this.needsWarm = true;
+  }
+
+  /** Draw every shader variant once, up-front (see ToothVisual.warmBegin) so the first selection / isolation never waits on a program. */
+  private warmUp() {
+    this.needsWarm = false;
+    const r = this.renderer as THREE.WebGLRenderer & { compile?: (s: THREE.Object3D, c: THREE.Camera) => void };
+    if (typeof r.compile !== "function") return;
+    try {
+      for (const transparent of [false, true]) {
+        this.model.teeth.forEach((v) => v.warmBegin(transparent));
+        r.compile(this.scene, this.camera);
+        // three checks a program's link status lazily, on first use: touch every compiled program NOW
+        (this.renderer.info.programs ?? []).forEach((p) => p.getUniforms());
+      }
+    } catch { /* the first selection simply compiles what it needs itself */ }
+    finally { this.model.teeth.forEach((v) => v.warmEnd()); }
   }
 
   // ------------------------------------------------------------------ transitions
@@ -291,19 +413,25 @@ export class DentalEngine {
 
   private poseFor(t: Transition): { pose: CameraPose; delay: number; duration: number } {
     switch (t.kind) {
-      case "select": return { pose: this.toothPoseFor(t.selectedFdi!, "select"), delay: 150, duration: 700 };
-      case "focus": return { pose: this.toothPoseFor(t.selectedFdi!, "focus"), delay: 100, duration: 600 };
+      case "select": return { pose: this.toothPoseFor(t.selectedFdi!, "select"), delay: 100, duration: 600 };
+      case "focus": return { pose: this.toothPoseFor(t.selectedFdi!, this.isolated ? "isolate" : "focus"), delay: 0, duration: 550 };
       case "back": return { pose: this.defaultP(), delay: 0, duration: 800 };
       case "preset": return { pose: presetPose(t.preset!, this.framing, this.aspect()), delay: 0, duration: 900 };
       case "dentition": return { pose: this.defaultP(), delay: 0, duration: 450 };
     }
   }
 
-  private toothPoseFor(fdi: string, kind: "select" | "focus"): CameraPose {
+  private toothPoseFor(fdi: string, kind: "select" | "focus" | "isolate"): CameraPose {
     const v = this.model.teeth.get(fdi)!;
+    let surface: { id: string; normal: THREE.Vector3 } | null = null;
+    if (this.surface) {
+      const n = new THREE.Vector3();
+      v.surfaceWorld(this.surface, new THREE.Vector3(), n);
+      surface = { id: this.surface, normal: n };
+    }
     return toothPose(kind, {
       center: v.focusCenter(new THREE.Vector3()), nx: v.nx, nz: v.nz,
-      jaw: v.meta.jaw, tip: v.dims.tip, w: v.dims.w,
+      jaw: v.meta.jaw, tip: v.dims.tip, w: v.dims.w, surface,
     });
   }
 
@@ -328,20 +456,27 @@ export class DentalEngine {
   }
 
   /**
-   * HERO composition. Selected tooth = 100% and (with the camera framing) becomes the visual hero; the COMPLETE jaw stays
-   * behind it, darker + desaturated, and fades into the studio backdrop with distance. Selected ≈ 45% / Focus ≈ 25%.
+   * HERO composition (Phase 5: driven by focusModel.ts — absolute per-tooth targets, so select / focus / isolate / reset cycles always
+   * return every tooth to exactly its original look). Selected tooth = the hero; the COMPLETE jaw stays behind it, darker and
+   * softer; the neighbours become see-through (never shared materials: each tooth owns its own).
    */
   private applyEmphasis() {
     const sel = this.machine.selectedFdi;
-    const focusing = this.machine.isFocusing;
-    const others = sel === null ? 1 : focusing ? 0.25 : 0.45;
-    this.model.teeth.forEach((v) => {
-      const isSel = v.fdi === sel;
-      v.setEmphasisTarget(sel === null || isSel ? 1 : others);
-      v.setHero(isSel ? (focusing ? 2 : 1) : 0);
+    const shown = this.teethFdis();
+    const r = computeFocusTargets({ shown, selected: sel, focusing: this.machine.isFocusing, isolated: this.isolated && !!sel, surface: this.surface, multiSelected: this.multiSel });
+    this.focusLevel = r.level;
+    applyFocusTargets(this.model.teeth, r.teeth);
+    this.model.teeth.forEach((v, f) => {
+      v.setLinked(this.linkedSet.has(f));
+      v.setSurfaceCue(f === sel ? this.surface : null);
     });
-    this.gumTarget = sel === null ? 1 : focusing ? 0.25 : 0.42;
-    this.fogTarget = sel === null ? 0 : focusing ? 1 : 0.6;
+    this.gumTarget = r.tuning.gum;
+    this.fogTarget = r.tuning.fog;
+    const summary = focusSummaryOf(r.level, sel, this.surface, r.teeth);
+    const changed = summary !== this.focusSummary;
+    this.focusSummary = summary;
+    this.refreshPickList();
+    if (changed) this.cb.onFocusChange?.(summary);
   }
 
   private animateJaw(to: number) {
@@ -358,10 +493,12 @@ export class DentalEngine {
     if (this.disposed) return;
     const dt = this.lastMs ? Math.min(0.05, Math.max(0, (nowMs - this.lastMs) / 1000)) : 0.016;
     this.lastMs = nowMs;
+    this.frames++;
     this.time += dt;
     const k = (rate: number) => 1 - Math.exp(-dt * rate);
 
     if (this.pendingSwap && nowMs >= this.pendingSwap.at) this.performSwap();
+    if (this.needsWarm && !this.pendingSwap && this.frames > 1) this.warmUp();
 
     if (this.director.update(nowMs, this.pose)) {
       this.camera.position.copy(this.pose.position);
@@ -472,13 +609,17 @@ export class DentalEngine {
     if (!d || e.button !== 0 || Math.hypot(e.clientX - d.x, e.clientY - d.y) > CLICK_SLOP_PX) return; // a drag, not a click
     this.setNdc(e);
     const fdi = this.pick();
-    if (fdi) this.selectTooth(fdi);
+    if (!fdi) return;
+    if (this.multiMode) { this.cb.onToggle?.(fdi); return; }
+    this.selectTooth(fdi);
   };
   private onPointerLeave = () => this.clearHover();
   private onDblClick = (e: MouseEvent) => {
     this.setNdc(e as PointerEvent);
     const fdi = this.pick();
-    if (fdi) { this.selectTooth(fdi); this.focusSelected(); }
+    if (!fdi) return;
+    if (this.multiMode) { this.cb.onToggle?.(fdi); return; }
+    this.selectTooth(fdi); this.focusSelected();
   };
 
   // ------------------------------------------------------------------ labels

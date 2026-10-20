@@ -36,6 +36,16 @@ export interface IInvoice extends Document {
   total: number;
   payments: IPayment[];
   status: "unpaid" | "partially_paid" | "paid";
+  // PHASE 2 — deletion lifecycle (soft delete -> Deleted Invoices -> restore / permanent delete). It is a state SEPARATE from the payment
+  // `status`: deleting never touches items, total, payments or status, so a restored invoice contributes exactly what it did before.
+  //   deletedAt == null / absent   ACTIVE  (every invoice created before Phase 2 is active: no migration)
+  //   deletedAt is a Date          SOFT-DELETED: excluded from every active list, KPI, report and revenue figure (see ACTIVE_INVOICE)
+  deletedAt?: Date | null;
+  deletedBy?: Types.ObjectId | null;
+  deleteReason?: string | null;
+  /** Audit only: the LAST time this invoice was restored from Deleted Invoices, and by whom. */
+  restoredAt?: Date | null;
+  restoredBy?: Types.ObjectId | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -81,6 +91,13 @@ const invoiceSchema = new Schema<IInvoice>(
       enum: ["unpaid", "partially_paid", "paid"],
       default: "unpaid",
     },
+    // PHASE 2 — soft delete. No defaults on purpose: an existing document has none of these fields and `{ deletedAt: null }` matches it,
+    // so every legacy invoice is ACTIVE without a migration.
+    deletedAt: { type: Date, default: undefined },
+    deletedBy: { type: Schema.Types.ObjectId, ref: "User", default: undefined },
+    deleteReason: { type: String, trim: true, maxlength: 300, default: undefined },
+    restoredAt: { type: Date, default: undefined },
+    restoredBy: { type: Schema.Types.ObjectId, ref: "User", default: undefined },
   },
   { timestamps: true }
 );
@@ -96,5 +113,17 @@ invoiceSchema.index({ clinicId: 1, doctorId: 1, createdAt: -1 });
 invoiceSchema.index({ clinicId: 1, "payments.paidAt": 1 });
 invoiceSchema.index({ clinicId: 1, doctorId: 1, "payments.paidAt": 1 });
 invoiceSchema.index({ clinicId: 1, createdAt: -1 });
+// PHASE 2 — the Deleted Invoices list ({ clinicId, deletedAt: { $ne: null } } newest deletion first).
+invoiceSchema.index({ clinicId: 1, deletedAt: -1 });
+
+/**
+ * PHASE 2 — THE active-invoice predicate. Spread it into the filter / first $match of EVERY query that is about live invoices
+ * (lists, counts, revenue, outstanding, reports, dashboards, AI). `deletedAt: null` also matches documents that do not have the field,
+ * which is why existing invoices need no backfill. Only the Deleted Invoices endpoints, the lifecycle service, billing links to a
+ * specific invoice id, the clinic export and the clinic purge may look at soft-deleted invoices.
+ */
+export const ACTIVE_INVOICE: Readonly<{ deletedAt: null }> = Object.freeze({ deletedAt: null });
+/** The opposite predicate: soft-deleted invoices only (Deleted Invoices list, restore, permanent delete). */
+export const DELETED_INVOICE: Readonly<{ deletedAt: { $ne: null } }> = Object.freeze({ deletedAt: { $ne: null } });
 
 export const Invoice = mongoose.model<IInvoice>("Invoice", invoiceSchema);

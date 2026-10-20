@@ -11,7 +11,11 @@ import { useSelectedPatient } from "@/store/patient";
 import { useAccess, useClinicDoctors } from "@/lib/access";
 import { newRequestId } from "@/lib/clinical/hooks";
 import { paidOf, type Invoice, type Patient } from "@/lib/types";
+import DeletedInvoicesPanel from "@/components/invoices/DeletedInvoicesPanel";
+import { DeleteInvoiceDialog } from "@/components/invoices/InvoiceLifecycleDialogs";
+import { invoiceNo, useDeletedInvoices, useInvoiceLifecycleAccess } from "@/lib/invoices/lifecycle";
 import {
+  IconArchive,
   IconCoin,
   IconHourglass,
   IconReceipt,
@@ -56,6 +60,12 @@ export default function InvoicesPage() {
   const [newDoctor, setNewDoctor] = useState("");
   const [editDoctor, setEditDoctor] = useState("");
   const showDoctorCol = !access.isDoctor;
+  // PHASE 2 — deletion lifecycle. Active Invoices | Deleted Invoices; the trash action and the second tab exist only for a role the server allows
+  // (receptionist: neither). The server re-checks every call — this only decides what to show.
+  const lifecycle = useInvoiceLifecycleAccess();
+  const [view, setView] = useState<"active" | "deleted">("active");
+  const [deleting, setDeleting] = useState<Invoice | null>(null);
+  const deletedCount = useDeletedInvoices({}, lifecycle.canDelete).data?.length;
   const [creating, setCreating] = useState(false);
   const [paying, setPaying] = useState<Invoice | null>(null);
   // PHASE 7 — one token per "Record payment" dialog: a double click / network retry can never record the payment twice.
@@ -349,11 +359,40 @@ export default function InvoicesPage() {
     <div>
       <div className="mb-3 flex items-center gap-2.5">
         <h1 className="text-lg font-medium text-ink">{t("inv.title")}</h1>
-        <button onClick={() => { setError(""); setCreating(true); }} className="btn-teal ms-auto !py-2 text-xs">
-          <IconPlus size={14} /> {t("inv.new")}
-        </button>
+        {view === "active" && (
+          <button onClick={() => { setError(""); setCreating(true); }} className="btn-teal ms-auto !py-2 text-xs">
+            <IconPlus size={14} /> {t("inv.new")}
+          </button>
+        )}
       </div>
 
+      {/* PHASE 2 — [ Active Invoices ] [ Deleted Invoices ] */}
+      {lifecycle.canDelete && (
+        <div role="tablist" aria-label={t("invd.tabs.aria")} className="mb-3 inline-flex gap-1 rounded-lg border border-edge bg-card2 p-1">
+          {(["active", "deleted"] as const).map((v) => (
+            <button
+              key={v}
+              role="tab"
+              aria-selected={view === v}
+              onClick={() => setView(v)}
+              className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-medium transition-colors duration-150 ${
+                view === v ? "bg-teal text-navy" : "text-mute hover:text-ink"
+              }`}
+            >
+              {v === "deleted" && <IconArchive size={12} />}
+              {v === "active" ? t("invd.tab.active") : t("invd.tab.deleted")}
+              {v === "deleted" && !!deletedCount && (
+                <span className={`rounded-full px-1.5 text-[9px] ${view === v ? "bg-navy/15" : "bg-soft"}`} dir="ltr">{deletedCount}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {view === "deleted" && lifecycle.canDelete ? (
+        <DeletedInvoicesPanel canPurge={lifecycle.canPurge} doctors={clinicDoctors} showDoctorFilter={!access.isDoctor} />
+      ) : (
+      <>
       {/* Summary cards with 3D depth icons */}
       <div className={`mb-3 grid gap-3 ${cards.length === 3 ? "grid-cols-3" : "grid-cols-1 sm:max-w-xs"}`}>
         {cards.map((c) => (
@@ -491,13 +530,13 @@ export default function InvoicesPage() {
 
       {/* Table */}
       <div className="card overflow-x-auto">
-        <div className="flex min-w-[720px] border-b border-edge bg-card2 px-4 py-2 text-[9px] font-medium tracking-widest text-mute">
+        <div className="flex min-w-[760px] border-b border-edge bg-card2 px-4 py-2 text-[9px] font-medium tracking-widest text-mute">
           <span className="w-24 shrink-0">{t("inv.invoice")}</span>
           <span className="flex-[1.2]">{t("pt.patient")}</span>
           {showDoctorCol && <span className="w-28 shrink-0 uppercase">{t("md.invoice.doctor")}</span>}
           <span className="flex-1">{t("inv.paidTotal")}</span>
           <span className="w-20 shrink-0">{t("inv.status")}</span>
-          <span className="w-44 shrink-0 text-end">{t("pt.actions")}</span>
+          <span className="w-52 shrink-0 text-end">{t("pt.actions")}</span>
         </div>
         {invoices && invoices.length === 0 && search && (
           <div className="py-14 text-center">
@@ -533,7 +572,7 @@ export default function InvoicesPage() {
           const paid = paidOf(inv);
           const pct = inv.total ? Math.min(100, Math.round((paid / inv.total) * 100)) : 100;
           return (
-            <div key={inv._id} className="flex min-w-[720px] items-center border-b border-edge px-4 py-2.5 last:border-0">
+            <div key={inv._id} className="flex min-w-[760px] items-center border-b border-edge px-4 py-2.5 transition-colors duration-150 last:border-0 hover:bg-soft/40">
               <span className="w-24 shrink-0 font-mono text-[10px] text-blue">
                 INV-{String(inv.invoiceNumber).padStart(4, "0")}
               </span>
@@ -572,7 +611,7 @@ export default function InvoicesPage() {
                   {inv.status === "paid" ? t("inv.paid") : inv.status === "partially_paid" ? t("inv.partial") : t("inv.unpaid")}
                 </span>
               </span>
-              <span className="flex w-44 shrink-0 justify-end gap-1.5">
+              <span className="flex w-52 shrink-0 items-center justify-end gap-1.5">
                 <button
                   onClick={() => {
                     setEditing(inv);
@@ -605,11 +644,24 @@ export default function InvoicesPage() {
                     <IconCreditCard size={12} /> {t("inv.addPayment")}
                   </button>
                 )}
+                {lifecycle.canDelete && (
+                  <button
+                    onClick={() => setDeleting(inv)}
+                    className="inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-lg border border-transparent text-mute transition duration-150 hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-400 active:scale-95"
+                    title={t("invd.delete")}
+                    aria-label={`${t("invd.delete")} ${invoiceNo(inv.invoiceNumber)}`}
+                  >
+                    <IconTrash size={14} />
+                  </button>
+                )}
               </span>
             </div>
           );
         })}
       </div>
+
+      </>
+      )}
 
       {/* ===== Create invoice modal ===== */}
       {creating && (
@@ -861,6 +913,9 @@ export default function InvoicesPage() {
           </button>
         </Modal>
       )}
+
+      {/* ===== PHASE 2 — Delete invoice (moves it to Deleted Invoices; the shared dialog, same as everywhere) ===== */}
+      {deleting && <DeleteInvoiceDialog invoice={deleting} onClose={() => setDeleting(null)} />}
     </div>
   );
 }

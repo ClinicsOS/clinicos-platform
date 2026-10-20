@@ -11,6 +11,7 @@ import { getAmmanTodayRange } from "../utils/timezone";
 import { loadDermBillingViewsForClinic } from "../services/dermBilling";
 import { resolveDataScope, doctorMatch } from "../auth/policy";
 import { resolveTreatingDoctors } from "../services/doctorAttribution";
+import { patientScopeFilter, viewerOf } from "../auth/patientAccess";
 
 /**
  * GET /api/derm/dashboard — ONE summary read for the Dermatology & Aesthetics operational dashboard.
@@ -28,6 +29,9 @@ export const getDermDashboard = asyncHandler(async (req: Request, res: Response)
   // PHASE 4 — a doctor's "Today" is their own schedule (the shared clinical overview below stays clinic-wide); owner / receptionist see all.
   const apptScope = resolveDataScope(req, "appointments");
   const restrictTo = apptScope.level === "self" ? apptScope.userId : undefined;
+  // PHASE 1 — the "shared clinical overview" is no longer clinic-wide for a doctor: every treatment / follow-up / activity row below is
+  // limited to the patients he may open (his own + covered). `{}` for the owner and the front desk.
+  const pScope = await patientScopeFilter(viewerOf(req), "patientId", "patientClinical");
 
   // ---------- Today (existing Appointment/Visit source of truth; a "blocked" slot is not a patient visit)
   const todays = (await Appointment.find({ clinicId, type: "appointment", ...doctorMatch(apptScope), startAt: { $gte: dayStart, $lte: dayEnd } }).select("status source").lean()) as any[];
@@ -42,14 +46,14 @@ export const getDermDashboard = asyncHandler(async (req: Request, res: Response)
   }
 
   // ---------- Treatment Overview (COUNT SEMANTICS: plan items, never sessions), split by record type
-  const grouped = (await DermTreatmentItem.aggregate([{ $match: { clinicId } }, { $group: { _id: { s: "$status", t: "$recordType" }, count: { $sum: 1 } } }])) as { _id: { s: string; t: string }; count: number }[];
+  const grouped = (await DermTreatmentItem.aggregate([{ $match: { clinicId, ...pScope } }, { $group: { _id: { s: "$status", t: "$recordType" }, count: { $sum: 1 } } }])) as { _id: { s: string; t: string }; count: number }[];
   const cnt = (s: string, t?: string) => grouped.filter((r) => r._id.s === s && (!t || r._id.t === t)).reduce((n, r) => n + r.count, 0);
   const overview = (t?: string) => ({ planned: cnt("planned", t), inProgress: cnt("in_progress", t), completed: cnt("completed", t), cancelled: cnt("cancelled", t) });
   const treatmentOverview = { ...overview(), dermatology: overview("dermatology"), aesthetic: overview("aesthetic") };
 
   // ---------- Active Treatments: in-progress first (most recently touched), then a few most-recent planned
-  const inProgress = (await DermTreatmentItem.find({ clinicId, status: "in_progress" }).sort({ updatedAt: -1 }).limit(LIMIT).lean()) as any[];
-  const plannedFill = inProgress.length < LIMIT ? ((await DermTreatmentItem.find({ clinicId, status: "planned" }).sort({ createdAt: -1 }).limit(LIMIT - inProgress.length).lean()) as any[]) : [];
+  const inProgress = (await DermTreatmentItem.find({ clinicId, ...pScope, status: "in_progress" }).sort({ updatedAt: -1 }).limit(LIMIT).lean()) as any[];
+  const plannedFill = inProgress.length < LIMIT ? ((await DermTreatmentItem.find({ clinicId, ...pScope, status: "planned" }).sort({ createdAt: -1 }).limit(LIMIT - inProgress.length).lean()) as any[]) : [];
   const activeItems = [...inProgress, ...plannedFill];
   const sessionCounts = activeItems.length
     ? ((await DermTreatmentSession.aggregate([{ $match: { clinicId, itemId: { $in: activeItems.map((i) => i._id) } } }, { $group: { _id: "$itemId", count: { $sum: 1 } } }])) as { _id: any; count: number }[])
@@ -57,7 +61,7 @@ export const getDermDashboard = asyncHandler(async (req: Request, res: Response)
   const sessionCountOf = new Map(sessionCounts.map((r) => [String(r._id), r.count]));
 
   // ---------- Needs Billing: COMPLETED and not linked to an invoice line. Eligibility comes from the ONE billing service.
-  const completed = (await DermTreatmentItem.find({ clinicId, status: "completed" }).sort({ updatedAt: -1 }).limit(NEEDS_BILLING_SCAN).lean()) as any[];
+  const completed = (await DermTreatmentItem.find({ clinicId, ...pScope, status: "completed" }).sort({ updatedAt: -1 }).limit(NEEDS_BILLING_SCAN).lean()) as any[];
   const views = await loadDermBillingViewsForClinic(clinicId, completed, restrictTo);
   let needsAll = completed.filter((i) => views.get(String(i._id))?.state === "none");
   if (restrictTo) {
@@ -68,20 +72,20 @@ export const getDermDashboard = asyncHandler(async (req: Request, res: Response)
   const needsBilling = { count: needsAll.length, capped: completed.length >= NEEDS_BILLING_SCAN, items: needsAll.slice(0, LIMIT) };
 
   // ---------- Follow-Ups: review dates the CLINICIAN chose on a session, not yet documented
-  const dueSessions = (await DermTreatmentSession.find({ clinicId, followUpDueAt: { $exists: true }, followUpResolvedAt: { $exists: false } }).sort({ followUpDueAt: 1 }).limit(LIMIT).lean()) as any[];
+  const dueSessions = (await DermTreatmentSession.find({ clinicId, ...pScope, followUpDueAt: { $exists: true }, followUpResolvedAt: { $exists: false } }).sort({ followUpDueAt: 1 }).limit(LIMIT).lean()) as any[];
   const nowMs = Date.now();
   const soon = new Date(nowMs + 7 * 86_400_000);
   const [overdueCount, dueSoonCount] = await Promise.all([
-    DermTreatmentSession.countDocuments({ clinicId, followUpDueAt: { $lt: dayStart }, followUpResolvedAt: { $exists: false } }),
-    DermTreatmentSession.countDocuments({ clinicId, followUpDueAt: { $gte: dayStart, $lte: soon }, followUpResolvedAt: { $exists: false } }),
+    DermTreatmentSession.countDocuments({ clinicId, ...pScope, followUpDueAt: { $lt: dayStart }, followUpResolvedAt: { $exists: false } }),
+    DermTreatmentSession.countDocuments({ clinicId, ...pScope, followUpDueAt: { $gte: dayStart, $lte: soon }, followUpResolvedAt: { $exists: false } }),
   ]);
 
   // ---------- Recent Activity (assessments, treatment changes, sessions, follow-ups) merged and trimmed
   const [rA, rI, rS, rF] = await Promise.all([
-    DermAssessment.find({ clinicId, status: "active" }).sort({ createdAt: -1 }).limit(LIMIT).select("patientId recordType regionIds createdAt").lean() as Promise<any[]>,
-    DermTreatmentItem.find({ clinicId, status: { $in: ["in_progress", "completed", "cancelled"] } }).sort({ updatedAt: -1 }).limit(LIMIT).select("patientId recordType procedureCode status updatedAt").lean() as Promise<any[]>,
-    DermTreatmentSession.find({ clinicId }).sort({ startedAt: -1 }).limit(LIMIT).select("patientId recordType procedureCode sessionNumber startedAt").lean() as Promise<any[]>,
-    DermFollowUp.find({ clinicId, status: "active" }).sort({ createdAt: -1 }).limit(LIMIT).select("patientId recordType createdAt").lean() as Promise<any[]>,
+    DermAssessment.find({ clinicId, ...pScope, status: "active" }).sort({ createdAt: -1 }).limit(LIMIT).select("patientId recordType regionIds createdAt").lean() as Promise<any[]>,
+    DermTreatmentItem.find({ clinicId, ...pScope, status: { $in: ["in_progress", "completed", "cancelled"] } }).sort({ updatedAt: -1 }).limit(LIMIT).select("patientId recordType procedureCode status updatedAt").lean() as Promise<any[]>,
+    DermTreatmentSession.find({ clinicId, ...pScope }).sort({ startedAt: -1 }).limit(LIMIT).select("patientId recordType procedureCode sessionNumber startedAt").lean() as Promise<any[]>,
+    DermFollowUp.find({ clinicId, ...pScope, status: "active" }).sort({ createdAt: -1 }).limit(LIMIT).select("patientId recordType createdAt").lean() as Promise<any[]>,
   ]);
   type Feed = { at: Date; kind: string; patientId: string; recordType: string; procedureCode?: string; status?: string; sessionNumber?: number };
   const feed: Feed[] = [

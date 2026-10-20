@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import mongoose from "mongoose";
 import { Appointment } from "../models/Appointment";
-import { Invoice } from "../models/Invoice";
+import { Invoice, ACTIVE_INVOICE } from "../models/Invoice";
 import { asyncHandler } from "../middleware/errorHandler";
 import { resolveDataScope, doctorMatchOid, accessOf, PolicyError } from "../auth/policy";
 import { addDaysYmd, clinicLocalToUtc, clinicTodayRange, DEFAULT_CLINIC_TIMEZONE } from "../utils/timezone";
@@ -45,7 +45,7 @@ export const getStats = asyncHandler(async (req: Request, res: Response) => {
   if (accessOf(req.role, "dashboardRevenue") !== "none") {
     const revScope = resolveDataScope(req, "dashboardRevenue", req.query.doctorId);
     const revenueResult = await Invoice.aggregate([
-      { $match: { clinicId, ...doctorMatchOid(revScope) } },
+      { $match: { clinicId, ...doctorMatchOid(revScope), ...ACTIVE_INVOICE } }, // PHASE 2 — a soft-deleted invoice is not revenue
       { $unwind: "$payments" },
       { $match: { "payments.paidAt": { $gte: todayStart, $lt: todayEnd } } },
       { $group: { _id: null, total: { $sum: "$payments.amount" } } },

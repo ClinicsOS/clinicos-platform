@@ -57,31 +57,36 @@ const iso = (d: unknown): string | null => {
   return Number.isFinite(t) ? new Date(t).toISOString() : null;
 };
 
-export async function recentActivity(clinicId: string, limitIn: number) {
+/** Multi-doctor patient isolation: omitted / null = whole clinic (owner, front desk); an array = only events of those patients. */
+export type PatientScope = Types.ObjectId[] | null | undefined;
+const scoped = (scope: PatientScope): Record<string, unknown> => (scope ? { patientId: { $in: scope } } : {});
+
+export async function recentActivity(clinicId: string, limitIn: number, scope?: PatientScope) {
   const limit = Math.min(INSIGHTS.activityMax, Math.max(1, Math.floor(limitIn) || INSIGHTS.activityDefault));
   const cid = oid(clinicId);
+  const pf = scoped(scope);
   const fetchN = limit * 2; // some rows are filtered out below (e.g. redemption ledger rows, shown through their redemption instead)
 
   const [txs, accounts, checkIns, redeemed, reversed, promos] = await Promise.all([
-    LoyaltyTransaction.find({ clinicId: cid, type: { $in: ["earn_visit", "earn_spending", "manual_credit", "manual_debit", "correction", "expiration", "reversal"] } })
+    LoyaltyTransaction.find({ clinicId: cid, ...pf, type: { $in: ["earn_visit", "earn_spending", "manual_credit", "manual_debit", "correction", "expiration", "reversal"] } })
       .select("type pointsDelta createdAt patientId metadata")
       .sort({ createdAt: -1, _id: -1 })
       .limit(fetchN)
       .lean(),
-    LoyaltyAccount.find({ clinicId: cid }).select("patientId joinedAt").sort({ joinedAt: -1, _id: -1 }).limit(limit).lean(),
+    LoyaltyAccount.find({ clinicId: cid, ...pf }).select("patientId joinedAt").sort({ joinedAt: -1, _id: -1 }).limit(limit).lean(),
     // Pending requests expire quickly, so ordering by request time is, for practical purposes, ordering by resolution time; re-sorted by resolvedAt below.
-    LoyaltyCheckIn.find({ clinicId: cid, status: "confirmed" }).select("patientId resolvedAt requestedAt").sort({ requestedAt: -1, _id: -1 }).limit(fetchN).lean(),
-    LoyaltyRedemption.find({ clinicId: cid, status: { $in: ["confirmed", "reversing", "reversed"] }, confirmedAt: { $ne: null } })
+    LoyaltyCheckIn.find({ clinicId: cid, ...pf, status: "confirmed" }).select("patientId resolvedAt requestedAt").sort({ requestedAt: -1, _id: -1 }).limit(fetchN).lean(),
+    LoyaltyRedemption.find({ clinicId: cid, ...pf, status: { $in: ["confirmed", "reversing", "reversed"] }, confirmedAt: { $ne: null } })
       .select("patientId rewardNameSnapshot pointsCostSnapshot confirmedAt")
       .sort({ confirmedAt: -1, _id: -1 })
       .limit(limit)
       .lean(),
-    LoyaltyRedemption.find({ clinicId: cid, status: "reversed", reversedAt: { $ne: null } })
+    LoyaltyRedemption.find({ clinicId: cid, ...pf, status: "reversed", reversedAt: { $ne: null } })
       .select("patientId rewardNameSnapshot pointsCostSnapshot reversedAt")
       .sort({ reversedAt: -1, _id: -1 })
       .limit(limit)
       .lean(),
-    LoyaltyTierHistory.find({ clinicId: cid, direction: "promotion" }).select("patientId toTierKey toTierNameSnapshot changedAt").sort({ changedAt: -1, _id: -1 }).limit(limit).lean(),
+    LoyaltyTierHistory.find({ clinicId: cid, ...pf, direction: "promotion" }).select("patientId toTierKey toTierNameSnapshot changedAt").sort({ changedAt: -1, _id: -1 }).limit(limit).lean(),
   ]);
 
   type Raw = Omit<ActivityEvent, "patient"> & { patientId: string | null };
@@ -124,7 +129,7 @@ const dayKey = (d: unknown): string => dayFmt.format(new Date(d as any));
 
 const displayRedemptionStatus = (s: string) => (s === "confirming" ? "pending" : s === "reversing" ? "confirmed" : s);
 
-export async function loyaltyAnalytics(clinicId: string, daysIn: number) {
+export async function loyaltyAnalytics(clinicId: string, daysIn: number, scope?: PatientScope) {
   const days = (INSIGHTS.analyticsDays as readonly number[]).includes(daysIn) ? daysIn : 30;
   const cid = oid(clinicId);
   const now = Date.now();
@@ -137,12 +142,13 @@ export async function loyaltyAnalytics(clinicId: string, daysIn: number) {
   const from = new Date(now - (days + 1) * 86_400_000); // one spare day; rows outside the key set are dropped
   const zero = () => keys.map(() => 0);
   const cap = INSIGHTS.rowCap;
+  const pf = scoped(scope);
 
   const [txs, checkIns, accounts, redemptions] = await Promise.all([
-    LoyaltyTransaction.find({ clinicId: cid, createdAt: { $gte: from } }).select("type pointsDelta createdAt metadata").sort({ createdAt: -1 }).limit(cap + 1).lean(),
-    LoyaltyCheckIn.find({ clinicId: cid, requestedAt: { $gte: from } }).select("status via requestedAt").sort({ requestedAt: -1 }).limit(cap + 1).lean(),
-    LoyaltyAccount.find({ clinicId: cid, joinedAt: { $gte: from } }).select("joinedAt").sort({ joinedAt: -1 }).limit(cap + 1).lean(),
-    LoyaltyRedemption.find({ clinicId: cid, requestedAt: { $gte: from } }).select("rewardId rewardNameSnapshot pointsCostSnapshot status requestedAt").sort({ requestedAt: -1 }).limit(cap + 1).lean(),
+    LoyaltyTransaction.find({ clinicId: cid, ...pf, createdAt: { $gte: from } }).select("type pointsDelta createdAt metadata").sort({ createdAt: -1 }).limit(cap + 1).lean(),
+    LoyaltyCheckIn.find({ clinicId: cid, ...pf, requestedAt: { $gte: from } }).select("status via requestedAt").sort({ requestedAt: -1 }).limit(cap + 1).lean(),
+    LoyaltyAccount.find({ clinicId: cid, ...pf, joinedAt: { $gte: from } }).select("joinedAt").sort({ joinedAt: -1 }).limit(cap + 1).lean(),
+    LoyaltyRedemption.find({ clinicId: cid, ...pf, requestedAt: { $gte: from } }).select("rewardId rewardNameSnapshot pointsCostSnapshot status requestedAt").sort({ requestedAt: -1 }).limit(cap + 1).lean(),
   ]);
   const truncated = { transactions: txs.length > cap, checkIns: checkIns.length > cap, members: accounts.length > cap, redemptions: redemptions.length > cap };
 
@@ -239,10 +245,10 @@ const displayStatus = (s: string) => (s === "confirming" ? "pending" : s === "re
  * Recent check-ins and redemptions of ONE member, plus which rewards the member can afford RIGHT NOW (from the stored balance).
  * Returns null when the account does not belong to the clinic (the caller answers 404 — a foreign id looks exactly like a missing one).
  */
-export async function memberInsights(clinicId: string, accountId: string) {
+export async function memberInsights(clinicId: string, accountId: string, scope?: PatientScope) {
   const cid = oid(clinicId);
   const aid = oid(accountId);
-  const account = (await LoyaltyAccount.findOne({ _id: aid, clinicId: cid }).select("pointsBalance").lean()) as Lean | null;
+  const account = (await LoyaltyAccount.findOne({ _id: aid, clinicId: cid, ...scoped(scope) }).select("pointsBalance").lean()) as Lean | null;
   if (!account) return null;
   const nowMs = Date.now();
   const [checkIns, redemptions, rewards] = await Promise.all([

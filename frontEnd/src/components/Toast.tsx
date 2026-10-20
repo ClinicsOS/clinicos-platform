@@ -47,7 +47,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       {/* Toast stack — fixed bottom-right (LTR) / bottom-left (RTL follows page dir) */}
       <div
-        className="pointer-events-none fixed bottom-4 end-4 z-[100] flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2"
+        className="pointer-events-none fixed bottom-4 end-4 z-toast flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2"
         aria-live="polite"
       >
         {toasts.map((t) => (

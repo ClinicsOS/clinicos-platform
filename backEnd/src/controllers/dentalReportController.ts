@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { asyncHandler } from "../middleware/errorHandler";
 import { Clinic } from "../models/Clinic";
 import { Patient } from "../models/Patient";
-import { Invoice } from "../models/Invoice";
+import { Invoice, ACTIVE_INVOICE } from "../models/Invoice";
 import { DentalRecord } from "../models/DentalRecord";
 import { requireActivePlan, requirePlanFeature } from "../middleware/auth";
 import { loadPatient, populateEvents, serializeEvent, serializeRecord } from "./dentalController";
@@ -54,7 +54,7 @@ export const getDentalReport = asyncHandler(async (req: Request, res: Response) 
     // never derived from Treatment Plan estimates. Every dental Invoice item is still a normal Invoice item.
     // PHASE 4 — a doctor's financial summary covers only the invoices attributed to them (owner / receptionist: the whole file).
     const invScope = resolveDataScope(req, "invoices");
-    const invoices = (await Invoice.find({ clinicId: req.clinicId, patientId: patient._id, ...doctorMatch(invScope) }).select("total payments").lean()) as any[];
+    const invoices = (await Invoice.find({ clinicId: req.clinicId, patientId: patient._id, ...doctorMatch(invScope), ...ACTIVE_INVOICE }).select("total payments").lean()) as any[];
     const round = (n: number) => Math.round(n * 1000) / 1000;
     const totalInvoiced = round(invoices.reduce((s, i) => s + i.total, 0));
     const totalPaid = round(invoices.reduce((s, i) => s + i.payments.reduce((ps: number, p: any) => ps + p.amount, 0), 0));

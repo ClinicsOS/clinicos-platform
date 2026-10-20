@@ -8,6 +8,7 @@ import { DentalToothEvent } from "../models/DentalToothEvent";
 import { DentalTreatmentItem } from "../models/DentalTreatmentItem";
 import { DentalTreatmentSession } from "../models/DentalTreatmentSession";
 import { buildTimeline } from "../utils/dentalTimeline";
+import { canAccessPatient, viewerOf } from "../auth/patientAccess";
 import {
   ALL_FDI,
   DENTITION_TYPES,
@@ -33,9 +34,12 @@ export const loadPatient = async (req: Request, res: Response) => {
     res.status(404).json({ message: "Patient not found" });
     return null;
   }
-  const patient = await Patient.findOne({ _id: patientId, clinicId: req.clinicId }).select("_id");
+  // PHASE 1: the patient must also be one THIS user may open (canAccessPatient: a doctor — his own + delegated patients only).
+  const patient = (await canAccessPatient(viewerOf(req), patientId, "patientClinical"))
+    ? await Patient.findOne({ _id: patientId, clinicId: req.clinicId }).select("_id")
+    : null;
   if (!patient) {
-    // Same response for "doesn't exist" and "belongs to another clinic" — no tenant probing.
+    // Same response for "doesn't exist", "belongs to another clinic" and "another doctor's patient" — no probing.
     res.status(404).json({ message: "Patient not found" });
     return null;
   }

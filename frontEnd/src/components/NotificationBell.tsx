@@ -77,7 +77,7 @@ export default function NotificationBell({ appointments }: { appointments: Appoi
       </button>
 
       {open && (
-        <div className="absolute end-0 top-[calc(100%+6px)] z-50 w-80 rounded-xl border border-edge bg-card shadow-[0_20px_50px_-20px_rgba(0,0,0,0.4)]">
+        <div className="absolute end-0 top-[calc(100%+6px)] z-dropdown w-80 rounded-xl border border-edge bg-card shadow-[0_20px_50px_-20px_rgba(0,0,0,0.4)]">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-edge px-4 py-2.5">
             <div>

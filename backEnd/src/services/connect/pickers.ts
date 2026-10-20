@@ -4,6 +4,7 @@ import { User } from "../../models/User";
 import { PolicyError, doctorMatch, scopeOf } from "../../auth/policy";
 import { clinicTodayRange } from "../../utils/timezone";
 import { patientSearchFilter } from "../patientSearch";
+import { accessiblePatientIds, filterAccessibleIds } from "../../auth/patientAccess";
 import { appointmentCardOf, canViewPatient, type AppointmentCard, type PatientCard, type Viewer } from "./references";
 
 /**
@@ -31,7 +32,10 @@ export async function pickPatients(v: Viewer, rawQ: unknown, rawPage: unknown): 
   if (!canViewPatient(v)) throw new PolicyError(403, "FORBIDDEN_ROLE", "Forbidden");
   const q = qOf(rawQ);
   const page = pageOf(rawPage);
-  const rows = await Patient.find(patientSearchFilter(v.clinicId, q, { fileNumber: true }))
+  const filter = patientSearchFilter(v.clinicId, q, { fileNumber: true });
+  const scope = await accessiblePatientIds(v, "patients"); // PHASE 1: a doctor can share only patients he may open (null = whole clinic)
+  if (scope !== null) filter._id = { $in: scope };
+  const rows = await Patient.find(filter)
     .select("fullName fileNumber")
     .sort({ createdAt: -1, _id: -1 })
     .skip((page - 1) * PICKER_PAGE)
@@ -76,7 +80,10 @@ export async function pickAppointments(
 
   if (q) {
     // find by the patient's name / phone / file number (archived included: their visits still exist), then restrict to those patients
-    const ids = await Patient.find(patientSearchFilter(v.clinicId, q, { includeArchived: true, fileNumber: true })).select("_id").limit(200).lean();
+    const pf = patientSearchFilter(v.clinicId, q, { includeArchived: true, fileNumber: true });
+    const scope = await accessiblePatientIds(v, "patients"); // PHASE 1: search never reaches a patient the caller may not open
+    if (scope !== null) pf._id = { $in: scope };
+    const ids = await Patient.find(pf).select("_id").limit(200).lean();
     if (!ids.length) return { appointments: [], group, page, hasMore: false };
     filter.patientId = { $in: ids.map((p) => p._id) };
   }
@@ -92,7 +99,8 @@ export async function pickAppointments(
     slice.length ? Patient.find({ _id: { $in: slice.map((a) => a.patientId).filter(Boolean) }, clinicId: v.clinicId }).select("fullName fileNumber").lean() : Promise.resolve([]),
     slice.length ? User.find({ _id: { $in: slice.map((a) => a.doctorId).filter(Boolean) }, clinicId: v.clinicId }).select("name").lean() : Promise.resolve([]),
   ]);
-  const patients = new Map((pats as any[]).map((p) => [String(p._id), p]));
+  const openable = await filterAccessibleIds(v, (pats as any[]).map((p) => p._id), "patients"); // names only for patients the caller may open
+  const patients = new Map((pats as any[]).filter((p) => openable.has(String(p._id))).map((p) => [String(p._id), p]));
   const doctors = new Map((docs as any[]).map((d) => [String(d._id), d.name as string]));
   return {
     appointments: slice.map((a) => appointmentCardOf(a as any, v, patients as any, doctors)),

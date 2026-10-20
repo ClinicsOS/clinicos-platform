@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { IconAlertTriangle, IconCalendarPlus, IconNotes, IconPencil, IconPlus, IconRefresh } from "@tabler/icons-react";
 import axios from "axios";
@@ -12,9 +12,14 @@ import { useAuth } from "@/store/auth";
 import { useCancelTreatment, useDentalRecord, useSetPhases, useStartTreatment, useTreatmentPlan } from "@/lib/dental/hooks";
 import type { TreatmentItem, TreatmentPlanResponse } from "@/lib/dental/types";
 import { procLabel } from "@/lib/dental/procedures";
+import { treatmentErrorKey, treatmentErrorText } from "@/lib/dental/errors";
+import { useChangeFeedback } from "@/lib/dental/changeFeedback";
 import TreatmentEditor from "./TreatmentEditor";
 import AddToInvoiceModal from "./AddToInvoiceModal";
 import NoteEditorModal from "@/components/clinical/NoteEditorModal";
+import FocusMissing from "@/components/history/FocusMissing";
+import { FocusProvider, useFocusKeys, useFocusTarget } from "@/lib/history/focus";
+import type { ProfileFocus } from "@/lib/history/deeplink";
 import { BillingLine, PriorityPill, ProcSwatch, StatusPill, TargetText, TimelineRow, money, scheduleNextVisitHref, shortDate, visitText } from "./shared";
 
 const isSameDay = (a: string, b: Date) => new Date(a).toDateString() === b.toDateString();
@@ -27,7 +32,7 @@ function candidateVisits(visits: Appointment[]) {
   return ok.sort((a, b) => rank(a) - rank(b) || (rank(a) === 1 ? +new Date(b.startAt) - +new Date(a.startAt) : +new Date(a.startAt) - +new Date(b.startAt)));
 }
 
-export default function TreatmentPlanTab({ patientId, patientName, canWrite, visits }: { patientId: string; patientName: string; canWrite: boolean; visits: Appointment[] }) {
+export default function TreatmentPlanTab({ patientId, patientName, canWrite, visits, focus, focusRun = "" }: { patientId: string; patientName: string; canWrite: boolean; visits: Appointment[]; focus?: ProfileFocus; focusRun?: string }) {
   const { t, lang } = useI18n();
   const user = useAuth((s) => s.user);
   const currentDoctorId = user?.role === "doctor" ? user.id : undefined;
@@ -39,6 +44,7 @@ export default function TreatmentPlanTab({ patientId, patientName, canWrite, vis
   const [billing, setBilling] = useState<TreatmentItem | null>(null); // "Add to Invoice" confirmation
   const [showCancelled, setShowCancelled] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const feedback = useChangeFeedback(patientId); // PHASE 4 — ids of records the last confirmed change added (subtle entry animation)
 
   if (q.isError) {
     const forbidden = axios.isAxiosError(q.error) && q.error.response?.status === 403;
@@ -54,12 +60,20 @@ export default function TreatmentPlanTab({ patientId, patientName, canWrite, vis
   const d = q.data;
 
   const cancelledCount = d.items.filter((i) => i.status === "cancelled").length;
-  const shown = d.items.filter((i) => showCancelled || i.status !== "cancelled");
+  // PHASE 3 deep link: a link names a treatment (item) or one of its sessions — both resolve to the exact item card by id.
+  const focusSession = focus?.session ? d.sessions.find((x) => x._id === focus.session) : undefined;
+  const focusItem = focus?.item ? d.items.find((x) => x._id === focus.item) : focusSession ? d.items.find((x) => x._id === focusSession.itemId) : undefined;
+  const focusMissing = (!!focus?.item || !!focus?.session) && !focusItem;
+  const focusKeys = [focusItem && `item:${focusItem._id}`, focusSession && `session:${focusSession._id}`].filter((k): k is string => !!k);
+  // a cancelled treatment is hidden by default, but a link to it must still open it
+  const shown = d.items.filter((i) => showCancelled || i.status !== "cancelled" || i._id === focusItem?._id);
   const phaseNums = Array.from(new Set([...d.plan.phases.map((p) => p.number), ...shown.map((i) => i.phase)])).sort((a, b) => a - b);
   const nameOf = (n: number) => d.plan.phases.find((p) => p.number === n)?.name;
 
   return (
+    <FocusProvider keys={focusKeys} run={focusRun}>
     <div className="space-y-3">
+      {focusMissing && <FocusMissing run={focusRun} />}
       {/* summary header — treatment-plan ESTIMATES only, never financial truth */}
       <div className="card p-3">
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -97,7 +111,7 @@ export default function TreatmentPlanTab({ patientId, patientName, canWrite, vis
             <section key={n} className="space-y-2">
               <PhaseHeader num={n} name={nameOf(n)} canWrite={canWrite} patientId={patientId} phases={d.plan.phases} />
               {list.map((it) => (
-                <ItemCard key={it._id} it={it} d={d} canWrite={canWrite} onEdit={() => setEditor({ item: it })} onStart={() => setStarting(it)} onBill={() => setBilling(it)} patientId={patientId} patientName={patientName} currentDoctorId={currentDoctorId} />
+                <ItemCard key={it._id} isNew={feedback.addedIds.has(it._id)} it={it} d={d} canWrite={canWrite} onEdit={() => setEditor({ item: it })} onStart={() => setStarting(it)} onBill={() => setBilling(it)} patientId={patientId} patientName={patientName} currentDoctorId={currentDoctorId} />
               ))}
             </section>
           );
@@ -122,6 +136,7 @@ export default function TreatmentPlanTab({ patientId, patientName, canWrite, vis
       {billing && <AddToInvoiceModal patientId={patientId} item={billing} onClose={() => setBilling(null)} />}
       {starting && <StartVisitModal item={starting} visits={candidateVisits(visits)} patientId={patientId} lang={lang} onClose={() => setStarting(null)} />}
     </div>
+    </FocusProvider>
   );
 }
 
@@ -142,7 +157,7 @@ function PhaseHeader({ num, name, canWrite, patientId, phases }: { num: number; 
   const [val, setVal] = useState(name ?? "");
   const save = async () => {
     const next = phases.some((p) => p.number === num) ? phases.map((p) => (p.number === num ? { ...p, name: val.trim() || undefined } : p)) : [...phases, { number: num, name: val.trim() || undefined }];
-    try { await set.mutateAsync(next); setEditing(false); } catch (e) { toast.error(t("dn.err.action"), errMsg(e, "")); }
+    try { await set.mutateAsync(next); setEditing(false); } catch (e) { toast.error(t("dn.err.action"), treatmentErrorText(e, t)); }
   };
   return (
     <div className="flex items-center gap-2 text-[11px] font-medium tracking-wide text-mute">
@@ -159,7 +174,7 @@ function PhaseHeader({ num, name, canWrite, patientId, phases }: { num: number; 
   );
 }
 
-function ItemCard({ it, d, canWrite, onEdit, onStart, onBill, patientId, patientName, currentDoctorId }: { it: TreatmentItem; d: TreatmentPlanResponse; canWrite: boolean; onEdit: () => void; onStart: () => void; onBill: () => void; patientId: string; patientName: string; currentDoctorId?: string }) {
+function ItemCard({ isNew, it, d, canWrite, onEdit, onStart, onBill, patientId, patientName, currentDoctorId }: { it: TreatmentItem; d: TreatmentPlanResponse; canWrite: boolean; onEdit: () => void; onStart: () => void; onBill: () => void; patientId: string; patientName: string; currentDoctorId?: string; isNew?: boolean }) {
   const { t, lang } = useI18n();
   const toast = useToast();
   const cancel = useCancelTreatment(patientId);
@@ -169,18 +184,25 @@ function ItemCard({ it, d, canWrite, onEdit, onStart, onBill, patientId, patient
   const [noting, setNoting] = useState(false); // "Add clinical note" about THIS treatment (linked automatically)
   const lock = useRef(false);
   const sessions = d.sessions.filter((s) => s.itemId === it._id);
+  const f = useFocusTarget("item", it._id);
+  // a link to one of this treatment's sessions opens the session list (so the session note is visible)
+  const keys = useFocusKeys();
+  const sessionLinked = sessions.some((s) => keys.has(`session:${s._id}`));
+  useEffect(() => {
+    if (sessionLinked) setOpen(true);
+  }, [sessionLinked]);
   const active = it.status === "planned" || it.status === "in_progress";
 
   const doCancel = async () => {
     if (lock.current) return;
     lock.current = true;
     try { await cancel.mutateAsync({ id: it._id, reason: reason.trim() || undefined }); setCancelling(false); }
-    catch (e) { toast.error(t("dn.err.action"), errMsg(e, "")); }
+    catch (e) { const k = treatmentErrorKey(e); toast.error(t("ts.err.cancel"), k === "ts.err.generic" ? undefined : t(k)); } // the cancel was rolled back by the hook
     finally { lock.current = false; }
   };
 
   return (
-    <div className={`card p-3 ${it.status === "cancelled" ? "opacity-60" : ""}`}>
+    <div ref={f.ref} {...f.attrs} data-testid="plan-item" className={`card p-3 transition-opacity duration-200 ${it.status === "cancelled" ? "opacity-60" : ""} ${isNew ? "dn-card-in" : ""} ${f.className}`}>
       <div className="flex flex-wrap items-start gap-x-3 gap-y-1.5">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -188,7 +210,7 @@ function ItemCard({ it, d, canWrite, onEdit, onStart, onBill, patientId, patient
             <StatusPill status={it.status} />
             <PriorityPill priority={it.priority} />
           </div>
-          <div className="mt-0.5 text-[12px] text-mute"><TargetText targetType={it.targetType} toothNumbers={it.toothNumbers} surfaces={it.surfaces} /></div>
+          <div className="mt-0.5 text-[12px] text-mute"><TargetText targetType={it.targetType} toothNumbers={it.toothNumbers} surfaces={it.surfaces} toothSurfaces={it.toothSurfaces} /></div>
           {it.notes && <p className="mt-1 text-[11px] text-mute">{it.notes}</p>}
           {it.status === "cancelled" && it.cancelReason && <p className="mt-1 text-[11px] italic text-mute">{it.cancelReason}</p>}
         </div>
@@ -244,14 +266,7 @@ function ItemCard({ it, d, canWrite, onEdit, onStart, onBill, patientId, patient
           <button type="button" className="text-[11px] text-sky hover:underline" aria-expanded={open} onClick={() => setOpen((v) => !v)}>{t("dn.sessions")} ({sessions.length}) {open ? "▾" : "▸"}</button>
           {open && (
             <div className="mt-1 space-y-1">
-              {sessions.map((s) => (
-                <div key={s._id} className="rounded-lg border border-edge bg-card2 px-2.5 py-1.5 text-[11px]">
-                  <span className="text-ink">{t("dn.session")} {s.sessionNumber}</span>
-                  <span className="text-mute"> · {t("dn.h.visit")} {visitText(d.visits[s.appointmentId], lang, t("dn.walkIn")) || shortDate(s.startedAt, lang)}
-                    {s.performedBy ? ` · ${s.performedBy.name}` : ""} · {s.status === "completed" ? t("dn.sessionEnded") : t("dn.ps.in_progress")}</span>
-                  {s.notes && <p className="mt-0.5 text-[10px] text-mute">{s.notes}</p>}
-                </div>
-              ))}
+              {sessions.map((s) => <SessionRow key={s._id} s={s} d={d} lang={lang} />)}
             </div>
           )}
         </div>
@@ -272,14 +287,14 @@ function StartVisitModal({ item, visits, patientId, lang, onClose }: { item: Tre
     if (!sel || lock.current) return;
     lock.current = true; setError("");
     try { await start.mutateAsync({ id: item._id, appointmentId: sel }); toast.success(item.status === "in_progress" ? t("dn.continue") : t("dn.start")); onClose(); }
-    catch (e) { setError(errMsg(e, t("dn.err.action"))); }
+    catch (e) { setError(treatmentErrorText(e, t)); }
     finally { lock.current = false; }
   };
   const docName = (v: Appointment) => (typeof v.doctorId === "object" ? v.doctorId?.name : "");
   return (
     <Modal title={item.status === "in_progress" ? t("dn.continue") : t("dn.start")} onClose={onClose}>
       <div className="space-y-3">
-        <div className="text-[12px] text-ink">{procLabel(t, item)} — <span className="text-mute"><TargetText targetType={item.targetType} toothNumbers={item.toothNumbers} surfaces={item.surfaces} /></span></div>
+        <div className="text-[12px] text-ink">{procLabel(t, item)} — <span className="text-mute"><TargetText targetType={item.targetType} toothNumbers={item.toothNumbers} surfaces={item.surfaces} toothSurfaces={item.toothSurfaces} /></span></div>
         {visits.length === 0 ? (
           <p className="rounded-lg border border-edge bg-card2 px-3 py-2 text-[11px] text-mute">{t("dn.noVisit")}</p>
         ) : (
@@ -305,5 +320,18 @@ function StartVisitModal({ item, visits, patientId, lang, onClose }: { item: Tre
         </div>
       </div>
     </Modal>
+  );
+}
+
+function SessionRow({ s, d, lang }: { s: TreatmentPlanResponse["sessions"][number]; d: TreatmentPlanResponse; lang: string }) {
+  const { t } = useI18n();
+  const f = useFocusTarget("session", s._id);
+  return (
+    <div ref={f.ref} {...f.attrs} data-testid="plan-session" className={`rounded-lg border border-edge bg-card2 px-2.5 py-1.5 text-[11px] ${f.className}`}>
+      <span className="text-ink">{t("dn.session")} {s.sessionNumber}</span>
+      <span className="text-mute"> · {t("dn.h.visit")} {visitText(d.visits[s.appointmentId], lang, t("dn.walkIn")) || shortDate(s.startedAt, lang)}
+        {s.performedBy ? ` · ${s.performedBy.name}` : ""} · {s.status === "completed" ? t("dn.sessionEnded") : t("dn.ps.in_progress")}</span>
+      {s.notes && <p className="mt-0.5 text-[10px] text-mute">{s.notes}</p>}
+    </div>
   );
 }

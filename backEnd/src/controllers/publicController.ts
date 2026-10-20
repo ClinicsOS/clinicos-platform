@@ -13,6 +13,7 @@ import { timeToMinutes, intervalsOverlap } from "../utils/workingHoursTime";
 import { doctorAllowsInterval, checkDoctorTiming } from "../services/doctorSchedule";
 import { checkAppointmentTiming } from "../services/appointmentRules";
 import { findOverlappingAppointment } from "../services/appointmentAvailability";
+import { ensurePrimaryAccess } from "../services/patientAccess";
 import {
   DEFAULT_CLINIC_TIMEZONE,
   clinicDayRange,
@@ -473,6 +474,10 @@ export const publicBook = asyncHandler(async (req: Request, res: Response) => {
     procedureNote:
       data.visitType === "procedure" ? data.procedureNote?.trim() : undefined,
   });
+
+  // PHASE 1 — the visitor chose this doctor, so the patient (new or existing) becomes the doctor's patient: he must be able to open the
+  // file he was booked for. Best-effort: a failure here must never lose the booking that was just made.
+  await ensurePrimaryAccess(clinic._id, patient._id, data.doctorId, "appointment").catch((err) => console.error("[publicBook] patient access failed:", err));
 
   // نبعت إشعار للـ owner، بس ما نوقف الـ response لو الإيميل فشل
   const owner = await User.findOne({

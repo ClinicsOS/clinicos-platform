@@ -1,14 +1,15 @@
 "use client";
 import { useRef, useState } from "react";
-import axios from "axios";
 import { useI18n } from "@/lib/i18n";
-import { errMsg } from "@/lib/api";
+import { treatmentErrorText } from "@/lib/dental/errors";
 import { useToast } from "@/components/Toast";
 import Modal from "@/components/Modal";
 import type { DentitionType } from "@/lib/dental/fdi";
 import { SURFACES, SURFACE_LABELS, type SurfaceId } from "@/lib/dental/taxonomy";
-import { CUSTOM_NAME_MAX, MAX_PHASE, OTHER_PROCEDURE_CODE, PRIORITIES, PROCEDURES, cleanCustomName, findProcedure, procLabel, targetError, type Priority, type TargetType } from "@/lib/dental/procedures";
-import { useCreateTreatment, useDentalRecord, useUpdateTreatment, type TreatmentInput } from "@/lib/dental/hooks";
+import { CUSTOM_NAME_MAX, MAX_PHASE, OTHER_PROCEDURE_CODE, PRIORITIES, PROCEDURES, cleanCustomName, deriveTargetMode, findProcedure, procLabel, targetError, type Priority, type TargetType } from "@/lib/dental/procedures";
+import { getSurfaceOrientation, surfaceLabel } from "@/lib/dental/surfaces";
+import { sortByChart } from "@/lib/dental/teethFormat";
+import { newRequestId, useCreateTreatment, useDentalRecord, useUpdateTreatment, type TreatmentInput } from "@/lib/dental/hooks";
 import type { TreatmentItem } from "@/lib/dental/types";
 import { TargetText } from "./shared";
 import ToothPicker from "../picker/ToothPicker";
@@ -16,6 +17,8 @@ import ToothPicker from "../picker/ToothPicker";
 /** Where the editor was opened from (selected tooth / a diagnosis). These are only DEFAULTS — the doctor can change them. */
 export interface EditorPrefill {
   fdi?: string;
+  /** PHASE 5 — a serial selection from the chart ("Add treatment for these teeth"): opens multi-tooth procedures with ALL of them ticked. */
+  teeth?: string[];
   surfaces?: SurfaceId[];
   diagnosisId?: string;
   diagnosisLabel?: string;
@@ -37,6 +40,13 @@ export default function TreatmentEditor(p: {
   const create = useCreateTreatment(p.patientId);
   const update = useUpdateTreatment(p.patientId);
   const lock = useRef(false); // double-click guard on top of the disabled button
+  // PHASE 4 idempotency: ONE request id per Save intent. Repeating the same save (double click, retry after a dropped response) re-sends the same id and
+  // the server answers with the SAME record; changing anything in the form starts a new intent (new id).
+  const intent = useRef<{ sig: string; id: string } | null>(null);
+  const requestIdFor = (sig: string) => {
+    if (!intent.current || intent.current.sig !== sig) intent.current = { sig, id: newRequestId() };
+    return intent.current.id;
+  };
   const it = p.item;
   const locked = it?.status === "in_progress"; // procedure + target frozen once sessions exist
 
@@ -45,6 +55,9 @@ export default function TreatmentEditor(p: {
   const [target, setTarget] = useState<TargetType>(it?.targetType ?? "tooth");
   const [teeth, setTeeth] = useState<string[]>(it?.toothNumbers ?? (p.prefill?.fdi ? [p.prefill.fdi] : []));
   const [surfaces, setSurfaces] = useState<SurfaceId[]>(it?.surfaces ?? p.prefill?.surfaces ?? []);
+  // PHASE 5 — multi-tooth surface strategy: the SAME surfaces on every tooth, or DIFFERENT surfaces per tooth (a map).
+  const [perTooth, setPerTooth] = useState<boolean>(!!(it?.toothSurfaces && Object.keys(it.toothSurfaces).length));
+  const [toothSurf, setToothSurf] = useState<Record<string, SurfaceId[]>>(it?.toothSurfaces ?? {});
   const [priority, setPriority] = useState<Priority>(it?.priority ?? "normal");
   const [phase, setPhase] = useState(it?.phase ?? 1);
   const [price, setPrice] = useState(it?.estimatedPrice != null ? String(it.estimatedPrice) : "");
@@ -58,20 +71,29 @@ export default function TreatmentEditor(p: {
   const currentTeeth = rec.data?.record.currentTeeth ?? null;
   const busy = create.isPending || update.isPending;
   const seedTooth = p.prefill?.fdi;
+  const seedTeeth = p.prefill?.teeth && p.prefill.teeth.length >= 2 ? p.prefill.teeth : null; // serial selection coming from the chart
 
   const applyTarget = (next: TargetType, currentTeeth: string[]) => {
     setTarget(next);
+    setPerTooth(false); setToothSurf({});
     if (next === "general") { setTeeth([]); setSurfaces([]); return; }
+    if (next === "multi_tooth" && seedTeeth) { setTeeth(sortByChart(seedTeeth)); setSurfaces([]); return; }
     if (next === "tooth") { setTeeth(currentTeeth.length ? [currentTeeth[0]] : seedTooth ? [seedTooth] : []); setSurfaces([]); return; }
     if (next === "surface") { setTeeth(currentTeeth.length ? [currentTeeth[0]] : seedTooth ? [seedTooth] : []); setSurfaces((s) => (s.length ? s : p.prefill?.surfaces ?? [])); return; }
     setTeeth(currentTeeth.length ? currentTeeth : seedTooth ? [seedTooth] : []); setSurfaces([]); // multi_tooth
   };
   // The DOCTOR chooses the procedure — this only adapts the form to its shape.
-  const pick = (c: string) => { setCode(c); setError(""); const d = findProcedure(c)!; applyTarget(d.defaultTarget, teeth); };
+  const pick = (c: string) => { setCode(c); setError(""); const d = findProcedure(c)!; applyTarget(seedTeeth && d.targets.includes("multi_tooth") ? "multi_tooth" : d.defaultTarget, teeth); };
 
   const priceNum = price.trim() === "" ? null : Number(price.replace(",", "."));
   const priceBad = priceNum !== null && (!Number.isFinite(priceNum) || priceNum < 0);
-  const tErr = locked ? null : targetError({ procedureCode: code, targetType: target, teeth, surfaces, customName }, p.dentition);
+  const multiSurf = target === "multi_tooth" && !!def?.surfaceCapable;
+  // the per-tooth map actually sent: only the ticked teeth, only valid canonical surfaces
+  const perToothMap: Record<string, SurfaceId[]> | null = multiSurf && perTooth
+    ? Object.fromEntries(teeth.map((f) => [f, SURFACES.filter((s) => (toothSurf[f] ?? []).includes(s))]))
+    : null;
+  const tErr = locked ? null : targetError({ procedureCode: code, targetType: target, teeth, surfaces: perTooth ? [] : surfaces, customName, toothSurfaces: perToothMap }, p.dentition);
+  const mode = deriveTargetMode(target, teeth, p.dentition);
   const canSave = !busy && !priceBad && !tErr;
 
   const save = async () => {
@@ -80,24 +102,25 @@ export default function TreatmentEditor(p: {
     try {
       if (it) {
         const body: Partial<TreatmentInput> = { priority, phase, notes, estimatedPrice: priceNum };
-        if (!locked) Object.assign(body, { procedureCode: code, targetType: target, toothNumbers: teeth, surfaces, ...(isOther ? { customName: cleanCustomName(customName) } : {}) });
+        if (!locked) Object.assign(body, { procedureCode: code, targetType: target, toothNumbers: teeth, surfaces: perToothMap ? [] : surfaces, toothSurfaces: perToothMap, ...(isOther ? { customName: cleanCustomName(customName) } : {}) });
         await update.mutateAsync({ id: it._id, body });
       } else {
-        await create.mutateAsync({
-          procedureCode: code, targetType: target, toothNumbers: teeth, surfaces, priority, phase,
+        const payload: TreatmentInput = {
+          procedureCode: code, targetType: target, toothNumbers: teeth, surfaces: perToothMap ? [] : surfaces, priority, phase,
+          ...(perToothMap ? { toothSurfaces: perToothMap } : {}),
           ...(isOther ? { customName: cleanCustomName(customName) } : {}),
           ...(priceNum !== null ? { estimatedPrice: priceNum } : {}),
           ...(notes.trim() ? { notes: notes.trim() } : {}),
           ...(p.prefill?.diagnosisId ? { sourceDiagnosisIds: [p.prefill.diagnosisId] } : {}),
-        });
+        };
+        await create.mutateAsync({ ...payload, requestId: requestIdFor(JSON.stringify(payload)) });
       }
       toast.success(t("dn.saved"));
       p.onClose();
     } catch (e) {
       // shown inline — nothing is presented as saved. A twin of this treatment already exists (e.g. saved from the other
       // screen a moment ago): say so in the user's language instead of the server's English text.
-      const dup = axios.isAxiosError(e) && (e.response?.data as { code?: string } | undefined)?.code === "DUPLICATE_ITEM";
-      setError(dup ? t("dn.err.duplicate") : errMsg(e, t("dn.err.save")));
+      setError(treatmentErrorText(e, t)); // localized sentence only — never the server's raw text
     } finally { lock.current = false; }
   };
 
@@ -109,7 +132,7 @@ export default function TreatmentEditor(p: {
         {p.prefill?.diagnosisLabel && !it && (
           <div className="rounded-lg border border-edge bg-card2 px-2.5 py-1.5 text-[11px] text-mute">
             {t("dn.sourceDx")}: <span className="text-ink">{p.prefill.diagnosisLabel}</span>
-            {p.prefill.surfaces?.length ? <span dir="ltr" className="font-mono text-sky"> · {p.prefill.surfaces.map((s) => SURFACE_LABELS[s]).join(",")}</span> : null}
+            {p.prefill.surfaces?.length ? <span dir="ltr" className="font-mono text-sky"> · {p.prefill.surfaces.map((s) => surfaceLabel(p.prefill?.fdi, s)).join(",")}</span> : null}
           </div>
         )}
 
@@ -118,7 +141,7 @@ export default function TreatmentEditor(p: {
           <label className="lbl">{t("dn.procedure")}</label>
           {locked && it ? (
             <div className="rounded-lg border border-edge bg-card2 px-2.5 py-2 text-[12px] text-ink">
-              {procLabel(t, it)} — <TargetText targetType={it.targetType} toothNumbers={it.toothNumbers} surfaces={it.surfaces} />
+              {procLabel(t, it)} — <TargetText targetType={it.targetType} toothNumbers={it.toothNumbers} surfaces={it.surfaces} toothSurfaces={it.toothSurfaces} />
               <p className="mt-1 text-[10px] text-mute">{t("dn.locked")}</p>
             </div>
           ) : (
@@ -163,7 +186,45 @@ export default function TreatmentEditor(p: {
               </div>
             )}
             {target === "multi_tooth" && (
-              <ToothPicker mode="multi" value={teeth} onChange={setTeeth} dentition={p.dentition} current={currentTeeth} />
+              <ToothPicker mode="multi" value={teeth} onChange={(next) => setTeeth(next)} dentition={p.dentition} current={currentTeeth} />
+            )}
+            {target === "multi_tooth" && teeth.length >= 2 && (
+              <p data-testid="editor-target-mode" data-mode={mode} className="text-[11px] text-mute">
+                {t(`dn2.mode.${mode}`).replace("{n}", String(teeth.length))} · {t("dn2.groupStatusHint")}
+              </p>
+            )}
+            {multiSurf && (
+              <div className="dn-fade-in space-y-2 rounded-lg border border-edge bg-card2 p-2.5" data-testid="editor-multi-surfaces">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] text-mute">{t("dn2.surfacesFor")}</span>
+                  <button type="button" aria-pressed={!perTooth} className={chip(!perTooth)} onClick={() => setPerTooth(false)}>{t("dn2.sameSurfaces")}</button>
+                  <button type="button" aria-pressed={perTooth} data-testid="per-tooth-toggle" className={chip(perTooth)} onClick={() => { setPerTooth(true); setToothSurf((m) => (Object.keys(m).length ? m : Object.fromEntries(teeth.map((f) => [f, surfaces.length ? surfaces : []])))); }}>{t("dn2.perToothSurfaces")}</button>
+                </div>
+                {!perTooth ? (
+                  <div className="flex flex-wrap gap-1.5" dir="ltr">
+                    {SURFACES.map((s) => (
+                      <button key={s} type="button" title={t(`dn.s.${s}`)} aria-pressed={surfaces.includes(s)} className={chip(surfaces.includes(s))}
+                        onClick={() => setSurfaces((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]))}>{SURFACE_LABELS[s]}</button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-1.5" dir="ltr">
+                    {teeth.map((f) => {
+                      const o = getSurfaceOrientation(f);
+                      const cur = toothSurf[f] ?? [];
+                      return (
+                        <div key={f} data-testid="per-tooth-row" data-fdi={f} className="flex flex-wrap items-center gap-1.5">
+                          <span className="w-8 font-mono text-[11px] text-ink">{f}</span>
+                          {SURFACES.map((s) => (
+                            <button key={s} type="button" title={o ? t(o.nameKeys[s]) : s} aria-label={`${f} ${o ? t(o.nameKeys[s]) : s}`} aria-pressed={cur.includes(s)} data-surface={s} className={chip(cur.includes(s))}
+                              onClick={() => setToothSurf((m) => ({ ...m, [f]: (m[f] ?? []).includes(s) ? (m[f] ?? []).filter((x) => x !== s) : [...(m[f] ?? []), s] }))}>{o?.letters[s] ?? s}</button>
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             )}
             {target === "general" && <p className="text-[11px] text-mute">{t("dn.tg.general")}</p>}
           </div>

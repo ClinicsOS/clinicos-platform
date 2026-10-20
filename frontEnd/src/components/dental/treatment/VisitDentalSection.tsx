@@ -4,6 +4,7 @@ import Link from "next/link";
 import { IconCalendarPlus } from "@tabler/icons-react";
 import { useI18n } from "@/lib/i18n";
 import { errMsg } from "@/lib/api";
+import { treatmentErrorText } from "@/lib/dental/errors";
 import { useAuth } from "@/store/auth";
 import { useCompleteTreatment, useFinishSession, useSessionNotes, useStartTreatment, useVisitTreatments } from "@/lib/dental/hooks";
 import type { TreatmentItem, TreatmentSession } from "@/lib/dental/types";
@@ -34,7 +35,7 @@ export default function VisitDentalSection({ patientId, patientName, appointment
   const run = async (id: string, fn: () => Promise<unknown>) => {
     if (lock.current) return;
     lock.current = true; setBusyId(id); setError("");
-    try { await fn(); } catch (e) { setError(errMsg(e, t("dn.err.action"))); }
+    try { await fn(); } catch (e) { setError(treatmentErrorText(e, t)); }
     finally { lock.current = false; setBusyId(null); }
   };
 
@@ -85,7 +86,7 @@ function PendingRow({ it, canWrite, busy, onStart }: { it: TreatmentItem; canWri
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-edge bg-card px-2.5 py-1.5">
       <div className="min-w-0 flex-1 text-[12px]">
         <span className="text-ink">{procLabel(t, it)}</span>{" "}
-        <span className="text-mute text-[11px]"><TargetText targetType={it.targetType} toothNumbers={it.toothNumbers} surfaces={it.surfaces} /></span>
+        <span className="text-mute text-[11px]"><TargetText targetType={it.targetType} toothNumbers={it.toothNumbers} surfaces={it.surfaces} toothSurfaces={it.toothSurfaces} /></span>
       </div>
       <StatusPill status={it.status} />
       <PriorityPill priority={it.priority} />

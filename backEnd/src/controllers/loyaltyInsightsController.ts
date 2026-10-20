@@ -3,6 +3,7 @@ import { z } from "zod";
 import { asyncHandler } from "../middleware/errorHandler";
 import { INSIGHTS, loyaltyAnalytics, memberInsights, recentActivity } from "../services/loyaltyInsights";
 import { isOid } from "../services/loyaltyService";
+import { accessiblePatientIds, viewerOf } from "../auth/patientAccess";
 
 /**
  * Loyalty insights (Phase 8) — read-only, behind protect → requireAddon("loyalty") → authorize(...LOYALTY_ROLES.read)
@@ -27,19 +28,19 @@ const noStore = (res: Response) => res.setHeader("Cache-Control", "no-store");
 export const getActivity = asyncHandler(async (req: Request, res: Response) => {
   const q = activityQuery.parse(req.query);
   noStore(res);
-  return res.json(await recentActivity(req.clinicId as string, q.limit));
+  return res.json(await recentActivity(req.clinicId as string, q.limit, await accessiblePatientIds(viewerOf(req), "patients")));
 });
 
 export const getAnalytics = asyncHandler(async (req: Request, res: Response) => {
   const q = analyticsQuery.parse(req.query);
   noStore(res);
-  return res.json(await loyaltyAnalytics(req.clinicId as string, q.days));
+  return res.json(await loyaltyAnalytics(req.clinicId as string, q.days, await accessiblePatientIds(viewerOf(req), "patients")));
 });
 
 export const getMemberInsights = asyncHandler(async (req: Request, res: Response) => {
   const notFound = () => res.status(404).json({ message: "Loyalty member not found", code: "ACCOUNT_NOT_FOUND" });
   if (!isOid(req.params.id)) return notFound();
-  const out = await memberInsights(req.clinicId as string, req.params.id);
+  const out = await memberInsights(req.clinicId as string, req.params.id, await accessiblePatientIds(viewerOf(req), "patients"));
   if (!out) return notFound();
   noStore(res);
   return res.json(out);

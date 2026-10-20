@@ -143,6 +143,8 @@ itemSchema.index({ clinicId: 1, "statusHistory.at": 1 });
 itemSchema.index({ clinicId: 1, patientId: 1, regionIds: 1 });
 itemSchema.index({ clinicId: 1, status: 1, updatedAt: -1 });
 itemSchema.index({ clinicId: 1, sourceAssessmentId: 1 });
+// PHASE 3 — unified clinical History reads this patient's records newest-first (keyset on the date field).
+itemSchema.index({ clinicId: 1, patientId: 1, createdAt: -1 });
 itemSchema.index({ clinicId: 1, clientRequestId: 1 }, { unique: true });
 
 export const DermTreatmentItem = mongoose.model<IDermTreatmentItem>("DermTreatmentItem", itemSchema);

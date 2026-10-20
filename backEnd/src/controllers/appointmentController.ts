@@ -16,6 +16,8 @@ import { localDayOfWeek } from "../utils/workingHoursTime";
 import { isValidYmd, clinicYmdOf, clinicDayRange } from "../utils/timezone";
 import { resolveDataScope, doctorMatch, assertWritableDoctor, PolicyError } from "../auth/policy";
 import { checkDoctorTiming } from "../services/doctorSchedule";
+import { canAccessPatient, viewerOf } from "../auth/patientAccess";
+import { ensurePrimaryAccess } from "../services/patientAccess";
 
 const createAppointmentSchema = z
   .object({
@@ -140,6 +142,9 @@ export const createAppointment = asyncHandler(async (req: Request, res: Response
   ]);
   if (!patient) return res.status(404).json({ message: "Patient not found" });
   if (!doctor) return res.status(404).json({ message: "Doctor not found" });
+  // PHASE 1 — a doctor can book / register only patients he may open (his own or covered ones); another doctor's patient is the same
+  // 404 as an unknown one. Owner and front desk may book any patient of the clinic (booking is what links a patient to the doctor).
+  if (!(await canAccessPatient(viewerOf(req), data.patientId))) return res.status(404).json({ message: "Patient not found" });
 
   if (!isWalkIn) {
     // PHASE 4 — the doctor's OWN working hours (optional; narrower than the clinic's, which were already checked above).
@@ -174,6 +179,8 @@ export const createAppointment = asyncHandler(async (req: Request, res: Response
   if (!isWalkIn) {
     // PHASE 4 — createdBy is recorded for every appointment (who booked it); it is audit data, never the treating doctor.
     const appointment = await Appointment.create({ ...doc, createdBy: req.userId });
+    // PHASE 1 — an appointment is a treating relationship: the booked doctor now has the patient (idempotent; ownership of others untouched).
+    await ensurePrimaryAccess(req.clinicId, data.patientId, data.doctorId, "appointment", req.userId);
     return res.status(201).json(appointment);
   }
 
@@ -208,6 +215,7 @@ export const createAppointment = asyncHandler(async (req: Request, res: Response
         createdBy: req.userId,
         ...(walkInKey ? { requestKey: walkInKey } : {}),
       });
+      await ensurePrimaryAccess(req.clinicId, data.patientId, data.doctorId, "appointment", req.userId); // PHASE 1 (see above)
       return res.status(201).json(appointment);
     } catch (err) {
       if ((err as { code?: number })?.code !== 11000) throw err;
@@ -338,7 +346,12 @@ export const listAppointments = asyncHandler(async (req: Request, res: Response)
   // Used by the Patient Profile page's Visit History — always combined with
   // the clinicId filter above, so a patientId from another clinic can never
   // return that clinic's appointments (it just matches nothing).
-  if (req.query.patientId) filter.patientId = String(req.query.patientId);
+  if (req.query.patientId) {
+    filter.patientId = String(req.query.patientId);
+    // PHASE 1 — a patient's visit history (all doctors' visits) is part of the patient file: for a patient the caller may not open the
+    // answer is an EMPTY list, exactly what an unknown patient returns (no existence oracle). A malformed id keeps the query's own 400.
+    if (/^[a-f\d]{24}$/i.test(filter.patientId) && !(await canAccessPatient(viewerOf(req), filter.patientId))) return res.json([]);
+  }
 
   const appointments = await Appointment.find(filter)
     .sort({ startAt: 1 })
@@ -501,6 +514,11 @@ export const updateAppointment = asyncHandler(async (req: Request, res: Response
   );
 
   if (!updated) return res.status(404).json({ message: "Appointment not found" });
+
+  // PHASE 1 — handing a visit to another doctor links that doctor to the patient (the previous doctor keeps his own link).
+  if (data.doctorId !== undefined && updated.type !== "blocked" && updated.patientId) {
+    await ensurePrimaryAccess(req.clinicId, updated.patientId, data.doctorId, "appointment", req.userId);
+  }
 
   // ClinicOS Loyalty: entering "completed" may earn visit points; leaving it reverses them. The hook never throws
   // and never changes the appointment — it only reacts to a status change that really happened.

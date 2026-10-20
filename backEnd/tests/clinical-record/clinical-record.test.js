@@ -161,7 +161,7 @@ const { boot } = require("../phase10/lib");
   eq((await http("POST", `/dental/patients/${pA._id}/treatment-plan/items/${cx.json.item._id}/cancel`, { token: tkDoc, body: { reason: "patient declined" } })).status, 200, "E0d another is cancelled");
   // a note attached to that treatment, one attached to visit v2
   eq((await addNote({ text: "crown note", sourceType: "dental_treatment", sourceId: itemId })).status, 201, "E0e a note can belong to a treatment");
-  eq((await addNote({ text: "x", sourceType: "dental_treatment", sourceId: String(cx.json.item._id).replace(/.$/, "0") })).status, 404, "E0f …only an existing treatment of this patient");
+  eq((await addNote({ text: "x", sourceType: "dental_treatment", sourceId: String(cx.json.item._id).replace(/(.)$/, (c) => (c === "0" ? "1" : "0")) })).status, 404, "E0f …only an existing treatment of this patient");
 
   const all = await tl("?limit=60");
   eq(all.status, 200, "E1 timeline loads");

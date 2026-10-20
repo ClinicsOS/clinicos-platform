@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { asyncHandler } from "../middleware/errorHandler";
 import { Clinic } from "../models/Clinic";
 import { Patient } from "../models/Patient";
-import { Invoice } from "../models/Invoice";
+import { Invoice, ACTIVE_INVOICE } from "../models/Invoice";
 import { DermAssessment } from "../models/DermAssessment";
 import { DermFollowUp } from "../models/DermFollowUp";
 import { requireActivePlan, requirePlanFeature } from "../middleware/auth";
@@ -62,7 +62,7 @@ export const getDermReport = asyncHandler(async (req: Request, res: Response) =>
   } = null;
   if (wantFinancial) {
     // PHASE 4 — a doctor's financial summary covers only the invoices attributed to them (owner / receptionist: the whole file).
-    const rows = (await Invoice.find({ ...scope, ...doctorMatch(resolveDataScope(req, "invoices")) }).select("invoiceNumber total payments status createdAt").sort({ createdAt: -1 }).limit(LIMITS.invoices).lean()) as any[];
+    const rows = (await Invoice.find({ ...scope, ...doctorMatch(resolveDataScope(req, "invoices")), ...ACTIVE_INVOICE }).select("invoiceNumber total payments status createdAt").sort({ createdAt: -1 }).limit(LIMITS.invoices).lean()) as any[];
     const invoices = rows.map((i) => ({
       invoiceNumber: i.invoiceNumber, createdAt: i.createdAt, total: i.total,
       paid: round3((i.payments ?? []).reduce((s: number, p: any) => s + p.amount, 0)), status: i.status,

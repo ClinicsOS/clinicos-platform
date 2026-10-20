@@ -50,7 +50,7 @@ export default function DermDashboard() {
 
   return (
     <div className="mb-4 space-y-3">
-      <h1 className="text-lg font-medium text-ink">{t("dt.dash.title")}</h1>
+      <h2 className="text-lg font-medium text-ink">{t("dt.dash.title")}</h2>
 
       {/* ---- Today (counts of the EXISTING appointments; walk-ins included) ---- */}
       <div className="card p-4">

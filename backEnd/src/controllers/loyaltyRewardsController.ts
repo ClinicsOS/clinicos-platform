@@ -21,6 +21,7 @@ import {
   updateReward,
 } from "../services/loyaltyRewards";
 import { REDEMPTION, REWARD } from "../config/loyalty";
+import { accessiblePatientIds, viewerOf } from "../auth/patientAccess";
 
 /**
  * Clinic-facing Rewards + Redemptions API (Phase 6) — /api/loyalty/rewards, /api/loyalty/redemptions.
@@ -56,6 +57,8 @@ async function audit(req: Request, action: string, details: Record<string, unkno
 
 const clinicOf = (req: Request) => req.clinicId as string;
 const userOf = (req: Request) => req.userId as string;
+/** Patient isolation: null = whole clinic (owner / front desk); a doctor gets only the ids of his own + covered patients. */
+const scopeOf = (req: Request) => accessiblePatientIds(viewerOf(req), "patients");
 const OID = /^[a-fA-F0-9]{24}$/;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const noStore = (res: Response) => res.setHeader("Cache-Control", "no-store");
@@ -94,7 +97,7 @@ export const rewardsSummaryHandler = handler(async (req, res) => {
 /* GET /api/loyalty/rewards/pending-count — cheap, polled */
 export const pendingCountHandler = handler(async (req, res) => {
   noStore(res);
-  return res.json({ pending: await countPendingRedemptions(clinicOf(req)) });
+  return res.json({ pending: await countPendingRedemptions(clinicOf(req), await scopeOf(req)) });
 });
 
 /* GET /api/loyalty/rewards/:id */
@@ -156,17 +159,17 @@ export const listRedemptionsHandler = handler(async (req, res) => {
   const q = listQuery.parse(req.query);
   noStore(res);
   if (q.scope === "pending") {
-    const { rows, total } = await listPendingRedemptions(clinicOf(req));
+    const { rows, total } = await listPendingRedemptions(clinicOf(req), await scopeOf(req));
     return res.json({ scope: "pending", redemptions: rows, total });
   }
-  const r = await listRedemptionHistory(clinicOf(req), { status: q.status, rewardId: q.rewardId, accountId: q.accountId, q: q.q, from: q.from, to: q.to, page: q.page, limit: q.limit });
+  const r = await listRedemptionHistory(clinicOf(req), { status: q.status, rewardId: q.rewardId, accountId: q.accountId, q: q.q, from: q.from, to: q.to, page: q.page, limit: q.limit }, await scopeOf(req));
   return res.json({ scope: "history", redemptions: r.rows, total: r.total, page: r.page, pages: r.pages, limit: q.limit });
 });
 
 /* POST /api/loyalty/redemptions/:id/confirm — empty body: the amount is the server-side snapshot */
 export const confirmRedemptionHandler = handler(async (req, res) => {
   emptyBody.parse(req.body ?? {});
-  const r = await confirmRedemption({ clinicId: clinicOf(req), redemptionId: req.params.id, userId: userOf(req) });
+  const r = await confirmRedemption({ clinicId: clinicOf(req), redemptionId: req.params.id, userId: userOf(req), scope: await scopeOf(req) });
   await audit(req, "loyalty.redemption.confirmed", {
     redemptionId: r.redemption.id,
     rewardId: r.redemption.rewardId,
@@ -182,7 +185,7 @@ export const confirmRedemptionHandler = handler(async (req, res) => {
 /* POST /api/loyalty/redemptions/:id/reject  { reason?: string } */
 export const rejectRedemptionHandler = handler(async (req, res) => {
   const body = z.object({ reason: z.string().max(REDEMPTION.rejectionReasonMax).nullable().optional() }).strict().parse(req.body ?? {});
-  const row = await rejectRedemption({ clinicId: clinicOf(req), redemptionId: req.params.id, userId: userOf(req), reason: body.reason ?? null });
+  const row = await rejectRedemption({ clinicId: clinicOf(req), redemptionId: req.params.id, userId: userOf(req), reason: body.reason ?? null, scope: await scopeOf(req) });
   await audit(req, "loyalty.redemption.rejected", { redemptionId: row.id, rewardId: row.rewardId, accountId: row.accountId, hasReason: !!row.rejectionReason });
   return res.json({ redemption: row, message: "Request rejected" });
 });
@@ -190,7 +193,7 @@ export const rejectRedemptionHandler = handler(async (req, res) => {
 /* POST /api/loyalty/redemptions/:id/reverse  { reason: string } — owner / doctor only */
 export const reverseRedemptionHandler = handler(async (req, res) => {
   const body = z.object({ reason: z.string().trim().min(3).max(300) }).strict().parse(req.body ?? {});
-  const r = await reverseRedemption({ clinicId: clinicOf(req), redemptionId: req.params.id, userId: userOf(req), reason: body.reason });
+  const r = await reverseRedemption({ clinicId: clinicOf(req), redemptionId: req.params.id, userId: userOf(req), reason: body.reason, scope: await scopeOf(req) });
   await audit(req, "loyalty.redemption.reversed", {
     redemptionId: r.redemption.id,
     rewardId: r.redemption.rewardId,

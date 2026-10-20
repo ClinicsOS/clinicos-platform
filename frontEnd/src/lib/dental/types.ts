@@ -70,6 +70,8 @@ export interface TreatmentItem {
   targetType: TargetType;
   toothNumbers: string[];
   surfaces: SurfaceId[];
+  /** PHASE 5 — DIFFERENT surfaces per tooth on a multi-tooth treatment (absent = `surfaces` apply to every tooth). */
+  toothSurfaces?: Record<string, SurfaceId[]>;
   status: PlanStatus;
   priority: Priority;
   phase: number;
@@ -80,6 +82,7 @@ export interface TreatmentItem {
   cancelReason?: string;
   statusHistory: { status: PlanStatus; at: string; by: PersonRef | null; appointmentId?: string; note?: string }[];
   createdBy: PersonRef | null;
+  updatedBy?: PersonRef | null; // PHASE 4 — latest editor (audit); createdBy (the owner) never changes
   createdAt: string;
   updatedAt: string;
   billing: BillingView;

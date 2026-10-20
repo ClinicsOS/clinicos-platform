@@ -2,41 +2,39 @@
 import Link from "next/link";
 import { useI18n } from "@/lib/i18n";
 import { SURFACE_LABELS, type SurfaceId } from "@/lib/dental/taxonomy";
+import { surfaceLabel } from "@/lib/dental/surfaces";
 import { procLabel } from "@/lib/dental/procedures";
 import { teethSummary } from "@/lib/dental/teethFormat";
 import type { BillingView, PlanStatus, Priority, TargetType, TimelineEntry, VisitRef } from "@/lib/dental/types";
-import { CROWN_CSS, FILLING_CSS } from "@/lib/dental/visualTokens";
+import { STATE_TOKENS, TYPE_TOKENS, semanticOfStatus, stateChipStyle, type ObjectKind } from "@/lib/dental/visualTheme";
+
+/** Procedure code -> the TYPE token the chart draws for it (only these have a dedicated colour; every other procedure is shown through its STATE only). */
+const SWATCH_KIND: Record<string, ObjectKind> = { crown: "crown", filling: "filling", bridge: "bridge", implant: "implant", root_canal: "rootCanal" };
 
 /**
- * The chart's own picture of Crown (gold cap, whole tooth) / Filling (cobalt dot, one surface), shown next to the procedure
- * name wherever a treatment is listed, so the plan, the tooth panel and the chart legend all use the same visual key.
+ * The chart's own picture of a procedure TYPE (gold crown cap, cobalt filling dot, bronze bridge, titanium implant, dark root-canal dot), shown next
+ * to the procedure name wherever a treatment is listed, so the plan, the tooth panel and the chart legend share ONE visual key (visualTheme.ts).
  * Ghost (dashed / hollow) while planned or in progress, solid once completed; cancelled is neutral. Decorative: the name is the label.
  */
 export function ProcSwatch({ code, status }: { code: string; status: PlanStatus }) {
-  if (code !== "crown" && code !== "filling") return null;
-  const color = status === "cancelled" ? "#8A97A6" : code === "crown" ? CROWN_CSS : FILLING_CSS;
+  const kind = SWATCH_KIND[code];
+  if (!kind) return null;
+  const color = status === "cancelled" ? STATE_TOKENS.cancelled.css : TYPE_TOKENS[kind].css;
   const ghost = status === "planned" || status === "in_progress";
-  const shape = code === "crown" ? "h-2.5 w-3 rounded-t-md" : "h-2.5 w-2.5 rounded-full";
+  const shape = kind === "crown" ? "h-2.5 w-3 rounded-t-md" : kind === "bridge" ? "h-2.5 w-3 rounded-sm" : kind === "implant" ? "h-3 w-1.5 rounded-b-full" : "h-2.5 w-2.5 rounded-full";
   return (
-    <i aria-hidden className={`inline-block shrink-0 ${shape} ${ghost ? "border bg-transparent" : ""} ${ghost && code === "crown" ? "border-dashed" : ""}`}
+    <i aria-hidden data-swatch={kind} className={`inline-block shrink-0 ${shape} ${ghost ? "border bg-transparent" : ""} ${ghost && kind !== "filling" ? "border-dashed" : ""}`}
       style={ghost ? { borderColor: color } : { background: color }} />
   );
 }
 
-// Shape + colour together (never colour alone): ○ planned, ◆ in progress, ✓ completed, ✕ cancelled.
-const STATUS_STYLE: Record<PlanStatus, { cls: string; glyph: string }> = {
-  planned: { cls: "border-sky/40 bg-sky/10 text-sky", glyph: "○" },
-  in_progress: { cls: "border-purple-400/40 bg-purple-500/10 text-purple-300", glyph: "◆" },
-  completed: { cls: "border-emerald-400/40 bg-emerald-500/10 text-emerald-300", glyph: "✓" },
-  cancelled: { cls: "border-edge bg-soft text-mute", glyph: "✕" },
-};
-
 export function StatusPill({ status }: { status: PlanStatus }) {
   const { t } = useI18n();
-  const s = STATUS_STYLE[status];
+  const sem = semanticOfStatus(status);
+  // Shape + colour together (never colour alone): ○ planned, ◆ in progress, ✓ completed, ✕ cancelled. Same colours as the chart badge.
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${s.cls}`}>
-      <span aria-hidden>{s.glyph}</span> {t(`dn.ps.${status}`)}
+    <span data-status={status} className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium" style={stateChipStyle(sem)}>
+      <span aria-hidden>{STATE_TOKENS[sem].glyph}</span> {t(`dn.ps.${status}`)}
     </span>
   );
 }
@@ -57,14 +55,20 @@ export const money = (n: number) => `${n.toFixed(2)} JD`;
 export const LONG_LIST = 3;
 
 /** "16 · M,O"   |   "14, 15, 16"   |   "Upper 14–24 · Lower 34–44"   |   "General / Full mouth" — a real tooth list, never a fake tooth. */
-export function TargetText({ targetType, toothNumbers, surfaces }: { targetType: TargetType; toothNumbers: string[]; surfaces: SurfaceId[] }) {
+export function TargetText({ targetType, toothNumbers, surfaces, toothSurfaces }: { targetType: TargetType; toothNumbers: string[]; surfaces: SurfaceId[]; toothSurfaces?: Record<string, SurfaceId[]> }) {
   const { t } = useI18n();
   if (targetType === "general" || !toothNumbers.length) return <span>{t("dn.tg.general")}</span>;
+  // PHASE 5 — different surfaces on different teeth: "16·M,O  17·O  18·D"
+  const perTooth = toothSurfaces && Object.keys(toothSurfaces).length > 0;
+  if (perTooth) {
+    const text = toothNumbers.map((f) => `${f}·${(toothSurfaces![f] ?? []).map((s) => surfaceLabel(f, s)).join(",")}`).join("  ");
+    return <span dir="ltr" className="font-mono" title={text}>{toothNumbers.length > 5 ? `${toothNumbers.length} ${t("dn2.teethCount")} · ${text.slice(0, 40)}…` : text}</span>;
+  }
   if (toothNumbers.length > LONG_LIST) return <span dir="auto" title={toothNumbers.join(", ")}>{teethSummary(toothNumbers, t)}</span>; // 4+ teeth: "Upper 14–24 · Lower 34–44"
   return (
     <span dir="ltr" className="font-mono">
       {toothNumbers.join(", ")}
-      {surfaces.length > 0 && <span className="text-sky"> · {surfaces.map((s) => SURFACE_LABELS[s]).join(",")}</span>}
+      {surfaces.length > 0 && <span className="text-sky"> · {surfaces.map((s) => (toothNumbers.length === 1 ? surfaceLabel(toothNumbers[0], s) : SURFACE_LABELS[s])).join(",")}</span>}
     </span>
   );
 }

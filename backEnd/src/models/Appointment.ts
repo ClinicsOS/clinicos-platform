@@ -91,6 +91,8 @@ appointmentSchema.index(
   }
 );
 appointmentSchema.index({ clinicId: 1, startAt: 1 });
+// PHASE 3 — unified clinical History reads this patient's records newest-first (keyset on the date field).
+appointmentSchema.index({ clinicId: 1, patientId: 1, startAt: -1 });
 // FIX #11 (F-05) — refCode uniqueness. Sparse because only public bookings
 // ever get one (dashboard/walk-in/AI-created and blocked appointments never
 // set it) — a plain unique index would incorrectly forbid more than one

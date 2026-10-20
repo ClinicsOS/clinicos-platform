@@ -59,8 +59,8 @@ export default function PrintExportMenu({ patientId }: { patientId: string }) {
       </button>
       {open && pos && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="fixed z-50 w-72 rounded-xl border border-edge bg-card p-2 shadow-xl" style={{ top: pos.top, left: pos.left }}>
+          <div className="fixed inset-0 z-popover" onClick={() => setOpen(false)} />
+          <div className="fixed z-popover w-72 rounded-xl border border-edge bg-card p-2 shadow-xl" style={{ top: pos.top, left: pos.left }}>
             <button type="button" className="flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-start text-[12px] hover:bg-soft" onClick={() => openReport("full", financial)}>
               <IconFileText size={15} className="mt-0.5 shrink-0 text-teal" />
               <span><span className="block font-medium text-ink">{t("dn.rep.full")}</span></span>

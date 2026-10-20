@@ -7,7 +7,7 @@ import { Clinic } from "../models/Clinic";
 import { User } from "../models/User";
 import { Patient } from "../models/Patient";
 import { Appointment } from "../models/Appointment";
-import { Invoice } from "../models/Invoice";
+import { Invoice, ACTIVE_INVOICE } from "../models/Invoice";
 import { SubscriptionRequest } from "../models/SubscriptionRequest";
 import { ActivityLog } from "../models/ActivityLog";
 import { ClinicNote } from "../models/ClinicNote";
@@ -370,7 +370,7 @@ export const getClinicDetails = asyncHandler(
         .lean(),
       Patient.countDocuments({ clinicId: id }),
       Appointment.countDocuments({ clinicId: id, type: { $ne: "blocked" } }),
-      Invoice.find({ clinicId: id }).sort("-createdAt").limit(10).lean(),
+      Invoice.find({ clinicId: id, ...ACTIVE_INVOICE }).sort("-createdAt").limit(10).lean(), // PHASE 2 — recent ACTIVE invoices (the export below keeps everything)
       SubscriptionRequest.find({ clinicId: id })
         .sort("-createdAt")
         .limit(20)

@@ -67,6 +67,13 @@ export function ChatWindow({ onClose }: { onClose: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey]);
 
+  // Escape closes the panel (keyboard users); the launcher takes the focus back (ChatWidget).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, sending]);
@@ -112,7 +119,12 @@ export function ChatWindow({ onClose }: { onClose: () => void }) {
   const showQuickReplies = !isAuthed && messages.length === 1;
 
   return (
-    <div className="pointer-events-auto mb-3 w-[380px] max-w-[92vw] h-[560px] max-h-[78vh] rounded-2xl border border-edge bg-card shadow-2xl flex flex-col overflow-hidden">
+    <div
+      role="dialog"
+      aria-label={`${BOT_NAME[lang]} — ${BOT_SUBTITLE[lang]}`}
+      data-testid="nabd-panel"
+      className="pointer-events-auto w-[380px] max-w-[calc(100vw-2.5rem)] h-[560px] max-h-[min(78vh,calc(100dvh-7rem))] rounded-2xl border border-edge bg-card shadow-2xl flex flex-col overflow-hidden"
+    >
       <div className="flex items-center gap-3 px-4 py-3 border-b border-edge bg-gradient-to-r from-card2 to-card">
         <div className="w-9 h-9 rounded-full bg-soft flex items-center justify-center overflow-hidden shrink-0">
           <Cube3D size={24} spin={false} />
@@ -124,7 +136,7 @@ export function ChatWindow({ onClose }: { onClose: () => void }) {
         <button
           onClick={onClose}
           className="text-mute hover:text-ink transition p-1 rounded-full hover:bg-soft"
-          aria-label="close"
+          aria-label={lang === "ar" ? "إغلاق" : "Close"}
         >
           <IconX size={18} />
         </button>

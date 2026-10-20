@@ -1,11 +1,11 @@
 import { z } from "zod";
-import { nextNumber, retryPause, NUMBER_ATTEMPTS } from "../../../numbering";
-import { Invoice } from "../../../../models/Invoice";
+import { createNumberedInvoice } from "../../../invoiceNumbering";
 import { Patient } from "../../../../models/Patient";
 import type { AIToolDefinition } from "../../AIProvider";
 import type { ToolContext } from "../types";
 import { scopeOf } from "../../../../auth/policy";
 import { resolveManualInvoiceDoctor } from "../../../doctorAttribution";
+import { canAccessPatient, viewerOfCtx } from "../../../../auth/patientAccess";
 
 export const createInvoiceDefinition: AIToolDefinition = {
   name: "createInvoice",
@@ -59,7 +59,9 @@ export async function createInvoiceExecute(
   const input = inputSchema.parse(rawInput);
 
   const patient = await Patient.findOne({ _id: input.patientId, clinicId: ctx.clinicId });
-  if (!patient) return { error: "Patient not found" };
+  // PHASE 1 — a patient the user may not open is "not found" (a doctor bills only his own / covered patients).
+  const viewer = viewerOfCtx(ctx);
+  if (!patient || !viewer || !(await canAccessPatient(viewer, input.patientId, "patients"))) return { error: "Patient not found" };
 
   // PHASE 4 — same attribution + access rules as POST /api/invoices (the creator is never the treating doctor).
   const doctorId = await resolveManualInvoiceDoctor(scopeOf(ctx, "invoices"), { doctorId: input.doctorId, patientId: input.patientId });
@@ -68,27 +70,16 @@ export async function createInvoiceExecute(
   const itemsTotal = input.items.reduce((sum, it) => sum + it.price * it.qty, 0);
   const total = round3(Math.max(0, itemsTotal - input.discount));
 
-  // PHASE 7 — same numbering + retry as POST /api/invoices
-  let invoice: InstanceType<typeof Invoice> | null = null;
-  for (let attempt = 0; attempt < NUMBER_ATTEMPTS && !invoice; attempt++) {
-    await retryPause(attempt);
-    const next = await nextNumber(Invoice, ctx.clinicId, "invoiceNumber");
-    try {
-      invoice = await new Invoice({
-        clinicId: ctx.clinicId,
-        invoiceNumber: next,
-        patientId: input.patientId,
-        ...(doctorId ? { doctorId } : {}),
-        createdBy: ctx.userId,
-        items: input.items,
-        discount: input.discount,
-        total,
-        status: total === 0 ? "paid" : "unpaid",
-      }).save();
-    } catch (err: any) {
-      if (err?.code !== 11000) throw err;
-    }
-  }
+  // PHASE 3 — the same canonical generator as POST /api/invoices
+  const invoice = await createNumberedInvoice(ctx.clinicId, {
+    patientId: input.patientId,
+    ...(doctorId ? { doctorId } : {}),
+    createdBy: ctx.userId,
+    items: input.items,
+    discount: input.discount,
+    total,
+    status: total === 0 ? "paid" : "unpaid",
+  });
   if (!invoice) return { error: "Could not create the invoice, please try again" };
 
   return {

@@ -29,7 +29,7 @@ import {
 /* ================ SPLASH ================ */
 function Splash() {
   return (
-    <div className="sp-overlay splash-play fixed inset-0 z-[60] overflow-hidden bg-hero">
+    <div className="sp-overlay splash-play fixed inset-0 z-drawer overflow-hidden bg-hero">
       <div
         className="pointer-events-none absolute inset-0 opacity-30"
         style={{

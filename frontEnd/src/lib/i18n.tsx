@@ -8,6 +8,11 @@ import {
 } from "react";
 
 import { analyticsAr, analyticsEn } from "./i18nAnalytics";
+import { patientAccessAr, patientAccessEn } from "./i18nPatientAccess";
+import { invoiceDeleteAr, invoiceDeleteEn } from "./i18nInvoiceDelete";
+import { historyAr, historyEn } from "./i18nHistory";
+import { treatmentSyncAr, treatmentSyncEn } from "./i18nTreatmentSync";
+import { dentalV2Ar, dentalV2En } from "./i18nDentalV2";
 
 type Lang = "en" | "ar";
 type Dict = Record<string, string>;
@@ -4095,7 +4100,7 @@ const ar: Dict = {
   "md.ap.mine": "جدولك — مواعيدك أنت فقط.",
 };
 
-const dicts: Record<Lang, Dict> = { en: { ...en, ...analyticsEn }, ar: { ...ar, ...analyticsAr } };
+const dicts: Record<Lang, Dict> = { en: { ...en, ...analyticsEn, ...patientAccessEn, ...invoiceDeleteEn, ...historyEn, ...treatmentSyncEn, ...dentalV2En }, ar: { ...ar, ...analyticsAr, ...patientAccessAr, ...invoiceDeleteAr, ...historyAr, ...treatmentSyncAr, ...dentalV2Ar } };
 
 interface I18nCtx {
   lang: Lang;

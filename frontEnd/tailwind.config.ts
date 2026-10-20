@@ -1,9 +1,12 @@
 import type { Config } from "tailwindcss";
+import { LAYERS } from "./src/lib/layers";
 
 const config: Config = {
   content: ["./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      // PHASE 6 — the single global z-index scale (src/lib/layers.ts): z-raised, z-dropdown, z-nabd, z-popover, z-drawer, z-modal, z-dialog, z-toast.
+      zIndex: Object.fromEntries(Object.entries(LAYERS).map(([k, v]) => [k, String(v)])),
       colors: {
         base: "var(--base)",
         hero: "var(--hero)",

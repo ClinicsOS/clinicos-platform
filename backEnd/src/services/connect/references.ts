@@ -6,6 +6,7 @@ import { ConnectMessage, type ContentType } from "../../models/ConnectMessage";
 import { PolicyError, accessOf, canSeeDoctorOwned, isOid, scopeOf, type Role } from "../../auth/policy";
 import { clinicYmdOf } from "../../utils/timezone";
 import { loadAccessibleConversation, notFound, type ChatCtx } from "./conversations";
+import { canAccessPatient, filterAccessibleIds } from "../../auth/patientAccess";
 
 /**
  * CLINICOS CONNECT (C4) — Appointment / Patient REFERENCES inside a conversation.
@@ -16,7 +17,7 @@ import { loadAccessibleConversation, notFound, type ChatCtx } from "./conversati
  * │    any other snapshot of the record is ever copied into Connect.                                                             │
  * │  • Who may SHARE a record, and who may SEE its card, is decided by the SAME policy the rest of ClinicOS uses                │
  * │    (auth/policy.ts: ACCESS matrix, scopeOf, canSeeDoctorOwned) — Connect has no permission system of its own:               │
- * │        patient      → accessOf(role, "patients") — every clinic role today (patients are shared per clinic)                  │
+ * │        patient      → auth/patientAccess.ts (Phase 1): owner / receptionist the clinic, a doctor only his own + covered      │
  * │        appointment  → scopeOf(…, "appointments") + canSeeDoctorOwned — owner / receptionist: the clinic, a doctor: their own │
  * │  • The card is resolved when it is READ, with the viewer's CURRENT role and the record's CURRENT state, one batch per page.   │
  * │    So removing someone's access, renaming a patient or cancelling an appointment is reflected on the next load, and nothing   │
@@ -47,7 +48,10 @@ export const referenceUnavailable = () => new PolicyError(404, "REFERENCE_NOT_FO
 
 /* ------------------------------------------------------------------ permission (the real ClinicOS policy, applied to ONE record) */
 
-/** Patients are shared per clinic: any role that has the "patients" resource may see a patient of ITS clinic. */
+/**
+ * Role-level gate: does this role have the "patients" resource at all? (The per-patient decision — a doctor sees only his own and the
+ * ones he covers — is auth/patientAccess.ts: canAccessPatient / filterAccessibleIds, applied wherever a concrete patient is involved.)
+ */
 export const canViewPatient = (v: Viewer): boolean => accessOf(v.role, "patients") !== "none";
 
 /** Appointments: the board's rule — the clinic for owner / receptionist, only their own for a doctor. */
@@ -71,7 +75,7 @@ export async function assertCanShare(v: Viewer, type: RefType, rawId: unknown): 
   if (type === "patient") {
     if (!canViewPatient(v)) throw referenceUnavailable();
     const found = await Patient.exists({ _id: id, clinicId: v.clinicId });
-    if (!found) throw referenceUnavailable();
+    if (!found || !(await canAccessPatient(v, id, "patients"))) throw referenceUnavailable(); // PHASE 1: not his patient = same 404 as missing
     return id;
   }
   // a real appointment only: a doctor's blocked slot is not a visit (and carries no patient)
@@ -176,7 +180,10 @@ export async function resolveCards(ctx: ChatCtx, conversationId: string, rawIds:
       ? User.find({ _id: { $in: Array.from(new Set(allowedAppts.map((a) => String(a.doctorId)).filter((x) => x && x !== "undefined"))) }, clinicId: v.clinicId }).select("name").lean()
       : Promise.resolve([]),
   ]);
-  const patients = new Map(patientRows.map((p) => [String(p._id), p]));
+  // PHASE 1 — a doctor's cards carry a patient's name only for patients he may open right now (own + covered).
+  const openable = await filterAccessibleIds(v, patientRows.map((p) => p._id), "patients").catch(() => new Set<string>());
+  const patients = new Map(patientRows.filter((p) => openable.has(String(p._id))).map((p) => [String(p._id), p]));
+  const patientExists = new Set(patientRows.map((p) => String(p._id)));
   const doctors = new Map((doctorRows as { _id: Types.ObjectId; name: string }[]).map((d) => [String(d._id), d.name]));
   const apptById = new Map(appts.map((a) => [String(a._id), a]));
 
@@ -187,8 +194,8 @@ export async function resolveCards(ctx: ChatCtx, conversationId: string, rawIds:
     const refId = m.referenceId ? String(m.referenceId) : "";
     if (contentType === "patient_reference") {
       const p = patients.get(refId);
-      if (!p) out.push({ messageId, contentType, state: "unavailable" });
-      else if (!canViewPatient(v)) out.push({ messageId, contentType, state: "restricted" });
+      if (!patientExists.has(refId)) out.push({ messageId, contentType, state: "unavailable" });
+      else if (!p || !canViewPatient(v)) out.push({ messageId, contentType, state: "restricted" }); // exists, but not THIS viewer's patient: no data
       else out.push({ messageId, contentType, state: "ok", patient: { id: String(p._id), fullName: p.fullName, fileNumber: p.fileNumber } });
     } else {
       const a = apptById.get(refId);

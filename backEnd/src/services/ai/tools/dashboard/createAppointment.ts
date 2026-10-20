@@ -12,6 +12,8 @@ import {
   checkAppointmentPlanCap,
 } from "../../../appointmentRules";
 import { findOverlappingAppointment } from "../../../appointmentAvailability";
+import { canAccessPatient, viewerOfCtx } from "../../../../auth/patientAccess";
+import { ensurePrimaryAccess } from "../../../patientAccess";
 
 // This tool now enforces the SAME business rules as the human dashboard flow
 // (controllers/appointmentController.ts) by calling the shared
@@ -61,7 +63,9 @@ export async function createAppointmentExecute(
     User.findOne({ _id: input.doctorId, clinicId: ctx.clinicId, role: "doctor", isActive: true }),
     Clinic.findById(ctx.clinicId),
   ]);
-  if (!patient) return { error: "Patient not found" };
+  // PHASE 1 — same rule as the dashboard: a patient the user may not open is "not found" (a doctor books only his own / covered patients).
+  const viewer = viewerOfCtx(ctx);
+  if (!patient || !viewer || !(await canAccessPatient(viewer, input.patientId, "patients"))) return { error: "Patient not found" };
   if (!doctor) return { error: "Doctor not found" };
   if (!clinic) return { error: "Clinic not found" };
 
@@ -95,6 +99,9 @@ export async function createAppointmentExecute(
     visitType: input.visitType,
     procedureNote: input.visitType === "procedure" ? input.procedureNote : undefined,
   });
+
+  // PHASE 1 — booking a patient with a doctor makes him that doctor's patient (same as the dashboard flow).
+  await ensurePrimaryAccess(ctx.clinicId, input.patientId, input.doctorId, "appointment", ctx.userId);
 
   return {
     success: true,

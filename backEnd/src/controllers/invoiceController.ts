@@ -1,13 +1,17 @@
 import { Request, Response } from "express";
 import mongoose from "mongoose";
 import { z } from "zod";
-import { Invoice } from "../models/Invoice";
+import { Invoice, ACTIVE_INVOICE, DELETED_INVOICE } from "../models/Invoice";
 import { Patient } from "../models/Patient";
+import { User } from "../models/User";
+import { logActivity } from "../services/activityLogger";
+import { softDeleteInvoice, restoreInvoice as restoreInvoiceDoc, permanentDeleteInvoice as permanentDeleteInvoiceDoc, type Actor, type Result } from "../services/invoiceLifecycle";
 import { onInvoicePayment } from "../services/loyaltyPoints";
-import { nextNumber, retryPause, NUMBER_ATTEMPTS } from "../services/numbering";
+import { createNumberedInvoice } from "../services/invoiceNumbering";
 import { asyncHandler } from "../middleware/errorHandler";
 import { resolveDataScope, doctorMatch, PolicyError, canManageClinic } from "../auth/policy";
 import { findClinicDoctor, resolveManualInvoiceDoctor } from "../services/doctorAttribution";
+import { canAccessPatient, viewerOf } from "../auth/patientAccess";
 
 /**
  * PHASE 7 — money hygiene. JOD has 3 decimals (fils). Floating point made 50.1 + 50.2 > 100.3, so an exact payment of the
@@ -47,7 +51,8 @@ export const createInvoice = asyncHandler(async (req: Request, res: Response) =>
     _id: data.patientId,
     clinicId: req.clinicId,
   });
-  if (!patient) return res.status(404).json({ message: "Patient not found" });
+  // PHASE 1 — a doctor can bill only patients he may open (his own / covered); another doctor's patient is the same 404 as an unknown one.
+  if (!patient || !(await canAccessPatient(viewerOf(req), data.patientId))) return res.status(404).json({ message: "Patient not found" });
 
   // PHASE 4 — the treating doctor is decided by the server (see services/doctorAttribution.ts): never the creator by default.
   const doctorId = await resolveManualInvoiceDoctor(scope, { doctorId: data.doctorId, appointmentId: data.appointmentId, patientId: data.patientId });
@@ -55,30 +60,19 @@ export const createInvoice = asyncHandler(async (req: Request, res: Response) =>
   const itemsTotal = data.items.reduce((sum, it) => sum + it.price * it.qty, 0);
   const total = round3(Math.max(0, itemsTotal - data.discount));
 
-  // The number is clinicId-unique (index). Two invoices created at the same moment (a double click, or the receptionist and a
-  // dental "Add to invoice" together) compute the same count — PHASE 7: the loser recounts and retries instead of failing with a 409
-  // (the same strategy services/dentalBilling.ts already uses).
-  for (let attempt = 0; attempt < NUMBER_ATTEMPTS; attempt++) {
-    await retryPause(attempt);
-    const next = await nextNumber(Invoice, req.clinicId, "invoiceNumber");
-    try {
-      const invoice = await Invoice.create({
-        clinicId: req.clinicId,
-        invoiceNumber: next,
-        patientId: data.patientId,
-        appointmentId: data.appointmentId,
-        ...(doctorId ? { doctorId } : {}),
-        createdBy: req.userId,
-        items: data.items,
-        discount: data.discount,
-        total,
-        status: total === 0 ? "paid" : "unpaid",
-      });
-      return res.status(201).json(invoice);
-    } catch (err: any) {
-      if (err?.code !== 11000) throw err;
-    }
-  }
+  // PHASE 3 — the number comes from the clinic's persistent atomic counter (services/invoiceNumbering.ts): never reused, never renumbered,
+  // unique under parallel requests. The one generator shared by every creation path (here, AI assistant, dental + dermatology billing).
+  const invoice = await createNumberedInvoice(req.clinicId as string, {
+    patientId: data.patientId,
+    appointmentId: data.appointmentId,
+    ...(doctorId ? { doctorId } : {}),
+    createdBy: req.userId,
+    items: data.items,
+    discount: data.discount,
+    total,
+    status: total === 0 ? "paid" : "unpaid",
+  });
+  if (invoice) return res.status(201).json(invoice);
   return res.status(409).json({ message: "Could not create the invoice, please try again", code: "INVOICE_CREATE_FAILED" });
 });
 
@@ -113,7 +107,8 @@ export const updateInvoice = asyncHandler(async (req: Request, res: Response) =>
   const scope = resolveDataScope(req, "invoices");
 
   // A doctor can only reach invoices attributed to them; anything else is the same 404 as an unknown id (no probing).
-  const invoice = await Invoice.findOne({ _id: req.params.id, clinicId: req.clinicId, ...doctorMatch(scope) });
+  // PHASE 2 — a soft-deleted invoice cannot be edited (restore it first): for the editor it is simply not there.
+  const invoice = await Invoice.findOne({ _id: req.params.id, clinicId: req.clinicId, ...doctorMatch(scope), ...ACTIVE_INVOICE });
   if (!invoice) return res.status(404).json({ message: "Invoice not found" });
 
   let nextDoctor: string | null | undefined; // undefined = leave as it is
@@ -170,7 +165,8 @@ export const updateInvoice = asyncHandler(async (req: Request, res: Response) =>
 const escapeRegex = (s: string) => s.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); // PHASE 7 — a NUL / control character makes MongoDB reject the pattern (was a 500)
 
 /**
- * GET /api/invoices
+ * GET /api/invoices            ACTIVE invoices (PHASE 2: soft-deleted ones never appear here)
+ * GET /api/invoices/deleted    PHASE 2 — the Deleted Invoices list (newest deletion first). Same filters, same row scope.
  * Query params (all optional):
  *   status     unpaid | partially_paid | paid
  *   patientId  only this patient's invoices
@@ -179,13 +175,19 @@ const escapeRegex = (s: string) => s.replace(/[\u0000-\u001f\u007f]/g, " ").repl
  *              ("INV-0012", "#12", "12")
  *   sort       NEW — "total" = biggest invoice first (default: newest first)
  */
-export const listInvoices = asyncHandler(async (req: Request, res: Response) => {
+async function runInvoiceList(req: Request, res: Response, deleted: boolean) {
   // PHASE 4 — a doctor's scope is always their own id (a ?doctorId= for anyone else is a 403); owner / receptionist see the
   // whole clinic and may narrow by ?doctorId=<id> or ?doctorId=unassigned (legacy / unattributed invoices).
-  const scope = resolveDataScope(req, "invoices", req.query.doctorId);
-  const filter: Record<string, any> = { clinicId: req.clinicId, ...doctorMatch(scope) };
+  // PHASE 2 — the Deleted Invoices list is gated by its own resource (receptionist: none), so deleted financial data is never exposed to her.
+  const scope = resolveDataScope(req, deleted ? "invoicesDelete" : "invoices", req.query.doctorId);
+  const filter: Record<string, any> = { clinicId: req.clinicId, ...doctorMatch(scope), ...(deleted ? DELETED_INVOICE : ACTIVE_INVOICE) };
   if (req.query.status) filter.status = String(req.query.status);
-  if (req.query.patientId) filter.patientId = String(req.query.patientId);
+  if (req.query.patientId) {
+    filter.patientId = String(req.query.patientId);
+    // PHASE 1 — "this patient's invoices" is part of the patient file: for a patient the caller may not open the answer is an EMPTY list,
+    // exactly what an unknown patient returns (no existence oracle). Malformed ids keep their 400.
+    if (/^[a-f\d]{24}$/i.test(filter.patientId) && !(await canAccessPatient(viewerOf(req), filter.patientId))) return res.json([]);
+  }
   if (req.query.from || req.query.to) {
     filter.createdAt = {};
     if (req.query.from) filter.createdAt.$gte = new Date(String(req.query.from));
@@ -227,17 +229,22 @@ export const listInvoices = asyncHandler(async (req: Request, res: Response) => 
     filter.$or = or;
   }
 
-  const sort: Record<string, 1 | -1> =
-    req.query.sort === "total" ? { total: -1, createdAt: -1 } : { createdAt: -1 };
+  const sort: Record<string, 1 | -1> = deleted
+    ? { deletedAt: -1, createdAt: -1 }
+    : req.query.sort === "total" ? { total: -1, createdAt: -1 } : { createdAt: -1 };
 
-  const invoices = await Invoice.find(filter)
+  const query = Invoice.find(filter)
     .sort(sort)
     .limit(300)
     .populate("patientId", "fullName phone fileNumber")
     .populate("doctorId", "name");
+  if (deleted) query.populate("deletedBy", "name").populate("restoredBy", "name");
 
-  return res.json(invoices);
-});
+  return res.json(await query);
+}
+
+export const listInvoices = asyncHandler(async (req: Request, res: Response) => runInvoiceList(req, res, false));
+export const listDeletedInvoices = asyncHandler(async (req: Request, res: Response) => runInvoiceList(req, res, true));
 
 const paymentSchema = z.object({
   amount: money(10_000_000, 0.001), // finite, >= 1 fils, rounded to fils
@@ -252,10 +259,12 @@ export const addPayment = asyncHandler(async (req: Request, res: Response) => {
   const data = paymentSchema.parse(req.body);
   const scope = resolveDataScope(req, "payments");
 
+  // PHASE 2 — no payment can be recorded on a soft-deleted invoice (it is not part of the books until it is restored).
   const invoice = await Invoice.findOne({
     _id: req.params.id,
     clinicId: req.clinicId,
     ...doctorMatch(scope),
+    ...ACTIVE_INVOICE,
   });
   if (!invoice) return res.status(404).json({ message: "Invoice not found" });
 
@@ -285,6 +294,7 @@ export const addPayment = asyncHandler(async (req: Request, res: Response) => {
       _id: req.params.id,
       clinicId: req.clinicId,
       ...doctorMatch(scope),
+      ...ACTIVE_INVOICE, // PHASE 2 — an invoice deleted between the read above and this write takes no payment
       ...(data.requestId ? { "payments.requestId": { $ne: data.requestId } } : {}), // race-safe: two parallel submits of one dialog
       $expr: {
         // half a fils of tolerance: the stored amounts are fils-rounded, only IEEE-754 noise is being absorbed
@@ -302,7 +312,7 @@ export const addPayment = asyncHandler(async (req: Request, res: Response) => {
   if (!updated) {
     if (data.requestId) {
       // the losing side of a double submit: the winner's payment is already stored
-      const again = await Invoice.findOne({ _id: req.params.id, clinicId: req.clinicId, ...doctorMatch(scope), "payments.requestId": data.requestId });
+      const again = await Invoice.findOne({ _id: req.params.id, clinicId: req.clinicId, ...doctorMatch(scope), ...ACTIVE_INVOICE, "payments.requestId": data.requestId });
       if (again) return res.json(again);
     }
     return res.status(409).json({
@@ -324,4 +334,94 @@ export const addPayment = asyncHandler(async (req: Request, res: Response) => {
   if (newPayment?._id) await onInvoicePayment(updated, String(newPayment._id), req.userId);
 
   return res.json(updated);
+});
+
+/* =====================================================================================================================
+ * PHASE 2 — INVOICE DELETION LIFECYCLE  (soft delete -> Deleted Invoices -> restore / permanent delete)
+ *
+ *   DELETE /api/invoices/:id            move to Deleted Invoices        owner: any invoice of the clinic · doctor: own invoices · receptionist: 403
+ *   GET    /api/invoices/deleted        the Deleted Invoices list       (same scope)
+ *   PATCH  /api/invoices/:id/restore    back to Active Invoices         (same scope)
+ *   DELETE /api/invoices/:id/permanent  remove for good                 (resource invoicesPurge) — ONLY an already-deleted invoice, invoice number typed back
+ *
+ * All the rules live in services/invoiceLifecycle.ts; these handlers only authorize, validate the body, call it and write the audit row.
+ * ===================================================================================================================== */
+
+const actorOf = (req: Request, resource: "invoicesDelete" | "invoicesPurge"): Actor => ({
+  clinicId: String(req.clinicId),
+  userId: String(req.userId),
+  scope: resolveDataScope(req, resource), // 403 for a role without the resource (receptionist) BEFORE anything is read
+});
+
+/** Optional text may arrive in the JSON body (the UI) or the query string (a client / proxy that drops the body of a DELETE). */
+const inputOf = (req: Request): Record<string, unknown> => ({
+  ...(typeof req.query.reason === "string" ? { reason: req.query.reason } : {}),
+  ...(typeof req.query.confirm === "string" ? { confirm: req.query.confirm } : {}),
+  ...(req.body && typeof req.body === "object" ? req.body : {}),
+});
+
+async function auditInvoice(req: Request, action: string, inv: any, extra: Record<string, unknown> = {}) {
+  const actor = await User.findById(req.userId).select("email").lean();
+  await logActivity({
+    action,
+    actorEmail: actor?.email || "unknown",
+    targetType: "clinic",
+    targetId: req.clinicId as string,
+    details: {
+      invoiceId: String(inv._id),
+      invoiceNumber: inv.invoiceNumber,
+      patientId: inv.patientId ? String(inv.patientId?._id ?? inv.patientId) : null,
+      doctorId: inv.doctorId ? String(inv.doctorId?._id ?? inv.doctorId) : null,
+      total: inv.total,
+      paid: round3((inv.payments ?? []).reduce((s: number, p: { amount: number }) => s + p.amount, 0)),
+      status: inv.status,
+      actorType: "clinic_user",
+      actorUserId: String(req.userId),
+      actorRole: req.role,
+      ...extra,
+    },
+  });
+}
+
+const failure = (res: Response, r: Extract<Result, { ok: false }>) => res.status(r.status).json({ message: r.message, code: r.code });
+
+const deleteBody = z.object({ reason: z.string().trim().max(300).optional() });
+
+/** DELETE /api/invoices/:id — soft delete. Never removes the document. */
+export const deleteInvoice = asyncHandler(async (req: Request, res: Response) => {
+  const actor = actorOf(req, "invoicesDelete");
+  const { reason } = deleteBody.parse(inputOf(req));
+  const r = await softDeleteInvoice(actor, String(req.params.id), reason);
+  if (!r.ok) return failure(res, r);
+  await auditInvoice(req, "invoice.soft_deleted", r.invoice, { reason: r.invoice.deleteReason ?? null });
+  return res.json(r.invoice);
+});
+
+/** PATCH /api/invoices/:id/restore */
+export const restoreInvoice = asyncHandler(async (req: Request, res: Response) => {
+  const actor = actorOf(req, "invoicesDelete");
+  const r = await restoreInvoiceDoc(actor, String(req.params.id));
+  if (!r.ok) return failure(res, r);
+  await auditInvoice(req, "invoice.restored", r.invoice);
+  return res.json(r.invoice);
+});
+
+const purgeBody = z.object({ confirm: z.union([z.string().max(40), z.number()]).optional() });
+
+/** DELETE /api/invoices/:id/permanent — only for an invoice that is already in Deleted Invoices; body/query `confirm` = its invoice number. */
+export const permanentDeleteInvoice = asyncHandler(async (req: Request, res: Response) => {
+  // PHASE 3 — OWNER ONLY. The policy row already says so (requireAccess); this is the second, independent lock on the handler itself.
+  if (req.role !== "owner") return res.status(403).json({ message: "Only the clinic owner can permanently delete an invoice", code: "OWNER_ONLY" });
+  const actor = actorOf(req, "invoicesPurge");
+  const { confirm } = purgeBody.parse(inputOf(req));
+  const r = await permanentDeleteInvoiceDoc(actor, String(req.params.id), confirm);
+  if (!r.ok) return failure(res, r);
+  // The document is gone, so its identity and last known state live on in the audit trail.
+  await auditInvoice(req, "invoice.permanently_deleted", r.invoice, {
+    deletedAt: r.invoice.deletedAt ?? null,
+    deletedBy: r.invoice.deletedBy ? String(r.invoice.deletedBy) : null,
+    deleteReason: r.invoice.deleteReason ?? null,
+    createdAt: r.invoice.createdAt ?? null,
+  });
+  return res.json({ deleted: true, invoiceNumber: r.invoice.invoiceNumber });
 });

@@ -75,6 +75,7 @@ export default function DentalDashboard({ part = "all" }: { part?: "all" | "toda
                     {a.source === "walk_in" && <span className="pill shrink-0 bg-soft text-blue">{t("dn.dash.walkin")}</span>}
                     <span className={`pill shrink-0 ${a.status === "cancelled" ? "bg-red-500/15 text-red-400" : a.status === "no_show" ? "bg-amber-500/15 text-amber-400" : "bg-teal/15 text-teal"}`}>{t(`status.${a.status}`)}</span>
                   </div>
+                  {a.doctorName && <div className="truncate text-[10px] text-mute" data-testid="dash-today-doctor">{a.doctorName}</div>}
                   {a.treatment && (
                     <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-mute">
                       {procLabel(t, a.treatment)} — <TargetText targetType={a.treatment.targetType} toothNumbers={a.treatment.toothNumbers} surfaces={[]} />

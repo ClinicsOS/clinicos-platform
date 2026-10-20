@@ -480,7 +480,7 @@ export default function DermMapTab({ patientId, patientGender, defaultVisitId, o
 
       {/* ------------------------------------------------ mobile bottom sheet */}
       {!desktop && (selected.length > 0 || findOpen || tab === "timeline" || composing) && (
-        <div className="fixed inset-x-0 bottom-0 z-40 flex max-h-[78vh] flex-col rounded-t-2xl border border-edge bg-card shadow-2xl dn-sheet-in" role="dialog" aria-label={t("dm.panel.title")}>
+        <div className="fixed inset-x-0 bottom-0 z-drawer flex max-h-[78vh] flex-col rounded-t-2xl border border-edge bg-card shadow-2xl dn-sheet-in" role="dialog" aria-label={t("dm.panel.title")}>
           <div className="flex items-center gap-2 px-4 py-2">
             <button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-start" onClick={() => setSheet((s) => (s === "open" ? "collapsed" : "open"))} aria-expanded={sheet === "open"}>
               {sheet === "open" ? <IconChevronDown size={16} /> : <IconChevronUp size={16} />}

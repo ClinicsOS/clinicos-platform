@@ -28,21 +28,26 @@ export interface ProcedureDef {
   targets: readonly TargetType[];
   defaultTarget: TargetType;
   multiSession: boolean; // hint only
+  /** PHASE 5 — acts on tooth SURFACES (filling, sealant, other): the only procedures that may carry surfaces on a several-teeth target. */
+  surfaceCapable?: boolean;
 }
 
+/** PHASE 5 targeting strategy (derived from targetType + teeth, never stored): single_tooth | multi_tooth | arch | general. */
+export type TargetMode = "single_tooth" | "multi_tooth" | "arch" | "general";
+
 export const PROCEDURES: readonly ProcedureDef[] = [
-  { code: "filling", targets: ["surface", "tooth"], defaultTarget: "surface", multiSession: false },
-  { code: "root_canal", targets: ["tooth"], defaultTarget: "tooth", multiSession: true },
-  { code: "extraction", targets: ["tooth"], defaultTarget: "tooth", multiSession: false },
-  { code: "crown", targets: ["tooth"], defaultTarget: "tooth", multiSession: true },
+  { code: "filling", targets: ["surface", "tooth", "multi_tooth"], defaultTarget: "surface", multiSession: false, surfaceCapable: true },
+  { code: "root_canal", targets: ["tooth", "multi_tooth"], defaultTarget: "tooth", multiSession: true },
+  { code: "extraction", targets: ["tooth", "multi_tooth"], defaultTarget: "tooth", multiSession: false },
+  { code: "crown", targets: ["tooth", "multi_tooth"], defaultTarget: "tooth", multiSession: true },
   { code: "bridge", targets: ["multi_tooth"], defaultTarget: "multi_tooth", multiSession: true },
-  { code: "implant", targets: ["tooth"], defaultTarget: "tooth", multiSession: true },
-  { code: "scaling", targets: ["general"], defaultTarget: "general", multiSession: false },
-  { code: "whitening", targets: ["general"], defaultTarget: "general", multiSession: false },
-  { code: "sealant", targets: ["tooth", "surface"], defaultTarget: "tooth", multiSession: false },
+  { code: "implant", targets: ["tooth", "multi_tooth"], defaultTarget: "tooth", multiSession: true },
+  { code: "scaling", targets: ["general", "multi_tooth"], defaultTarget: "general", multiSession: false },
+  { code: "whitening", targets: ["general", "multi_tooth"], defaultTarget: "general", multiSession: false },
+  { code: "sealant", targets: ["tooth", "surface", "multi_tooth"], defaultTarget: "tooth", multiSession: false, surfaceCapable: true },
   { code: "veneer", targets: ["tooth", "multi_tooth"], defaultTarget: "tooth", multiSession: true },
   { code: "denture", targets: ["general", "multi_tooth"], defaultTarget: "general", multiSession: true },
-  { code: OTHER_PROCEDURE_CODE, targets: ["tooth", "surface", "multi_tooth", "general"], defaultTarget: "tooth", multiSession: false },
+  { code: OTHER_PROCEDURE_CODE, targets: ["tooth", "surface", "multi_tooth", "general"], defaultTarget: "tooth", multiSession: false, surfaceCapable: true },
 ];
 export const findProcedure = (code: string) => PROCEDURES.find((p) => p.code === code);
 
@@ -57,9 +62,14 @@ export function procLabel(t: (k: string) => string, x: { procedureCode: string; 
   }
   return t(`dn.p.${x.procedureCode}`);
 }
+/** Per-tooth surfaces of a multi-tooth treatment: { "16": ["O"], "17": ["M","O"] }. Absent = the same `surfaces` on every selected tooth. */
+export type ToothSurfaces = Record<string, SurfaceId[]>;
+
+export { surfacesForTooth } from "./planVisual";
+
 /** Same rules as the server (UX only — the server rejects anything invalid regardless). Returns an i18n key or null. */
 export function targetError(
-  input: { procedureCode: string; targetType: TargetType; teeth: string[]; surfaces: SurfaceId[]; customName?: string },
+  input: { procedureCode: string; targetType: TargetType; teeth: string[]; surfaces: SurfaceId[]; customName?: string; toothSurfaces?: ToothSurfaces | null },
   dentition: DentitionType
 ): string | null {
   const def = findProcedure(input.procedureCode);
@@ -74,7 +84,27 @@ export function targetError(
     case "general": return input.teeth.length ? "dn.err.target" : null;
     case "tooth": return input.teeth.length === 1 && !input.surfaces.length ? null : "dn.err.needTooth";
     case "surface": return input.teeth.length !== 1 ? "dn.err.needTooth" : input.surfaces.length ? null : "dn.err.needSurface";
-    case "multi_tooth": return input.teeth.length >= 2 ? null : "dn.err.needTeeth";
+    case "multi_tooth": {
+      if (input.teeth.length < 2) return "dn.err.needTeeth";
+      if (!def.surfaceCapable) return input.surfaces.length ? "dn.err.target" : null;
+      if (input.toothSurfaces && Object.keys(input.toothSurfaces).length) return input.teeth.every((f) => input.toothSurfaces![f]?.length) ? null : "dn.err.needSurfaceEach";
+      return null;
+    }
   }
+}
+
+/** Derived targeting strategy (mirrors the server's deriveTargetMode). */
+export function deriveTargetMode(targetType: TargetType, teeth: readonly string[], dentition: DentitionType): TargetMode {
+  if (targetType === "general" || !teeth.length) return "general";
+  if (targetType !== "multi_tooth") return "single_tooth";
+  if (dentition === "mixed") return "multi_tooth";
+  const jaws = dentition === "primary" ? [["5", "6"], ["7", "8"]] : [["1", "2"], ["3", "4"]];
+  const per = dentition === "primary" ? 5 : 8;
+  const set = new Set(teeth);
+  for (const qs of jaws) {
+    const jaw = qs.flatMap((q) => Array.from({ length: per }, (_, i) => `${q}${i + 1}`));
+    if (set.size === jaw.length && jaw.every((f) => set.has(f))) return "arch";
+  }
+  return "multi_tooth";
 }
 export { SURFACES };

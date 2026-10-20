@@ -9,6 +9,9 @@
  *
  * Kept on purpose (platform-level records, not clinic content): the admin ActivityLog and the platform-admin ClinicNote.
  */
+import { PatientDoctorAccess } from "../models/PatientDoctorAccess";
+import { DoctorDelegation } from "../models/DoctorDelegation";
+import { InvoiceCounter } from "../models/InvoiceCounter";
 import { ClinicalNote } from "../models/ClinicalNote";
 import { DentalRecord } from "../models/DentalRecord";
 import { DentalToothEvent } from "../models/DentalToothEvent";
@@ -59,6 +62,11 @@ const CLINIC_SYSTEM_MODELS: Finder[] = [
   ConnectConversation as unknown as Finder,
   ConnectMessage as unknown as Finder,
   ConnectReadState as unknown as Finder,
+  // PHASE 1 (multi-doctor patient isolation) — who may open which patient, and the coverage grants. Authorization data: purged with the clinic.
+  PatientDoctorAccess as unknown as Finder,
+  DoctorDelegation as unknown as Finder,
+  // PHASE 3 — the clinic's invoice number counter. Purged with the clinic (the invoices themselves are deleted by the callers).
+  InvoiceCounter as unknown as Finder,
 ];
 
 /** Delete every clinic-owned collection above (the callers keep deleting the core ones + loyalty themselves). */

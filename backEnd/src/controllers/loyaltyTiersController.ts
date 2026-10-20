@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { z } from "zod";
+import { accessiblePatientIds, viewerOf } from "../auth/patientAccess";
 import { asyncHandler } from "../middleware/errorHandler";
 import { User } from "../models/User";
 import { logActivity } from "../services/activityLogger";
@@ -214,12 +215,12 @@ export const recalculateTiers = handler(async (req, res) => {
  * ============================================================ */
 export const getTiersAnalytics = handler(async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  return res.json(await tierAnalytics(req.clinicId as string));
+  return res.json(await tierAnalytics(req.clinicId as string, await accessiblePatientIds(viewerOf(req), "patients")));
 });
 
 export const getTiersHistory = handler(async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   const q = historyQuery.parse(req.query);
-  return res.json(await listTierHistory(req.clinicId as string, { accountId: q.accountId && isOid(q.accountId) ? q.accountId : undefined, page: q.page, limit: q.limit }));
+  return res.json(await listTierHistory(req.clinicId as string, { accountId: q.accountId && isOid(q.accountId) ? q.accountId : undefined, page: q.page, limit: q.limit, scope: await accessiblePatientIds(viewerOf(req), "patients") }));
 });
 

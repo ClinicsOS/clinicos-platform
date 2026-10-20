@@ -14,6 +14,8 @@
   --ink: #f2f7fc;
   --mute: #8fb3cc;
   --soft: rgba(111, 189, 245, 0.08);
+  /* PHASE 6 — global layer scale; keep in sync with src/lib/layers.ts (Tailwind: z-modal, z-toast, …). CSS-module / injected-style overlays use these. */
+  --z-raised: 20; --z-dropdown: 30; --z-nabd: 40; --z-popover: 50; --z-drawer: 60; --z-modal: 70; --z-dialog: 80; --z-toast: 90;
 }
 html.light {
   --base: #f4f9fd;
@@ -331,6 +333,15 @@ body {
   animation: toast-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
+/* ===== PHASE 2 — invoice lifecycle dialogs (delete / restore / permanent delete): short, calm motion; none under reduced-motion ===== */
+@keyframes invdFade { from { opacity: 0 } to { opacity: 1 } }
+@keyframes invdPop { from { opacity: 0; transform: translateY(10px) scale(0.97) } to { opacity: 1; transform: none } }
+.invd-fade { animation: invdFade 160ms ease-out both; }
+.invd-pop { animation: invdPop 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .invd-fade, .invd-pop { animation: none; }
+}
+
 /* ===== Confirm modal shake animation for destructive ===== */
 @keyframes shake-warn {
   0%, 100% { transform: translateX(0); }
@@ -407,4 +418,56 @@ body {
   .an-print-only { display: block; }
   .card { break-inside: avoid; }
   .an-scroll { overflow: visible !important; }
+}
+
+/* ===== PHASE 3 — deep-link focus + clinical history timeline ===== */
+/* The target of a deep link: a soft teal ring that settles in ~2.4 s (150–300 ms transitions elsewhere). Static outline for reduced motion. */
+.hl-focus {
+  position: relative;
+  z-index: 1;
+  outline: 1px solid rgba(79, 195, 184, 0.75);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 4px rgba(79, 195, 184, 0.16), 0 10px 28px -10px rgba(79, 195, 184, 0.55);
+  animation: hlFocus 2400ms ease-out 1 both;
+}
+@keyframes hlFocus {
+  0%   { box-shadow: 0 0 0 0 rgba(79, 195, 184, 0.55), 0 0 0 0 rgba(79, 195, 184, 0); transform: translateY(0) scale(1); }
+  18%  { box-shadow: 0 0 0 6px rgba(79, 195, 184, 0.22), 0 14px 32px -10px rgba(79, 195, 184, 0.6); transform: translateY(-2px) scale(1.004); }
+  100% { box-shadow: 0 0 0 4px rgba(79, 195, 184, 0.08), 0 10px 28px -10px rgba(79, 195, 184, 0.2); transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hl-focus { animation: none; transform: none; }
+}
+/* History timeline: entrance + hover depth */
+@keyframes chIn { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
+.ch-in { animation: chIn 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.ch-card { transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, background-color 180ms ease; }
+.ch-card:hover, .ch-card:focus-visible { transform: translateY(-2px); box-shadow: 0 12px 28px -14px rgba(0, 0, 0, 0.55); border-color: rgba(111, 189, 245, 0.55); }
+@media (prefers-reduced-motion: reduce) {
+  .ch-in { animation: none; }
+  .ch-card { transition: border-color 150ms ease; }
+  .ch-card:hover, .ch-card:focus-visible { transform: none; box-shadow: none; }
+}
+
+/* ===== PHASE 4 — Treatment Plan <-> Dental Chart sync feedback: calm, short, never flashing; none under reduced-motion ===== */
+@keyframes dnCardIn { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
+@keyframes dnToothGlow { 0% { box-shadow: 0 0 0 0 rgba(45, 212, 191, 0) } 35% { box-shadow: 0 0 0 4px rgba(45, 212, 191, 0.45) } 100% { box-shadow: 0 0 0 0 rgba(45, 212, 191, 0) } }
+.dn-card-in { animation: dnCardIn 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.dn-tooth-glow { animation: dnToothGlow 1600ms ease-out 1 both; }
+@media (prefers-reduced-motion: reduce) {
+  .dn-card-in, .dn-tooth-glow { animation: none; }
+}
+
+/* ---------------- PHASE 5 — Dental Chart V2 ---------------- */
+.dn-hit { cursor: pointer; transition: fill 120ms ease, stroke 120ms ease; stroke: transparent; stroke-width: 2.2; }
+.dn-hit:hover { fill: rgba(255, 255, 255, 0.22); }
+.dn-hit:focus-visible { outline: none; stroke: #9ef2e6; }
+@keyframes dnLinked { 0%, 100% { stroke-opacity: 1 } 50% { stroke-opacity: 0.35 } }
+.dn-linked { animation: dnLinked 1500ms ease-in-out infinite; }
+.dn-missing svg { filter: grayscale(0.4); }
+@keyframes dnIsoIn { from { opacity: 0; transform: translateY(6px) scale(0.98) } to { opacity: 1; transform: none } }
+.dn-iso-in { animation: dnIsoIn 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .dn-linked, .dn-iso-in { animation: none; }
+  .dn-hit { transition: none; }
 }

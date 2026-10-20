@@ -10,6 +10,9 @@ export interface SceneHandlers {
   onHover: (fdi: string | null, x: number, y: number) => void;
   onMode: (m: Mode) => void;
   onJaw: (angle: number) => void;
+  /** PHASE 5 */
+  onToggle?: (fdi: string) => void;
+  onIsolation?: (isolated: boolean) => void;
   onReady: () => void;
   onFailure: (message: string) => void;
 }
@@ -23,6 +26,9 @@ interface Props {
   labelsOn: boolean;
   viewShift: number;
   reducedMotion: boolean;
+  /** PHASE 4 — teeth to glow once per `glowRun` (the timestamp of a server-confirmed treatment change; 0 = none). */
+  glowTeeth?: ReadonlySet<string>;
+  glowRun?: number;
 }
 
 /**
@@ -31,7 +37,7 @@ interface Props {
  * creating the WebGL context / scene is reported to the parent (which shows the 2D fallback) — it never throws
  * into React, so the rest of the Patient Profile keeps working.
  */
-export default function DentalScene3D({ engineRef, handlers, visual, dentition, current, labelsOn, viewShift, reducedMotion }: Props) {
+export default function DentalScene3D({ engineRef, handlers, visual, dentition, current, labelsOn, viewShift, reducedMotion, glowTeeth, glowRun = 0 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const hRef = useRef(handlers);
   hRef.current = handlers;
@@ -50,6 +56,9 @@ export default function DentalScene3D({ engineRef, handlers, visual, dentition, 
           host.current,
           {
             onSelect: (f) => hRef.current.onSelect(f),
+            onToggle: (f) => hRef.current.onToggle?.(f),
+            onIsolationChange: (v) => hRef.current.onIsolation?.(v),
+            onFocusChange: (sum) => { if (host.current) host.current.dataset.focus = sum; },
             onHover: (f, x, y) => hRef.current.onHover(f, x, y),
             onModeChange: (m) => hRef.current.onMode(m),
             onJawChange: (a) => hRef.current.onJaw(a),
@@ -57,6 +66,7 @@ export default function DentalScene3D({ engineRef, handlers, visual, dentition, 
           { reducedMotion, dentition: { type: dRef.current.dentition, current: dRef.current.current } }
         );
         engineRef.current = engine;
+        host.current.dataset.focus = engine.focusState();
         setReady(true);
         hRef.current.onReady();
       } catch (e) {
@@ -76,9 +86,17 @@ export default function DentalScene3D({ engineRef, handlers, visual, dentition, 
   const currentKey = (current ?? []).join(",");
   useEffect(() => { if (ready) engineRef.current?.setDentition(dentition, current); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, dentition, currentKey, engineRef]);
-  useEffect(() => { if (ready) engineRef.current?.setToothStates(visual); }, [ready, visual, engineRef]);
+  useEffect(() => {
+    if (!ready) return;
+    engineRef.current?.setToothStates(visual);
+    if (host.current) host.current.dataset.applied = engineRef.current?.appliedSummary() ?? ""; // what the 3D teeth were actually given (read by the acceptance tests)
+  }, [ready, visual, engineRef]);
   useEffect(() => { if (ready) engineRef.current?.setFdiLabels(labelsOn); }, [ready, labelsOn, engineRef]);
   useEffect(() => { if (ready) engineRef.current?.setViewShift(viewShift); }, [ready, viewShift, engineRef]);
+  // The tooth glow fires once per confirmed change (keyed by its timestamp), after the new visual state was applied above — never on every render.
+  const glowRef = useRef(glowTeeth);
+  glowRef.current = glowTeeth;
+  useEffect(() => { if (ready && glowRun && glowRef.current?.size) engineRef.current?.flashTeeth(Array.from(glowRef.current)); }, [ready, glowRun, engineRef]);
 
-  return <div ref={host} className="absolute inset-0" />;
+  return <div ref={host} data-testid="chart-3d" className="absolute inset-0" />;
 }

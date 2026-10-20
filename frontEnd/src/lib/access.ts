@@ -8,17 +8,21 @@ import { useAuth } from "@/store/auth";
 
 export type AccessLevel = "clinic" | "self" | "none";
 export type AccessResource =
-  | "appointments" | "patients" | "patientClinical" | "clinicalWrite" | "invoices" | "payments"
+  | "appointments" | "patients" | "patientClinical" | "clinicalWrite" | "invoices" | "invoicesDelete" | "invoicesPurge" | "payments"
   | "reports" | "reportsClinic" | "dashboardCounts" | "dashboardRevenue" | "expenses" | "expensesManage" | "staff" | "clinicSettings" | "internalChat";
 export type AccessMap = Partial<Record<AccessResource, AccessLevel>>;
 
 const T = (owner: AccessLevel, doctor: AccessLevel, receptionist: AccessLevel) => ({ owner, doctor, receptionist });
 const FALLBACK: Record<AccessResource, Record<string, AccessLevel>> = {
   appointments: T("clinic", "self", "clinic"),
-  patients: T("clinic", "clinic", "clinic"),
-  patientClinical: T("clinic", "clinic", "clinic"),
+  // PHASE 1: a doctor sees only his own patients and the ones he covers ("self"); the server decides which (auth/patientAccess.ts).
+  patients: T("clinic", "self", "clinic"),
+  patientClinical: T("clinic", "self", "clinic"),
   clinicalWrite: T("clinic", "clinic", "none"),
   invoices: T("clinic", "self", "clinic"),
+  // PHASE 2: move to Deleted Invoices / restore (invoicesDelete) owner = any invoice, doctor = own invoices, receptionist = none; permanent deletion (invoicesPurge) is OWNER ONLY (Phase 3).
+  invoicesDelete: T("clinic", "self", "none"),
+  invoicesPurge: T("clinic", "none", "none"), // PHASE 3: permanent deletion is OWNER ONLY
   payments: T("clinic", "self", "clinic"),
   reports: T("clinic", "self", "none"),
   reportsClinic: T("clinic", "none", "none"),

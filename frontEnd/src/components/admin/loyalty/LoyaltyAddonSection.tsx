@@ -532,9 +532,9 @@ function Modal({
   // either of which would trap or clip a `position: fixed` modal rendered inside it.
   if (typeof document === "undefined") return null;
   return createPortal(
-    // z-[70]: above the ChatWidget (z-50) and the page header.
+    // z-modal: above the ChatWidget (z-nabd) and the page header.
     <div
-      className="lyl-overlay fixed inset-0 z-[70] flex items-end justify-center bg-black/75 backdrop-blur-sm sm:items-center sm:p-4"
+      className="lyl-overlay fixed inset-0 z-modal flex items-end justify-center bg-black/75 backdrop-blur-sm sm:items-center sm:p-4"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !busy) onClose();
       }}

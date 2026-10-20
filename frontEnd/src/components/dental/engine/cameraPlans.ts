@@ -79,11 +79,13 @@ export interface ToothViewInput {
   nx: number; nz: number; // facial normal (xz), world
   jaw: "upper" | "lower";
   tip: number; w: number;
+  /** PHASE 5 — the SURFACE being examined: its outward normal in world space. The camera goes to that side of the tooth. */
+  surface?: { id: string; normal: THREE.Vector3 } | null;
 }
 
 /**
  * Distance at which the tooth fills `fillFraction` of the viewport height. Selected ≈ 25% (jaw clearly visible behind),
- * Focus ≈ 42% (close examination). Depends on the tooth's own size, so small primary teeth are framed correctly too.
+ * Focus ≈ 42% (close examination), Isolation ≈ 55% (the tooth alone). Depends on the tooth's own size, so small primary teeth are framed correctly too.
  */
 export function toothDistance(i: Pick<ToothViewInput, "tip" | "w">, fillFraction: number): number {
   const need = Math.max(i.tip + 0.35, i.w * 0.9);
@@ -91,15 +93,30 @@ export function toothDistance(i: Pick<ToothViewInput, "tip" | "w">, fillFraction
 }
 export const SELECT_FILL = 0.25;
 export const FOCUS_FILL = 0.42;
+export const ISOLATE_FILL = 0.5;
+
+export type ToothPoseKind = "select" | "focus" | "isolate";
 
 /** Camera pose that looks at a tooth — position AND orbit target both move to the tooth (never only the position). */
-export function toothPose(kind: "select" | "focus", i: ToothViewInput): CameraPose {
+export function toothPose(kind: ToothPoseKind, i: ToothViewInput): CameraPose {
   const n = new THREE.Vector3(i.nx, 0, i.nz).normalize();
   const elev = i.jaw === "upper" ? -0.12 : 0.3;
   const dir = new THREE.Vector3();
-  if (kind === "select") dir.copy(n).multiplyScalar(0.55).add(new THREE.Vector3(0, elev, 0.55));
+  const sf = i.surface;
+  if (sf && (sf.id === "M" || sf.id === "D")) {
+    // look at the side face: mostly along the surface normal (the neighbour is faded away), a little from the front so the crown is not edge-on
+    const sn = new THREE.Vector3(sf.normal.x, 0, sf.normal.z).normalize();
+    dir.copy(sn).multiplyScalar(0.9).addScaledVector(n, kind === "select" ? 0.55 : 0.4).add(new THREE.Vector3(0, elev, 0));
+  } else if (sf && sf.id === "L") {
+    dir.copy(n).multiplyScalar(-0.8).add(new THREE.Vector3(0, i.jaw === "upper" ? -0.5 : 0.55, 0));
+  } else if (sf && (sf.id === "O" || sf.id === "I")) {
+    dir.copy(n).multiplyScalar(0.5).add(new THREE.Vector3(0, i.jaw === "upper" ? -0.85 : 0.85, 0));
+  } else if (sf && sf.id === "B") {
+    dir.copy(n).multiplyScalar(0.95).add(new THREE.Vector3(0, elev * 0.6, 0));
+  } else if (kind === "select") dir.copy(n).multiplyScalar(0.55).add(new THREE.Vector3(0, elev, 0.55));
   else dir.copy(n).multiplyScalar(0.85).add(new THREE.Vector3(0, elev, 0.2));
   dir.normalize();
-  const dist = toothDistance(i, kind === "select" ? SELECT_FILL : FOCUS_FILL);
+  const fill = kind === "select" ? SELECT_FILL : kind === "focus" ? FOCUS_FILL : ISOLATE_FILL;
+  const dist = toothDistance(i, fill);
   return { position: i.center.clone().addScaledVector(dir, dist), target: i.center.clone() };
 }

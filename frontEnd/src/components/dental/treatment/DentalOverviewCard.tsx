@@ -60,7 +60,7 @@ export default function DentalOverviewCard({ patientId, onOpenChart, onOpenPlan 
           <span className="text-mute">{t("dn.ov.activeWork")}: </span>
           {active ? (
             <span className="text-ink">
-              {procLabel(t, active)} — <TargetText targetType={active.targetType} toothNumbers={active.toothNumbers} surfaces={active.surfaces} /> <StatusPill status={active.status} />
+              {procLabel(t, active)} — <TargetText targetType={active.targetType} toothNumbers={active.toothNumbers} surfaces={active.surfaces} toothSurfaces={active.toothSurfaces} /> <StatusPill status={active.status} />
             </span>
           ) : (
             <span className="text-mute">{t("dn.ov.noActiveWork")}</span>

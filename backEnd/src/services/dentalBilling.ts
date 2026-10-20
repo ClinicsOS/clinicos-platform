@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
-import { nextNumber, retryPause, NUMBER_ATTEMPTS } from "./numbering";
-import { Invoice } from "../models/Invoice";
+import { createNumberedInvoice } from "./invoiceNumbering";
+import { Invoice, ACTIVE_INVOICE } from "../models/Invoice";
 import { resolveTreatingDoctor } from "./doctorAttribution";
 import { DentalTreatmentItem } from "../models/DentalTreatmentItem";
 
@@ -38,6 +38,11 @@ export interface BillingView {
   /** LIVE amount of the invoice line (price x qty) — the invoice is authoritative, not the snapshot below. */
   amount?: number;
   invoiceStatus?: string;
+  /**
+   * PHASE 2 — the invoice this treatment was billed on is in Deleted Invoices. The treatment stays "invoiced" (so it cannot be billed a second
+   * time while the first invoice can still be restored) but carries NO money, exactly like another doctor's invoice does for a doctor.
+   */
+  invoiceDeleted?: boolean;
   at?: Date;
   by?: { _id: string; name: string } | null;
 }
@@ -55,7 +60,7 @@ export async function loadBillingViews(ctx: Ctx, items: any[]): Promise<Map<stri
   // patientId is omitted for a clinic-wide read (e.g. the Dental Dashboard's "Needs Billing"); every per-patient
   // caller still passes it, so their behaviour is unchanged.
   const invs = ids.length
-    ? ((await Invoice.find({ _id: { $in: ids }, clinicId: ctx.clinicId, ...(ctx.patientId ? { patientId: ctx.patientId } : {}) }).select("invoiceNumber status items doctorId").lean()) as any[])
+    ? ((await Invoice.find({ _id: { $in: ids }, clinicId: ctx.clinicId, ...(ctx.patientId ? { patientId: ctx.patientId } : {}) }).select("invoiceNumber status items doctorId deletedAt").lean()) as any[])
     : [];
   const byId = new Map(invs.map((v) => [String(v._id), v]));
   for (const it of items) {
@@ -65,6 +70,11 @@ export async function loadBillingViews(ctx: Ctx, items: any[]): Promise<Map<stri
     const line = inv?.items?.find((l: any) => String(l._id) === String(b.invoiceItemId));
     const by = b.by && b.by._id ? { _id: String(b.by._id), name: b.by.name } : null;
     if (line) {
+      // PHASE 2 — soft-deleted invoice: still linked (no auto-release, no double billing), but no amount / status is reported — it is not part of any total.
+      if (inv.deletedAt) {
+        out.set(String(it._id), { state: "invoiced", invoiceNumber: inv.invoiceNumber, invoiceDeleted: true, at: b.at, by });
+        continue;
+      }
       // PHASE 4 — another doctor's invoice: the treatment still shows as invoiced (so it can't be billed twice), but its money isn't shown.
       if (ctx.restrictToDoctorId && String(inv.doctorId ?? "") !== ctx.restrictToDoctorId) {
         out.set(String(it._id), { state: "invoiced", invoiceNumber: inv.invoiceNumber, at: b.at, by });
@@ -126,7 +136,7 @@ async function resolveExisting(ctx: Ctx, item: any): Promise<Existing> {
 /** Add one line to an EXISTING invoice. Optimistic guarded update (no lost updates vs. payments / other edits). */
 async function appendToInvoice(ctx: Ctx, invoiceId: any, line: { _id: any; description: string; price: number }, sourceId: any, expectDoctor: string | null) {
   for (let attempt = 0; attempt < 5; attempt++) {
-    const inv: any = await Invoice.findOne({ _id: invoiceId, clinicId: ctx.clinicId, patientId: ctx.patientId });
+    const inv: any = await Invoice.findOne({ _id: invoiceId, clinicId: ctx.clinicId, patientId: ctx.patientId, ...ACTIVE_INVOICE }); // PHASE 2 — never add a line to a deleted invoice
     if (!inv) return fail(404, "INVOICE_NOT_FOUND", "Invoice not found");
     if (linePresent(inv, line._id)) return { ok: true as const, invoice: inv }; // idempotent retry
     if (inv.status === "paid") return fail(409, "INVOICE_NOT_EDITABLE", "This invoice is already fully paid. Create a new invoice or choose another one.");
@@ -135,7 +145,7 @@ async function appendToInvoice(ctx: Ctx, invoiceId: any, line: { _id: any; descr
     const paid = inv.payments.reduce((s: number, p: any) => s + p.amount, 0);
     const status = paid >= total ? "paid" : paid === 0 ? "unpaid" : "partially_paid"; // same outcomes as create/update invoice
     const updated: any = await Invoice.findOneAndUpdate(
-      { _id: invoiceId, clinicId: ctx.clinicId, patientId: ctx.patientId, doctorId: expectDoctor, total: inv.total, discount: inv.discount, items: { $size: inv.items.length }, payments: { $size: inv.payments.length } },
+      { _id: invoiceId, clinicId: ctx.clinicId, patientId: ctx.patientId, ...ACTIVE_INVOICE, doctorId: expectDoctor, total: inv.total, discount: inv.discount, items: { $size: inv.items.length }, payments: { $size: inv.payments.length } },
       { $push: { items: { _id: line._id, description: line.description, price: line.price, qty: 1, sourceType: "dental_treatment", sourceId } }, $set: { total, status } },
       { new: true }
     );
@@ -146,24 +156,18 @@ async function appendToInvoice(ctx: Ctx, invoiceId: any, line: { _id: any; descr
 
 /** Create a NEW invoice through the same rules as the normal invoice creation (numbering, status). */
 async function createInvoiceWithLine(ctx: Ctx, invoiceId: any, line: { _id: any; description: string; price: number }, sourceId: any, appointmentId?: any, doctorId?: string | null) {
-  for (let attempt = 0; attempt < NUMBER_ATTEMPTS; attempt++) {
-    await retryPause(attempt);
-    const nextNo = await nextNumber(Invoice, ctx.clinicId, "invoiceNumber");
-    try {
-      const inv: any = await Invoice.create({
-        _id: invoiceId, clinicId: ctx.clinicId, invoiceNumber: nextNo, patientId: ctx.patientId, appointmentId,
-        ...(doctorId ? { doctorId } : {}), createdBy: ctx.userId,
-        items: [{ _id: line._id, description: line.description, price: line.price, qty: 1, sourceType: "dental_treatment", sourceId }],
-        discount: 0, total: round3(line.price), status: line.price === 0 ? "paid" : "unpaid",
-      });
-      return { ok: true as const, invoice: inv };
-    } catch (err: any) {
-      if (err?.code !== 11000) throw err;
-      const mine: any = await Invoice.findOne({ _id: invoiceId, clinicId: ctx.clinicId, patientId: ctx.patientId }); // same claim wrote it already
-      if (mine) return { ok: true as const, invoice: mine };
-      // otherwise: invoice number collision with a concurrent invoice — recount and retry
-    }
-  }
+  // PHASE 3 — the clinic's canonical atomic counter (services/invoiceNumbering.ts); `existing` keeps the claim idempotent.
+  const inv = await createNumberedInvoice(
+    ctx.clinicId,
+    {
+      _id: invoiceId, patientId: ctx.patientId, appointmentId,
+      ...(doctorId ? { doctorId } : {}), createdBy: ctx.userId,
+      items: [{ _id: line._id, description: line.description, price: line.price, qty: 1, sourceType: "dental_treatment", sourceId }],
+      discount: 0, total: round3(line.price), status: line.price === 0 ? "paid" : "unpaid",
+    },
+    { existing: () => Invoice.findOne({ _id: invoiceId, clinicId: ctx.clinicId, patientId: ctx.patientId }) } // the same claim wrote it already
+  );
+  if (inv) return { ok: true as const, invoice: inv };
   return fail(409, "INVOICE_CREATE_FAILED", "Could not create the invoice. Please try again.");
 }
 
@@ -189,6 +193,10 @@ export async function billTreatmentItem(ctx: Ctx, itemId: unknown, input: BillIn
     }
 
     const ex = await resolveExisting(ctx, item);
+    if (ex.kind === "invoiced" && ex.invoice?.deletedAt) {
+      // PHASE 2 — the invoice it was billed on is in Deleted Invoices: it is neither billable again (that would double-bill after a restore) nor "already invoiced" to a live invoice.
+      return fail(409, "INVOICE_DELETED", "This treatment is on an invoice in Deleted Invoices. Restore that invoice, or delete it permanently, before billing the treatment again.");
+    }
     if (ex.kind === "invoiced") return { ok: true, created: false, invoice: invoiceBrief(ex.invoice), invoiceLineId: String(item.billing.invoiceItemId) }; // idempotent
     if (ex.kind === "pending") return fail(409, "BILLING_IN_PROGRESS", "This treatment is being added to an invoice right now. Refresh in a moment.");
 
@@ -196,7 +204,7 @@ export async function billTreatmentItem(ctx: Ctx, itemId: unknown, input: BillIn
     let target: any = null;
     if (input.invoiceId) {
       target = isOid(input.invoiceId)
-        ? await Invoice.findOne({ _id: input.invoiceId, clinicId: ctx.clinicId, patientId: ctx.patientId, ...(ctx.restrictToDoctorId ? { doctorId: ctx.restrictToDoctorId } : {}) })
+        ? await Invoice.findOne({ _id: input.invoiceId, clinicId: ctx.clinicId, patientId: ctx.patientId, ...ACTIVE_INVOICE, ...(ctx.restrictToDoctorId ? { doctorId: ctx.restrictToDoctorId } : {}) })
         : null;
       if (!target) return fail(404, "INVOICE_NOT_FOUND", "Invoice not found for this patient");
       // An attributed invoice only takes treatments of the SAME doctor (otherwise revenue would silently move between doctors).

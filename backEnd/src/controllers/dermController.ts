@@ -4,6 +4,7 @@ import { z } from "zod";
 import { asyncHandler } from "../middleware/errorHandler";
 import { Patient } from "../models/Patient";
 import { Appointment } from "../models/Appointment";
+import { canAccessPatient, viewerOf } from "../auth/patientAccess";
 import { DermAssessment, type IDermAssessment } from "../models/DermAssessment";
 import {
   RECORD_TYPES,
@@ -40,7 +41,10 @@ export const loadPatient = async (req: Request, res: Response) => {
     res.status(404).json({ message: "Patient not found" });
     return null;
   }
-  const patient = await Patient.findOne({ _id: patientId, clinicId: req.clinicId }).select("_id");
+  // PHASE 1: the patient must also be one THIS user may open (canAccessPatient: a doctor — his own + delegated patients only).
+  const patient = (await canAccessPatient(viewerOf(req), patientId, "patientClinical"))
+    ? await Patient.findOne({ _id: patientId, clinicId: req.clinicId }).select("_id")
+    : null;
   if (!patient) {
     res.status(404).json({ message: "Patient not found" });
     return null;

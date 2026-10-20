@@ -178,7 +178,7 @@ export default function DatePickerPopover({
           id={dialogId}
           role="dialog"
           aria-label={t("ap.pickDate")}
-          className="dropdown-in absolute start-0 top-full z-40 mt-2 w-[min(20rem,calc(100vw-2rem))] rounded-xl border border-edge bg-card p-3 shadow-2xl shadow-black/30"
+          className="dropdown-in absolute start-0 top-full z-dropdown mt-2 w-[min(20rem,calc(100vw-2rem))] rounded-xl border border-edge bg-card p-3 shadow-2xl shadow-black/30"
         >
           {/* Header: month / year navigation */}
           <div className="mb-2 flex items-center gap-1">

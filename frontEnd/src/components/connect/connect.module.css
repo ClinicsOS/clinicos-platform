@@ -208,7 +208,7 @@
 .skelBub { height: 40px; border-radius: 18px; }
 
 /* ---------- New Message ---------- */
-.overlay { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; background: rgba(2, 12, 22, .55); backdrop-filter: blur(4px); padding: 16px; animation: fadeIn .18s ease; }
+.overlay { position: fixed; inset: 0; z-index: var(--z-modal, 70); display: grid; place-items: center; background: rgba(2, 12, 22, .55); backdrop-filter: blur(4px); padding: 16px; animation: fadeIn .18s ease; }
 .dialog { --ink3: color-mix(in srgb, var(--mute) 78%, transparent); width: min(440px, 100%); max-height: min(560px, 86dvh); display: flex; flex-direction: column; border-radius: 22px; background: var(--card); border: 1px solid var(--edge); box-shadow: 0 40px 80px -30px rgba(0, 0, 0, .7); color: var(--ink); animation: dlgIn .26s var(--spring); overflow: hidden; }
 .dlgHead { display: flex; align-items: center; gap: 10px; padding: 16px 16px 8px 20px; }
 .dlgHead h2 { margin: 0; flex: 1; font-size: 17px; font-weight: 800; }

@@ -2,10 +2,12 @@
 import { forwardRef } from "react";
 import { useI18n } from "@/lib/i18n";
 import { getToothMeta, toothName } from "@/lib/dental/fdi";
-import { SURFACE_LABELS } from "@/lib/dental/taxonomy";
+import type { SurfaceId } from "@/lib/dental/taxonomy";
+import { surfaceLabel } from "@/lib/dental/surfaces";
 import { procLabel } from "@/lib/dental/procedures";
 import type { ToothSummary } from "@/lib/dental/toothSummary";
 import { ProcSwatch, StatusPill } from "./treatment/shared";
+import { STATE_TOKENS } from "@/lib/dental/visualTheme";
 
 /**
  * Hover PREVIEW of one tooth: diagnosis + its Treatment Plan items (name + the plan's own status), nothing editable.
@@ -48,8 +50,8 @@ const ToothHoverSummary = forwardRef<HTMLDivElement, Props>(function ToothHoverS
           <div className="text-[9px] font-medium tracking-wide text-[#8FB3CC]">{t("dn.diagnoses")}</div>
           {summary.diagnoses.map((d, i) => (
             <div key={`${d.code}|${d.surfaces.join("")}|${i}`} className="break-words text-[11px]">
-              <span className="text-amber-400">●</span> {t(`dn.c.${d.code}`)}
-              {d.surfaces.length > 0 && <span className="ms-1 font-mono text-[9px] text-sky" dir="ltr">{d.surfaces.map((s) => SURFACE_LABELS[s as keyof typeof SURFACE_LABELS] ?? s).join(",")}</span>}
+              <span style={{ color: STATE_TOKENS.condition.css }} aria-hidden>●</span> {t(`dn.c.${d.code}`)}
+              {d.surfaces.length > 0 && <span className="ms-1 font-mono text-[9px] text-sky" dir="ltr">{d.surfaces.map((s) => surfaceLabel(summary.fdi, s as SurfaceId)).join(",")}</span>}
             </div>
           ))}
         </div>
@@ -65,7 +67,8 @@ const ToothHoverSummary = forwardRef<HTMLDivElement, Props>(function ToothHoverS
                   <span className="mt-0.5"><ProcSwatch code={x.procedureCode} status={x.status} /></span>
                   <span className="line-clamp-2 min-w-0 break-words">
                     {procLabel(t, x)}
-                    {x.surfaces.length > 0 && <span className="ms-1 font-mono text-[9px] text-sky" dir="ltr">{x.surfaces.map((s) => SURFACE_LABELS[s]).join(",")}</span>}
+                    {(x.toothSurfaces?.[summary.fdi] ?? x.surfaces).length > 0 && <span className="ms-1 font-mono text-[9px] text-sky" dir="ltr">{(x.toothSurfaces?.[summary.fdi] ?? x.surfaces).map((s) => surfaceLabel(summary.fdi, s)).join(",")}</span>}
+                    {x.toothNumbers.length > 1 && x.targetType === "multi_tooth" && <span className="ms-1 text-[9px] text-[#8FB3CC]" data-testid="tt-group">{t("dn2.withTeeth").replace("{n}", String(x.toothNumbers.length - 1))}</span>}
                   </span>
                 </span>
                 <span className="shrink-0"><StatusPill status={x.status} /></span>

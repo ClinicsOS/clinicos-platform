@@ -4,6 +4,7 @@ import { z } from "zod";
 import { asyncHandler } from "../middleware/errorHandler";
 import { Patient } from "../models/Patient";
 import { Appointment } from "../models/Appointment";
+import { canAccessPatient, viewerOf } from "../auth/patientAccess";
 import { DentalTreatmentItem } from "../models/DentalTreatmentItem";
 import { DermTreatmentItem } from "../models/DermTreatmentItem";
 import {
@@ -28,9 +29,10 @@ const idParam = (v: unknown) => (typeof v === "string" && mongoose.isValidObject
 
 export const loadNotePatient = async (req: Request, res: Response) => {
   const pid = idParam(req.params.id);
-  const patient = pid ? await Patient.findOne({ _id: pid, clinicId: req.clinicId }).select("_id") : null;
+  // PHASE 1: besides the clinic, the caller must be allowed to open THIS patient (a doctor: his own + delegated patients only).
+  const patient = pid && (await canAccessPatient(viewerOf(req), pid, "patientClinical")) ? await Patient.findOne({ _id: pid, clinicId: req.clinicId }).select("_id") : null;
   if (!patient) {
-    // identical answer for "no such patient" and "another clinic's patient" — no tenant probing
+    // identical answer for "no such patient", "another clinic's patient" and "another doctor's patient" — no probing
     res.status(404).json({ message: "Patient not found" });
     return null;
   }

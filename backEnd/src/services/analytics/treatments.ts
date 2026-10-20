@@ -1,3 +1,4 @@
+import { Invoice, DELETED_INVOICE } from "../../models/Invoice";
 import { DentalTreatmentItem } from "../../models/DentalTreatmentItem";
 import { DermTreatmentItem } from "../../models/DermTreatmentItem";
 import type { AnalyticsScope } from "./scope";
@@ -92,11 +93,19 @@ export async function treatmentStats(s: AnalyticsScope, r: DateRange, kind: Trea
   const proc = new Map<string, { count: number; value: number }>();
   const doc = new Map<string, { count: number; value: number }>();
   const teeth = new Map<string, number>();
+  // PHASE 2 — a treatment whose invoice sits in Deleted Invoices is not "invoiced" for this figure (the link is kept so it cannot be billed twice,
+  // but there is no live invoice behind it). One batched lookup of the soft-deleted invoices among the billed items.
+  const billedInvoiceIds = [...new Set(mine.filter((it) => it.billing?.state === "invoiced" && it.billing?.invoiceId).map((it) => String(it.billing.invoiceId)))];
+  const deletedInvoiceIds = new Set<string>();
+  for (let i = 0; i < billedInvoiceIds.length; i += 500) {
+    const gone: Row[] = await Invoice.find({ _id: { $in: billedInvoiceIds.slice(i, i + 500) }, clinicId: s.clinicId, ...DELETED_INVOICE }).select("_id").lean();
+    for (const g of gone) deletedInvoiceIds.add(String(g._id));
+  }
   let value = 0, invoiced = 0;
   for (const it of mine) {
     const price = Number(it.estimatedPrice) || 0;
     value += price;
-    if (it.billing?.state === "invoiced") invoiced += 1;
+    if (it.billing?.state === "invoiced" && !deletedInvoiceIds.has(String(it.billing.invoiceId))) invoiced += 1;
     const code = String(it.procedureCode);
     const p = proc.get(code) ?? { count: 0, value: 0 };
     p.count += 1; p.value += price; proc.set(code, p);

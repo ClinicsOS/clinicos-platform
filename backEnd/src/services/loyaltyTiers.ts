@@ -1,6 +1,6 @@
 import { Types } from "mongoose";
 import { Appointment } from "../models/Appointment";
-import { Invoice } from "../models/Invoice";
+import { Invoice, ACTIVE_INVOICE } from "../models/Invoice";
 import { Patient } from "../models/Patient";
 import { LoyaltyAccount } from "../models/LoyaltyAccount";
 import { LoyaltyProgressEvent } from "../models/LoyaltyProgressEvent";
@@ -243,7 +243,7 @@ export async function computeTruth(clinicId: string, account: Lean): Promise<Tru
   const [rows, appts, invoices] = await Promise.all([
     LoyaltyTransaction.find({ clinicId, accountId: account._id }).select("type pointsDelta reversesTransactionId metadata").lean(),
     Appointment.find({ clinicId, patientId: account.patientId, status: "completed", type: { $ne: "blocked" } }).select("_id").lean(),
-    Invoice.find({ clinicId, patientId: account.patientId }).select("payments").lean(),
+    Invoice.find({ clinicId, patientId: account.patientId, ...ACTIVE_INVOICE }).select("payments").lean(), // PHASE 2 — a soft-deleted invoice is not spending
   ]);
   const earning = TIER_EARNING_TYPES as readonly string[];
   const byId = new Map<string, Lean>(rows.map((r) => [String(r._id), r as Lean]));
@@ -822,9 +822,12 @@ export function historyDto(h: Lean, cfg: TierConfig, patient?: Lean) {
   };
 }
 
-export async function listTierHistory(clinicId: string, opts: { accountId?: string; page: number; limit: number }) {
+/** Multi-doctor patient isolation: omitted / null = whole clinic (owner, front desk); an array = only rows of those patients. */
+export type PatientScope = Types.ObjectId[] | null | undefined;
+
+export async function listTierHistory(clinicId: string, opts: { accountId?: string; page: number; limit: number; scope?: PatientScope }) {
   const cfg = await getTierConfig(clinicId);
-  const filter: Record<string, unknown> = { clinicId: oid(clinicId) };
+  const filter: Record<string, unknown> = { clinicId: oid(clinicId), ...(opts.scope ? { patientId: { $in: opts.scope } } : {}) };
   if (opts.accountId) filter.accountId = oid(opts.accountId);
   const [rows, total] = await Promise.all([
     LoyaltyTierHistory.find(filter).sort({ changedAt: -1, _id: -1 }).skip((opts.page - 1) * opts.limit).limit(opts.limit).lean(),
@@ -842,7 +845,7 @@ export async function recentTierHistory(clinicId: string, accountId: string, lim
   return (rows as Lean[]).map((r) => historyDto(r, cfg));
 }
 
-export async function tierAnalytics(clinicId: string) {
+export async function tierAnalytics(clinicId: string, scope?: PatientScope) {
   const cfg = await getTierConfig(clinicId);
   const cid = oid(clinicId);
   const since = new Date(Date.now() - TIER_LIMITS.analyticsWindowDays * 86_400_000);
@@ -853,7 +856,7 @@ export async function tierAnalytics(clinicId: string) {
     LoyaltyAccount.countDocuments({ clinicId: cid, "progress.reconciledAt": null }),
     LoyaltyTierHistory.countDocuments({ clinicId: cid, direction: "promotion", changedAt: { $gte: since } }),
     LoyaltyTierHistory.aggregate([{ $match: { clinicId: cid, direction: "promotion", changedAt: { $gte: since } } }, { $group: { _id: "$toTierKey", count: { $sum: 1 } } }]),
-    LoyaltyTierHistory.find({ clinicId: cid, direction: "promotion" }).sort({ changedAt: -1, _id: -1 }).limit(TIER_LIMITS.recentPromotionsCount).lean(),
+    LoyaltyTierHistory.find({ clinicId: cid, direction: "promotion", ...(scope ? { patientId: { $in: scope } } : {}) }).sort({ changedAt: -1, _id: -1 }).limit(TIER_LIMITS.recentPromotionsCount).lean(), // names: only the caller's patients
   ]);
   const countOf = (k: string | null) => (dist as Lean[]).find((d) => (d._id ?? null) === k)?.count ?? 0;
   const tiers = TIER_KEYS.map((k) => ({

@@ -165,10 +165,17 @@ export async function cancelOwnCheckIn(clinicId: string, accountId: string): Pro
  * Clinic side (reception)
  * ============================================================ */
 
-export async function countPending(clinicId: string): Promise<number> {
+/**
+ * `scope` (multi-doctor patient isolation): `null` / omitted = the whole clinic (owner, front desk); an array = only requests of those
+ * patients (a doctor sees the check-ins of HIS patients, never another doctor's).
+ */
+export type PatientScope = Types.ObjectId[] | null | undefined;
+const scoped = (scope: PatientScope): Record<string, unknown> => (scope ? { patientId: { $in: scope } } : {});
+
+export async function countPending(clinicId: string, scope?: PatientScope): Promise<number> {
   const now = new Date();
   await expireStaleForClinic(clinicId, now);
-  return LoyaltyCheckIn.countDocuments({ clinicId: oid(clinicId), status: "pending", expiresAt: { $gt: now } });
+  return LoyaltyCheckIn.countDocuments({ clinicId: oid(clinicId), status: "pending", expiresAt: { $gt: now }, ...scoped(scope) });
 }
 
 export interface LinkableAppointment {
@@ -256,18 +263,18 @@ async function toRows(clinicId: string, docs: ILoyaltyCheckIn[] | Record<string,
 }
 
 /** The reception queue: live pending requests, oldest first (first come, first served). */
-export async function listPending(clinicId: string): Promise<{ rows: CheckInRow[]; total: number }> {
+export async function listPending(clinicId: string, scope?: PatientScope): Promise<{ rows: CheckInRow[]; total: number }> {
   const now = new Date();
   await expireStaleForClinic(clinicId, now);
-  const filter = { clinicId: oid(clinicId), status: "pending", expiresAt: { $gt: now } };
+  const filter = { clinicId: oid(clinicId), status: "pending", expiresAt: { $gt: now }, ...scoped(scope) };
   const [docs, total] = await Promise.all([LoyaltyCheckIn.find(filter).sort({ requestedAt: 1, _id: 1 }).limit(CHECKIN.pendingListMax).lean(), LoyaltyCheckIn.countDocuments(filter)]);
   return { rows: await toRows(clinicId, docs, true), total };
 }
 
 /** History: everything that is no longer pending, newest first. */
-export async function listRecent(clinicId: string, page: number, limit: number): Promise<{ rows: CheckInRow[]; total: number; page: number; pages: number }> {
+export async function listRecent(clinicId: string, page: number, limit: number, scope?: PatientScope): Promise<{ rows: CheckInRow[]; total: number; page: number; pages: number }> {
   await expireStaleForClinic(clinicId);
-  const filter = { clinicId: oid(clinicId), status: { $ne: "pending" } };
+  const filter = { clinicId: oid(clinicId), status: { $ne: "pending" }, ...scoped(scope) };
   const [docs, total] = await Promise.all([
     LoyaltyCheckIn.find(filter)
       .sort({ requestedAt: -1, _id: -1 })
@@ -285,10 +292,10 @@ export type ResolveAction = "confirm" | "reject";
  * Reception confirms or rejects a request. `appointmentId` (confirm only, optional) links the patient's
  * appointment for reference — it never changes the appointment.
  */
-export async function resolveCheckIn(input: { clinicId: string; checkInId: string; action: ResolveAction; userId: string; appointmentId?: string | null }): Promise<CheckInRow> {
+export async function resolveCheckIn(input: { clinicId: string; checkInId: string; action: ResolveAction; userId: string; appointmentId?: string | null; scope?: PatientScope }): Promise<CheckInRow> {
   if (!isOid(input.checkInId)) throw new CheckInError("CHECKIN_NOT_FOUND", "Check-in request not found", 404);
   const clinicId = oid(input.clinicId);
-  const doc = await LoyaltyCheckIn.findOne({ _id: oid(input.checkInId), clinicId }).lean();
+  const doc = await LoyaltyCheckIn.findOne({ _id: oid(input.checkInId), clinicId, ...scoped(input.scope) }).lean(); // a request of another doctor's patient = not found
   if (!doc) throw new CheckInError("CHECKIN_NOT_FOUND", "Check-in request not found", 404);
 
   const now = new Date();

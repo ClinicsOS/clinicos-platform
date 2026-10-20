@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { IconNotes, IconPlus, IconPencil, IconHistory, IconStethoscope, IconCalendarEvent, IconAlertTriangle } from "@tabler/icons-react";
 import { useI18n } from "@/lib/i18n";
 import { fmtDate, fmtTime12, ymd } from "@/lib/dates";
@@ -9,6 +9,8 @@ import { procLabel } from "@/lib/dental/procedures";
 import { TargetText } from "@/components/dental/treatment/shared";
 import NoteEditorModal, { type EditingNote } from "./NoteEditorModal";
 import NoteHistoryModal from "./NoteHistoryModal";
+import FocusMissing from "@/components/history/FocusMissing";
+import { useFocusTarget } from "@/lib/history/focus";
 
 const FILTERS: TimelineFilter[] = ["all", "visit", "treatment", "note"];
 
@@ -29,7 +31,7 @@ type HistoryModal = { noteId: string; current: { text: string; at?: string; by?:
  * milestones, clinical notes). Everything shown is derived by the server from the record that owns it, so an event is
  * listed once, however many screens also show it. Newest first, loaded 20 at a time.
  */
-export default function ClinicalRecordTab({ patientId, canWrite }: { patientId: string; canWrite: boolean }) {
+export default function ClinicalRecordTab({ patientId, canWrite, focusNote, focusRun = "" }: { patientId: string; canWrite: boolean; focusNote?: string | null; focusRun?: string }) {
   const { t, lang } = useI18n();
   const [filter, setFilter] = useState<TimelineFilter>("all");
   const [noteModal, setNoteModal] = useState<NoteModal>(null);
@@ -37,6 +39,13 @@ export default function ClinicalRecordTab({ patientId, canWrite }: { patientId: 
   const q = useClinicalTimeline(patientId, filter);
 
   const events = useMemo(() => (q.data?.pages ?? []).flatMap((p) => p.events), [q.data]);
+  // PHASE 3 deep link to a note: keep loading older pages (a bounded number) until the linked note is on screen — by id, never by position.
+  const linkedFound = !!focusNote && events.some((e) => e.noteId === focusNote);
+  const pagesLoaded = q.data?.pages.length ?? 0;
+  useEffect(() => {
+    if (focusNote && filter === "all" && !linkedFound && q.hasNextPage && !q.isFetchingNextPage && pagesLoaded < 25) void q.fetchNextPage();
+  }, [focusNote, filter, linkedFound, q.hasNextPage, q.isFetchingNextPage, pagesLoaded, q]);
+  const linkedMissing = !!focusNote && !q.isLoading && !q.isError && filter === "all" && !linkedFound && !q.hasNextPage;
   // group by the CLINIC's calendar day (Phase 1 rule: never the browser's zone)
   const days = useMemo(() => {
     const out: { day: string; at: string; items: TimelineEvent[] }[] = [];
@@ -56,6 +65,7 @@ export default function ClinicalRecordTab({ patientId, canWrite }: { patientId: 
 
   return (
     <div className="space-y-3">
+      {linkedMissing && <FocusMissing run={focusRun} />}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-sm font-medium text-ink">{t("cr.title")}</h2>
@@ -138,9 +148,10 @@ function Entry({ e, canWrite, onAddVisitNote, onEdit, onHistory }: { e: Timeline
   const isSessionNote = e.event === "session_note";
   const typeLabel = e.kind === "visit" ? t("cr.type.visit") : e.kind === "treatment" ? t("cr.type.treatment") : isSessionNote ? t("cr.type.sessionNote") : t("cr.type.note");
   const hasTreatment = !!e.context.procedureCode;
+  const f = useFocusTarget("note", e.noteId);
 
   return (
-    <li className="relative" data-testid="timeline-entry" data-key={e.key} data-kind={e.kind} data-event={e.event}>
+    <li ref={f.ref} {...f.attrs} className={`relative ${f.className}`} data-testid="timeline-entry" data-key={e.key} data-kind={e.kind} data-event={e.event}>
       <span aria-hidden className={`absolute -start-5 top-3 h-3 w-3 rounded-full border ${style.dot}`} />
       <article className="rounded-xl border border-edge bg-card2 px-3 py-2.5">
         <header className="flex flex-wrap items-center gap-x-2 gap-y-1">

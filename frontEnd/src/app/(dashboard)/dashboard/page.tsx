@@ -89,7 +89,7 @@ function TodaySchedule({ today, loading, limit }: { today: Appointment[] | undef
 }
 
 export default function DashboardPage() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const user = useAuth((s) => s.user);
 
   // Same query key the layout/appointments pages already use for the clinic — react-query dedupes it, so this
@@ -120,8 +120,9 @@ export default function DashboardPage() {
 
   const maxWeek = Math.max(1, ...(stats?.week.map((w) => w.count) ?? [1]));
 
-  // POLISH — a doctor / receptionist opens ClinicOS on what they must DO today (the schedule first); the owner keeps the management layout.
-  const todayFirst = !access.isOwner;
+  // PHASE 6 — EVERY role opens ClinicOS on what must be DONE today: greeting → date / clinic → Today's appointments → key KPIs → the rest.
+  // (Doctor / receptionist already had this order; the owner used to get the specialty cockpit first and the greeting at the very bottom.)
+  // Role scope is untouched: the KPI cards still come from the SERVER's role-scoped /dashboard/stats (receptionist: revenue null → no money card).
   // The money card exists only for a role the SERVER gave a figure to (receptionist: revenue === null AND no dashboardRevenue access → no card, no placeholder).
   const showRevenue = !(stats?.today.revenue === null || (stats && !access.can("dashboardRevenue")));
   // Receptionist: the slot the revenue card used to occupy is an operational one — today's Walk-Ins, counted from the list this page already fetched.
@@ -141,13 +142,14 @@ export default function DashboardPage() {
   ];
 
   const header = (
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3" data-testid="dash-header">
       <div>
-        <h1 className="text-lg font-medium text-ink">
-          {t("dash.morning")}, {user?.name?.split(" ")[0]}
+        <h1 className="text-lg font-medium text-ink" data-testid="dash-greeting">
+          {t("dash.morning")}{lang === "ar" ? "،" : ","} {user?.name?.split(" ")[0]}
         </h1>
-        <p className="mt-0.5 text-xs text-mute">
-          {new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", timeZone: "Asia/Amman" })}
+        <p className="mt-0.5 text-xs text-mute" data-testid="dash-date">
+          {new Date().toLocaleDateString(lang === "ar" ? "ar-JO" : "en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "Asia/Amman" })}
+          {clinic?.name ? <span> · {clinic.name}</span> : null}
         </p>
       </div>
       <Link href="/appointments" className="btn-teal !py-2 text-xs">
@@ -186,7 +188,7 @@ export default function DashboardPage() {
       <div className="flex gap-2 px-1 pt-1.5" dir="ltr">
         {(stats?.week ?? []).map((w) => (
           <span key={w.date} className="flex-1 text-center text-[8px] text-mute">
-            {new Date(w.date + "T00:00:00").toLocaleDateString(undefined, { weekday: "short" })}
+            {new Date(w.date + "T00:00:00").toLocaleDateString(lang === "ar" ? "ar-JO" : "en-US", { weekday: "short" })}
           </span>
         ))}
       </div>
@@ -203,46 +205,29 @@ export default function DashboardPage() {
     </div>
   );
 
-  // ===== DOCTOR / RECEPTIONIST: Today's schedule → KPI cards → Bookings this week → the rest of the dashboard =====
-  if (todayFirst) {
-    return (
-      <div>
-        {header}
-        {access.isDoctor && <div className="mb-2 text-[10px] text-mute">{t("md.scope.self")}</div>}
-        {/* 1. Today's schedule — a Dentistry clinic's own Today section IS its schedule (same data + treatment context), so it isn't shown twice */}
-        <div className="mb-3">
-          {isDental ? <DentalDashboard part="today" /> : <TodaySchedule today={today} loading={todayLoading} limit={8} />}
-        </div>
-        {/* 2. KPI cards */}
-        {kpis}
-        {/* 3. Bookings this week */}
-        <div className="mt-3">{weekChart}</div>
-        {/* 4. Everything else (specialty cockpit sections) */}
-        {(isDental || isDerm) && (
-          <div className="mt-3">
-            {isDental && <DentalDashboard part="rest" />}
-            {isDerm && <DermDashboard />}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // ===== OWNER: unchanged management layout =====
+  // ===== ALL ROLES: greeting → date/clinic → Today's appointments → KPI cards → Bookings this week → the rest of the specialty cockpit =====
   return (
     <div>
-      {isDental && <DentalDashboard />}
-      {isDerm && <DermDashboard />}
       {header}
+      {access.isDoctor && <div className="mb-2 text-[10px] text-mute">{t("md.scope.self")}</div>}
+      {/* Owner only: narrow every card to one doctor (the server ignores/forbids this for other roles) */}
       {ownerFilter}
-      {kpis}
-
-      <div className={`mt-3 grid gap-3 ${isDental ? "" : "lg:grid-cols-2"}`}>
-        {weekChart}
-
-        {/* Today's schedule — superseded by the Dentistry cockpit's own Today section above (same appointment data, plus treatment context), so it's hidden there instead of showing the same list twice. */}
-        {!isDental && <TodaySchedule today={today} loading={todayLoading} limit={6} />}
+      {/* 3. Today's appointments — a Dentistry clinic's own Today section IS its schedule (same data + treatment context), so it isn't shown twice.
+             Both read data the page/hook already fetches: no extra request. */}
+      <div className="mb-3" data-testid="dash-today">
+        {isDental ? <DentalDashboard part="today" /> : <TodaySchedule today={today} loading={todayLoading} limit={8} />}
       </div>
+      {/* 4. Key operational KPIs */}
+      {kpis}
+      {/* 5. Bookings this week */}
+      <div className="mt-3">{weekChart}</div>
+      {/* 6. Everything else (specialty cockpit sections) */}
+      {(isDental || isDerm) && (
+        <div className="mt-3">
+          {isDental && <DentalDashboard part="rest" />}
+          {isDerm && <DermDashboard />}
+        </div>
+      )}
     </div>
   );
 }

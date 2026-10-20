@@ -20,10 +20,13 @@ import mongoose from "mongoose";
  * Nothing here queries the database: the role comes from `protect`, which already loaded the user once per request.
  *
  * "Shared" vs "private":
- *   shared per clinic  — patients, the patient file, dental chart, treatment plan, clinical notes, timeline, loyalty.
- *                        (A patient is not "owned" by one doctor; every clinical user must be able to open the file.)
- *   private per doctor — invoices / payments / revenue / analytics attributed to a treating doctor, and a doctor's own
- *                        appointment board. These are the only resources whose doctor scope is "self".
+ *   shared per clinic  — loyalty, the front desk's view of patients (owner / receptionist see every patient of the clinic).
+ *   private per doctor — invoices / payments / revenue / analytics attributed to a treating doctor, a doctor's own appointment
+ *                        board, and (PHASE 1 — multi-doctor patient isolation) THE DOCTOR'S PATIENTS: the patient file, dental chart,
+ *                        treatment plan, clinical notes, timeline, reports. For a doctor the scope of `patients` / `patientClinical`
+ *                        is "self" = the patients with an active PatientDoctorAccess row for him (his own + patients he currently
+ *                        covers for another doctor). That row-level decision is made in auth/patientAccess.ts (canAccessPatient) —
+ *                        the matrix only says WHICH roles are restricted. A patient belongs to a SET of doctors, not to one.
  */
 
 export type Role = "owner" | "doctor" | "receptionist";
@@ -33,10 +36,12 @@ export const ROLES: readonly Role[] = ["owner", "doctor", "receptionist"];
 
 export const RESOURCES = [
   "appointments", // the board / list, creating, rescheduling, status changes, walk-ins, blocks
-  "patients", // registration, lookup, patient file header
-  "patientClinical", // READ of dental chart, treatment plan, clinical notes, timeline, derm records
+  "patients", // registration, lookup, patient file header (doctor: only his own + delegated patients — auth/patientAccess.ts)
+  "patientClinical", // READ of dental chart, treatment plan, clinical notes, timeline, derm records (doctor: only his own + delegated patients)
   "clinicalWrite", // WRITE of the above (notes, chart, treatment plan, sessions)
   "invoices", // list / create / edit
+  "invoicesDelete", // PHASE 2 — move an invoice to Deleted Invoices, see that list, restore. owner = whole clinic, doctor = own invoices (doctorId), receptionist = none
+  "invoicesPurge", // PHASE 2 — PERMANENT deletion (only ever of an already soft-deleted invoice). PHASE 3: OWNER ONLY (doctor and receptionist = none)
   "payments", // recording a payment
   "reports", // /api/reports/* and /api/analytics/*  (analytics): owner = clinic, doctor = own data, receptionist = none
   "reportsClinic", // PHASE 6 — clinic-wide-only analytics material (doctor comparison, loyalty, shared expenses, total patients): owner only
@@ -53,10 +58,12 @@ export type Resource = (typeof RESOURCES)[number];
 /** THE ACCESS MATRIX. Change a role's rights here — every route and controller reads this table. */
 export const ACCESS: Readonly<Record<Resource, Readonly<Record<Role, AccessLevel>>>> = {
   appointments: { owner: "clinic", doctor: "self", receptionist: "clinic" },
-  patients: { owner: "clinic", doctor: "clinic", receptionist: "clinic" },
-  patientClinical: { owner: "clinic", doctor: "clinic", receptionist: "clinic" },
+  patients: { owner: "clinic", doctor: "self", receptionist: "clinic" }, // PHASE 1: a doctor's scope = his own + delegated patients (auth/patientAccess.ts)
+  patientClinical: { owner: "clinic", doctor: "self", receptionist: "clinic" },
   clinicalWrite: { owner: "clinic", doctor: "clinic", receptionist: "none" },
   invoices: { owner: "clinic", doctor: "self", receptionist: "clinic" },
+  invoicesDelete: { owner: "clinic", doctor: "self", receptionist: "none" },
+  invoicesPurge: { owner: "clinic", doctor: "none", receptionist: "none" }, // PHASE 3 — a doctor can soft-delete / restore his own invoices but can never erase one for good
   payments: { owner: "clinic", doctor: "self", receptionist: "clinic" },
   reports: { owner: "clinic", doctor: "self", receptionist: "none" },
   reportsClinic: { owner: "clinic", doctor: "none", receptionist: "none" },

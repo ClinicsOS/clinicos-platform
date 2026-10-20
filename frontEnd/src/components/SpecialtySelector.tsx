@@ -126,7 +126,7 @@ export default function SpecialtySelector({ value, onChange }: SpecialtySelector
           role="listbox"
           aria-label={t("su.specialty")}
           onKeyDown={onKeyDown}
-          className="dropdown-in absolute start-0 top-[calc(100%+6px)] z-50 w-full min-w-[260px] rounded-xl border border-edge bg-card shadow-[0_20px_50px_-20px_rgba(0,0,0,0.4)]"
+          className="dropdown-in absolute start-0 top-[calc(100%+6px)] z-dropdown w-full min-w-[260px] rounded-xl border border-edge bg-card shadow-[0_20px_50px_-20px_rgba(0,0,0,0.4)]"
         >
           <div className="relative border-b border-edge p-2">
             <IconSearch

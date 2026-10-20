@@ -4,6 +4,10 @@ import { Patient } from "../models/Patient";
 import { nextNumber, retryPause, NUMBER_ATTEMPTS } from "../services/numbering";
 import { asyncHandler } from "../middleware/errorHandler";
 import { patientSearchFilter } from "../services/patientSearch";
+import { PatientDoctorAccess } from "../models/PatientDoctorAccess";
+import { activeAccessFilter, accessiblePatientIdsByKind, canAccessPatient, describeAccess, viewerOf } from "../auth/patientAccess";
+import { isOid } from "../auth/policy";
+import { grantNewPatientAccess } from "../services/patientAccess";
 import {
   MEDICAL_KEYS,
   BLOOD_TYPES,
@@ -166,6 +170,19 @@ const phoneTaken = async (clinicId: string | undefined, phone: string, exceptId?
 
 const DUPLICATE_PHONE_MSG = "A patient with this phone number already exists in your clinic";
 
+/**
+ * PHASE 1 — every handler that takes a patient id goes through this ONE guard (auth/patientAccess.ts: canAccessPatient).
+ * A well-formed id the caller may not open — another doctor's patient, another clinic's, an unknown one — gets the same 404
+ * "Patient not found" (no existence oracle). A malformed id keeps its historical 400 (the query below raises a CastError for it).
+ */
+const guardPatient = async (req: Request, res: Response): Promise<boolean> => {
+  const id = req.params.id;
+  if (!isOid(id)) return true;
+  if (await canAccessPatient(viewerOf(req), id)) return true;
+  res.status(404).json({ message: "Patient not found" });
+  return false;
+};
+
 // ===================================================================
 // Handlers
 // ===================================================================
@@ -190,6 +207,9 @@ export const createPatient = asyncHandler(async (req: Request, res: Response) =>
         clinicId: req.clinicId,
         fileNumber: next,
       });
+      // PHASE 1 — a doctor owns the files he registers; for the front desk / owner the clinic's only active doctor (if exactly one)
+      // gets the patient, otherwise the patient is unassigned (owner / front desk see him; the owner assigns a doctor).
+      await grantNewPatientAccess(req.clinicId, patient._id, { userId: req.userId, role: req.role });
       return res.status(201).json(patient);
     } catch (err) {
       if (isDuplicatePhone(err)) return res.status(409).json({ message: DUPLICATE_PHONE_MSG });
@@ -207,6 +227,7 @@ export const createPatient = asyncHandler(async (req: Request, res: Response) =>
 export const updatePatient = asyncHandler(async (req: Request, res: Response) => {
   const data = updatePatientSchema.parse(req.body);
   const { set, unset } = buildPatientWrite(data);
+  if (!(await guardPatient(req, res))) return;
 
   const filter = { _id: req.params.id, clinicId: req.clinicId };
 
@@ -242,8 +263,32 @@ export const listPatients = asyncHandler(async (req: Request, res: Response) => 
   const search = String(req.query.search || "").trim().slice(0, 60);
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = 20;
+  const viewer = viewerOf(req);
 
   const filter = patientSearchFilter(req.clinicId, search);
+
+  // PHASE 1 — the list and the search obey the SAME scope as opening a file: a doctor sees (and can find by name / phone) only his
+  // own patients and the ones he currently covers; the owner and the front desk see the whole clinic. This is a server-side filter on
+  // the query itself, so a patient outside the scope never reaches the response — not in the page, not in the count.
+  const kinds = await accessiblePatientIdsByKind(viewer);
+  if (kinds) {
+    // ?scope=mine | delegated | all (default all = both)
+    const scope = String(req.query.scope || "all");
+    const ids = scope === "mine" ? kinds.own : scope === "delegated" ? kinds.delegated : [...kinds.own, ...kinds.delegated];
+    filter._id = { $in: ids };
+  } else if (req.query.doctorId) {
+    // owner / front desk: ?doctorId=<id> (that doctor's primary patients) or ?doctorId=unassigned (patients nobody is linked to)
+    const raw = String(req.query.doctorId);
+    const rows = (await PatientDoctorAccess.find({
+      clinicId: req.clinicId,
+      accessType: "primary",
+      ...activeAccessFilter(),
+      ...(raw === "unassigned" ? {} : { doctorId: isOid(raw) ? raw : "000000000000000000000000" }),
+    })
+      .select("patientId")
+      .lean()) as { patientId: unknown }[];
+    filter._id = raw === "unassigned" ? { $nin: rows.map((r) => r.patientId) } : { $in: rows.map((r) => r.patientId) };
+  }
 
   const [patients, total] = await Promise.all([
     Patient.find(filter)
@@ -253,14 +298,23 @@ export const listPatients = asyncHandler(async (req: Request, res: Response) => 
     Patient.countDocuments(filter),
   ]);
 
-  return res.json({ patients, total, page, pages: Math.ceil(total / limit) });
+  const info = await describeAccess(viewer, patients.map((p) => p._id));
+  return res.json({
+    // documents (not lean objects) so schema defaults such as whatsappOptIn / isArchived still apply to legacy patients
+    patients: patients.map((p) => ({ ...p.toObject(), access: info.get(String(p._id)) ?? null })),
+    total,
+    page,
+    pages: Math.ceil(total / limit),
+  });
 });
 
 export const getPatient = asyncHandler(async (req: Request, res: Response) => {
+  if (!(await guardPatient(req, res))) return;
   const patient = await Patient.findOne({
     _id: req.params.id,
     clinicId: req.clinicId,
   });
   if (!patient) return res.status(404).json({ message: "Patient not found" });
-  return res.json(patient);
+  const info = await describeAccess(viewerOf(req), [patient._id]);
+  return res.json({ ...patient.toObject(), access: info.get(String(patient._id)) ?? null });
 });

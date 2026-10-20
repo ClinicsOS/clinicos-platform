@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import { Appointment } from "../../../../models/Appointment";
-import { Invoice } from "../../../../models/Invoice";
+import { Invoice, ACTIVE_INVOICE } from "../../../../models/Invoice";
 import { Patient } from "../../../../models/Patient";
 import type { AIToolDefinition } from "../../AIProvider";
 import type { ToolContext } from "../types";
@@ -53,7 +53,7 @@ export async function getClinicStatsExecute(
   let revenueJOD: number | undefined;
   if (showRevenue) {
     const revenueResult = await Invoice.aggregate([
-      { $match: { clinicId, ...doctorMatchOid(scopeOf(ctx, "dashboardRevenue")) } },
+      { $match: { clinicId, ...doctorMatchOid(scopeOf(ctx, "dashboardRevenue")), ...ACTIVE_INVOICE } }, // PHASE 2 — soft-deleted invoices are not revenue
       { $unwind: "$payments" },
       { $match: { "payments.paidAt": { $gte: start, $lt: end } } },
       { $group: { _id: null, total: { $sum: "$payments.amount" } } },

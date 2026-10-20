@@ -1,5 +1,7 @@
 "use client";
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import axios from "axios";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useAuth } from "@/store/auth";
@@ -14,6 +16,10 @@ import DepthIcon from "@/components/DepthIcon";
 import FloatingPlus from "@/components/FloatingPlus";
 import Modal from "@/components/Modal";
 import PatientForm from "@/components/patients/PatientForm";
+import AccessBadge from "@/components/patients/AccessBadge";
+import ClinicalHistory from "@/components/history/ClinicalHistory";
+import { FocusProvider } from "@/lib/history/focus";
+import { parseProfileFocus, type ProfileTab } from "@/lib/history/deeplink";
 import { paidOf, type Appointment, type Clinic, type Invoice, type Patient } from "@/lib/types";
 import {
   MEDICAL_GROUPS,
@@ -93,8 +99,33 @@ const DermOverviewCard = dynamic(() => import("@/components/derm/DermOverviewCar
 const DermTreatmentPlanTab = dynamic(() => import("@/components/derm/treatment/TreatmentPlanTab"), { ssr: false, loading: () => <DentalLoading /> });
 const DermHistoryTab = dynamic(() => import("@/components/derm/treatment/DermHistoryTab"), { ssr: false, loading: () => <DentalLoading /> });
 
+type Tab = "overview" | "dental" | "plan" | "derm" | "dermplan" | "dermhistory" | "record";
+// The URL names a tab by a stable word (`?tab=`); the page's own state keeps its short id.
+const URL_TO_TAB: Record<ProfileTab, Tab> = {
+  overview: "overview", "dental-chart": "dental", "treatment-plan": "plan", "clinical-map": "derm", "derm-plan": "dermplan", "derm-history": "dermhistory", record: "record",
+};
+const TAB_TO_URL: Record<Tab, ProfileTab> = {
+  overview: "overview", dental: "dental-chart", plan: "treatment-plan", derm: "clinical-map", dermplan: "derm-plan", dermhistory: "derm-history", record: "record",
+};
+const DENTAL_TABS: Tab[] = ["overview", "dental", "plan", "record"];
+const DERM_TABS: Tab[] = ["overview", "derm", "dermplan", "dermhistory", "record"];
+
+// useSearchParams needs a Suspense boundary for the production build.
 export default function PatientProfilePage() {
+  return (
+    <Suspense fallback={<div className="card p-8 text-center text-sm text-mute" aria-busy="true">…</div>}>
+      <PatientProfileInner />
+    </Suspense>
+  );
+}
+
+function PatientProfileInner() {
   const { t } = useI18n();
+  const router = useRouter();
+  const pathname = usePathname();
+  const sp = useSearchParams();
+  const spKey = sp.toString();
+  const focus = parseProfileFocus(sp);
   const qc = useQueryClient();
   const selected = useSelectedPatient((s) => s.selected);
   const select = useSelectedPatient((s) => s.select);
@@ -111,17 +142,50 @@ export default function PatientProfilePage() {
   const isDental = clinic?.specialty === "dentistry";
   // Dermatology & Aesthetics module: enabled ONLY for the stable specialty id (the server enforces it on every /derm call).
   const isDerm = clinic?.specialty === "dermatology_aesthetics";
-  const [tab, setTab] = useState<"overview" | "dental" | "plan" | "derm" | "dermplan" | "dermhistory" | "record">("overview");
+  const [tab, setTab] = useState<Tab>(focus.tab ? URL_TO_TAB[focus.tab] : "overview");
+
+  // The URL is the source of truth for deep links: Back / Forward / refresh re-read it. (Manual tab clicks on a plain profile never touch the URL.)
+  useEffect(() => {
+    const f = parseProfileFocus(new URLSearchParams(spKey));
+    setTab(f.tab ? URL_TO_TAB[f.tab] : "overview");
+  }, [spKey]);
+  // A link to a tab this clinic does not have (e.g. Dental Chart on a dermatology clinic) opens the overview instead of a blank page.
+  useEffect(() => {
+    if (!clinic) return;
+    const ok = isDental ? DENTAL_TABS : isDerm ? DERM_TABS : (["overview", "record"] as Tab[]);
+    if (!ok.includes(tab)) setTab("overview");
+  }, [clinic, isDental, isDerm, tab]);
+  const goTab = (k: Tab) => {
+    setTab(k);
+    if (focus.patient) router.replace(`${pathname}?patient=${focus.patient}${k === "overview" ? "" : `&tab=${TAB_TO_URL[k]}`}`, { scroll: false });
+  };
+
+  // A deep link names its patient: open that patient (the server decides access — a patient this user may not open answers 404).
+  const pendingPatient = !!focus.patient && selected?._id !== focus.patient;
+  const { data: linked, error: linkedError } = useQuery({
+    queryKey: ["patient", focus.patient],
+    queryFn: async () => (await api.get<Patient>(`/patients/${focus.patient}`)).data,
+    enabled: pendingPatient,
+    retry: (n, e) => !(axios.isAxiosError(e) && e.response?.status === 404) && n < 2,
+  });
+  useEffect(() => {
+    if (linked && pendingPatient) select(linked);
+  }, [linked, pendingPatient, select]);
+  const linkedDenied = pendingPatient && axios.isAxiosError(linkedError) && linkedError.response?.status === 404;
 
   // NEW — always read the latest version of the file from the server (the
   // stored selection can be stale after an edit from another device).
-  const { data: fresh } = useQuery({
+  const { data: fresh, error: freshError } = useQuery({
     queryKey: ["patient", selected?._id],
     queryFn: async () => (await api.get<Patient>(`/patients/${selected!._id}`)).data,
     enabled: !!selected,
     initialData: selected ?? undefined,
+    retry: (n, e) => !(axios.isAxiosError(e) && e.response?.status === 404) && n < 2,
   });
-  const patient = fresh ?? selected;
+  // PHASE 1 — the server answers 404 for a patient this user may no longer open (access revoked / coverage ended): drop the stale
+  // copy that sessionStorage kept, instead of showing a file the server no longer shares.
+  const lostAccess = axios.isAxiosError(freshError) && freshError.response?.status === 404;
+  const patient = lostAccess || pendingPatient ? null : fresh ?? selected;
 
   // Patient Profile's Visit History — scoped server-side by patientId (the
   // backend always combines this with clinicId, so this can never pull in
@@ -146,9 +210,12 @@ export default function PatientProfilePage() {
   const treatQ = useTreatmentPlan(patient?._id ?? "", isDental && !!patient);
 
   if (!patient) {
+    if (pendingPatient && !linkedDenied && !linkedError) {
+      return <div className="card p-8 text-center text-sm text-mute" aria-busy="true">{t("dn.loading")}</div>;
+    }
     return (
-      <div className="card p-8 text-center text-sm text-mute">
-        {t("pp.missing")}{" "}
+      <div className="card p-8 text-center text-sm text-mute" data-testid="profile-denied">
+        {lostAccess || linkedDenied ? t("pa.denied") : t("pp.missing")}{" "}
         <Link href="/patients" className="text-blue hover:underline">{t("pt.title")} →</Link>
       </div>
     );
@@ -222,7 +289,13 @@ export default function PatientProfilePage() {
     setEditing(null);
   };
 
+  const focusKeys = [
+    focus.event && `event:${focus.event}`, focus.item && `item:${focus.item}`, focus.session && `session:${focus.session}`,
+    focus.assessment && `assessment:${focus.assessment}`, focus.followUp && `followUp:${focus.followUp}`, focus.note && `note:${focus.note}`,
+  ].filter((k): k is string => !!k);
+
   return (
+    <FocusProvider keys={focusKeys} run={spKey}>
     <div>
       {/* ===== Hero: orbiting 3D avatar ===== */}
       <div className="relative flex flex-wrap items-center gap-4 overflow-hidden rounded-xl bg-hero p-4">
@@ -241,6 +314,7 @@ export default function PatientProfilePage() {
             <span className="rounded-full border border-sky/40 bg-sky/10 px-2 py-0.5 font-mono text-[9px] text-sky">
               #{String(patient.fileNumber).padStart(4, "0")}
             </span>
+            <AccessBadge access={patient.access} />
           </h1>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             {patient.gender && (
@@ -294,7 +368,7 @@ export default function PatientProfilePage() {
               type="button"
               role="tab"
               aria-selected={tab === k}
-              onClick={() => setTab(k)}
+              onClick={() => goTab(k)}
               className={`-mb-px border-b-2 px-3 py-2 text-xs font-medium transition-colors ${
                 tab === k ? "border-teal text-teal" : "border-transparent text-mute hover:text-ink"
               }`}
@@ -306,12 +380,12 @@ export default function PatientProfilePage() {
       )}
       {isDental && tab === "dental" && (
         <div className="mt-3">
-          <DentalChartTab key={patient._id} patientId={patient._id} patientName={patient.fullName} onOpenPlan={() => setTab("plan")} />
+          <DentalChartTab key={patient._id} patientId={patient._id} patientName={patient.fullName} onOpenPlan={() => goTab("plan")} focus={focus} focusRun={spKey} />
         </div>
       )}
       {isDental && tab === "plan" && (
         <div className="mt-3">
-          <TreatmentPlanTab key={patient._id} patientId={patient._id} patientName={patient.fullName} canWrite={canWriteDental} visits={visits} />
+          <TreatmentPlanTab key={patient._id} patientId={patient._id} patientName={patient.fullName} canWrite={canWriteDental} visits={visits} focus={focus} focusRun={spKey} />
         </div>
       )}
 
@@ -324,7 +398,7 @@ export default function PatientProfilePage() {
               type="button"
               role="tab"
               aria-selected={tab === k}
-              onClick={() => setTab(k)}
+              onClick={() => goTab(k)}
               className={`-mb-px border-b-2 px-3 py-2 text-xs font-medium transition-colors ${
                 tab === k ? "border-teal text-teal" : "border-transparent text-mute hover:text-ink"
               }`}
@@ -336,17 +410,17 @@ export default function PatientProfilePage() {
       )}
       {isDerm && tab === "derm" && (
         <div className="mt-3">
-          <DermMapTab patientId={patient._id} patientGender={patient.gender} onOpenPlan={() => setTab("dermplan")} />
+          <DermMapTab patientId={patient._id} patientGender={patient.gender} onOpenPlan={() => goTab("dermplan")} />
         </div>
       )}
       {isDerm && tab === "dermplan" && (
         <div className="mt-3">
-          <DermTreatmentPlanTab patientId={patient._id} patientName={patient.fullName} canWrite={canWriteDental} onOpenMap={() => setTab("derm")} />
+          <DermTreatmentPlanTab patientId={patient._id} patientName={patient.fullName} canWrite={canWriteDental} onOpenMap={() => goTab("derm")} />
         </div>
       )}
       {isDerm && tab === "dermhistory" && (
         <div className="mt-3">
-          <DermHistoryTab patientId={patient._id} canWrite={canWriteDental} onOpenMap={() => setTab("derm")} onOpenPlan={() => setTab("dermplan")} />
+          <DermHistoryTab patientId={patient._id} canWrite={canWriteDental} onOpenMap={() => goTab("derm")} onOpenPlan={() => goTab("dermplan")} />
         </div>
       )}
       {/* ===== Every other specialty: Overview | Clinical Record (dentistry / dermatology have their tabs above) ===== */}
@@ -358,7 +432,7 @@ export default function PatientProfilePage() {
               type="button"
               role="tab"
               aria-selected={tab === k}
-              onClick={() => setTab(k)}
+              onClick={() => goTab(k)}
               className={`-mb-px border-b-2 px-3 py-2 text-xs font-medium transition-colors ${
                 tab === k ? "border-teal text-teal" : "border-transparent text-mute hover:text-ink"
               }`}
@@ -370,14 +444,14 @@ export default function PatientProfilePage() {
       )}
       {tab === "record" && (
         <div className="mt-3">
-          <ClinicalRecordTab key={patient._id} patientId={patient._id} canWrite={canWriteDental} />
+          <ClinicalRecordTab key={patient._id} patientId={patient._id} canWrite={canWriteDental} focusNote={tab === "record" ? focus.note : null} focusRun={spKey} />
         </div>
       )}
 
       {tab === "overview" && (<>
 
-      {isDental && <DentalOverviewCard patientId={patient._id} onOpenChart={() => setTab("dental")} onOpenPlan={() => setTab("plan")} />}
-      {isDerm && <DermOverviewCard patientId={patient._id} onOpenMap={() => setTab("derm")} onOpenPlan={() => setTab("dermplan")} />}
+      {isDental && <DentalOverviewCard patientId={patient._id} onOpenChart={() => goTab("dental")} onOpenPlan={() => goTab("plan")} />}
+      {isDerm && <DermOverviewCard patientId={patient._id} onOpenMap={() => goTab("derm")} onOpenPlan={() => goTab("dermplan")} />}
 
       {/* ===== Stats with rotating depth icons ===== */}
       <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -641,11 +715,16 @@ export default function PatientProfilePage() {
             </div>
           )}
 
-          {/* ===== Visit timeline with spinning cube nodes ===== */}
-          <div className="card mt-3 p-4">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <h2 className="text-xs font-medium text-ink">{t("pp.history")}</h2>
-              <button type="button" className="text-[11px] text-sky hover:underline" onClick={() => setTab("record")}>{t("cr.openRecord")} →</button>
+          {/* ===== PHASE 3 — unified clinical history (appointment / treatment plan / dental chart notes) ===== */}
+          <div className="mt-3">
+            <ClinicalHistory patientId={patient._id} />
+          </div>
+
+          {/* ===== Visit log (the administrative visit list, kept — collapsed) ===== */}
+          <details className="card mt-3 p-4" data-testid="visit-log">
+            <summary className="cursor-pointer select-none text-xs font-medium text-ink">{t("ch.visitLog")} · {t("pp.history")}</summary>
+            <div className="mb-3 mt-2 flex items-center justify-end gap-2">
+              <button type="button" className="text-[11px] text-sky hover:underline" onClick={() => goTab("record")}>{t("cr.openRecord")} →</button>
             </div>
             <div className="relative ps-7">
               <span className="absolute inset-y-1 start-2 border-s border-dashed border-edge" />
@@ -704,7 +783,7 @@ export default function PatientProfilePage() {
                 );
               })}
             </div>
-          </div>
+          </details>
         </div>
       </div>
 
@@ -722,6 +801,7 @@ export default function PatientProfilePage() {
         </Modal>
       )}
     </div>
+    </FocusProvider>
   );
 }
 

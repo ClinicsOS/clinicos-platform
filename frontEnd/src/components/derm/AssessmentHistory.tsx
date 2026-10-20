@@ -8,6 +8,7 @@ import type { RecordType, SurfaceId } from "@/lib/derm/regions";
 import { DERM_MAX_TEXT, type DermAssessment } from "@/lib/derm/types";
 import { dermErrorCode, flattenAssessments, useDermAssessments, useEditAssessment, useVoidAssessment } from "@/lib/derm/hooks";
 import { RecordTypeBadge, RegionChip, fmtDate, fmtDateTime } from "./dermUi";
+import { useFocusTarget } from "@/lib/history/focus";
 
 const FIELD_KEYS = [
   ["concern", "dm.field.concern"],
@@ -54,6 +55,7 @@ export function AssessmentCard({ a, patientId, canWrite, onSelectRegion, highlig
   const [voidNote, setVoidNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const voided = a.status === "entered_in_error";
+  const focus = useFocusTarget("assessment", a._id); // Phase 3 deep link
 
   const startEdit = () => { setDraft({ concern: a.concern, findings: a.findings, diagnosis: a.diagnosis, notes: a.notes }); setError(null); setMode("edit"); };
 
@@ -89,7 +91,7 @@ export function AssessmentCard({ a, patientId, canWrite, onSelectRegion, highlig
   const visitText = a.visit ? fmtDateTime(a.visit.startAt, lang) : a.appointmentId ? t("dm.visitLinked") : null;
 
   return (
-    <article className={`rounded-xl border border-edge bg-card2 p-3 ${voided ? "opacity-60" : ""}`} aria-label={`${t(`dm.type.${a.recordType}`)} · ${fmtDate(a.createdAt, lang)}`}>
+    <article ref={focus.ref} {...focus.attrs} className={`rounded-xl border border-edge bg-card2 p-3 ${voided ? "opacity-60" : ""} ${focus.className}`} aria-label={`${t(`dm.type.${a.recordType}`)} · ${fmtDate(a.createdAt, lang)}`}>
       <header className="flex flex-wrap items-center gap-2">
         <RecordTypeBadge type={a.recordType} />
         <span className="text-[11px] text-mute">{fmtDateTime(a.createdAt, lang)}</span>

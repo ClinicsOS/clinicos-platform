@@ -26,6 +26,7 @@ import {
 } from "@/lib/dates";
 import { timeToMinutes, intervalsOverlap } from "@/lib/workingHoursTime";
 import { useAccess } from "@/lib/access";
+import { FocusProvider, useFocusTarget } from "@/lib/history/focus";
 import DatePickerPopover from "@/components/appointments/DatePickerPopover";
 import { SkeletonList } from "@/components/Skeleton";
 import { newRequestId } from "@/lib/clinical/hooks";
@@ -190,14 +191,17 @@ export default function AppointmentsPage() {
     if (validDeepDate) setDate(validDeepDate);
   }, [validDeepDate]);
   const openedAppt = useRef<string | null>(null);
+  const [linkedNote, setLinkedNote] = useState(false); // PHASE 3: opened from a History note link -> emphasise the visit-note field
   useEffect(() => {
     const apptParam = searchParams.get("appt");
     if (apptParam && appointments && openedAppt.current !== apptParam) {
       if (validDeepDate && date !== validDeepDate) return; // wait for the requested day's schedule
       openedAppt.current = apptParam; // open it once; closing the modal must not re-open it on the next refresh
       const found = appointments.find((a) => a._id === apptParam);
-      if (found) setEditing(found);
-      else if (validDeepDate) toast.error(t("share.unavailable"));
+      if (found) {
+        setEditing(found);
+        setLinkedNote(!!searchParams.get("note") && !searchParams.get("schedule") && !!searchParams.get("patient"));
+      } else if (validDeepDate) toast.error(searchParams.get("patient") ? t("ch.missing") : t("share.unavailable"));
     }
   }, [searchParams, appointments, date, validDeepDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -615,10 +619,13 @@ export default function AppointmentsPage() {
           appointment={editing}
           doctors={doctors}
           clinic={clinic}
-          onClose={() => setEditing(null)}
+          highlightNote={linkedNote}
+          onClose={() => { setEditing(null); setLinkedNote(false); }}
           onDone={() => {
             qc.invalidateQueries({ queryKey: ["appointments-day"] });
+            qc.invalidateQueries({ queryKey: ["clinical-timeline"] }); // the visit note also lives in the patient's History
             setEditing(null);
+            setLinkedNote(false);
           }}
         />
       )}
@@ -1516,12 +1523,14 @@ function EditAppointmentModal({
   clinic,
   onClose,
   onDone,
+  highlightNote = false,
 }: {
   appointment: Appointment;
   doctors: Staff[];
   clinic: Clinic;
   onClose: () => void;
   onDone: () => void;
+  highlightNote?: boolean;
 }) {
   const { t, lang } = useI18n();
   const router = useRouter();
@@ -1802,15 +1811,9 @@ function EditAppointmentModal({
 
       {appointment.type !== "blocked" && (
         <>
-          <label className="lbl">{t("ap.visitNote")}</label>
-          <textarea
-            dir="auto"
-            className="inp mb-3 min-h-20"
-            placeholder={t("ap.visitNotePlaceholder")}
-            value={visitNote}
-            maxLength={1000}
-            onChange={(e) => setVisitNote(e.target.value)}
-          />
+          <FocusProvider keys={highlightNote ? [`visit-note:${appointment._id}`] : []} run={appointment._id}>
+            <VisitNoteField id={appointment._id} value={visitNote} onChange={setVisitNote} />
+          </FocusProvider>
         </>
       )}
 
@@ -1860,5 +1863,24 @@ function EditAppointmentModal({
         {update.isPending ? t("common.loading") : t("ap.save")}
       </button>
     </Modal>
+  );
+}
+
+/** The visit-note field. When the modal was opened from a History note link, the field is scrolled into view and briefly highlighted (stable id, no timers to wait for the modal). */
+function VisitNoteField({ id, value, onChange }: { id: string; value: string; onChange: (v: string) => void }) {
+  const { t } = useI18n();
+  const f = useFocusTarget("visit-note", id);
+  return (
+    <div ref={f.ref} {...f.attrs} data-testid="visit-note-field" className={`mb-3 rounded-lg ${f.className}`}>
+      <label className="lbl">{t("ap.visitNote")}</label>
+      <textarea
+        dir="auto"
+        className="inp min-h-20"
+        placeholder={t("ap.visitNotePlaceholder")}
+        value={value}
+        maxLength={1000}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
   );
 }

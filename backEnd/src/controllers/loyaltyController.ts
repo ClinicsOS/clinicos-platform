@@ -11,6 +11,7 @@ import { LoyaltyError, creditPoints, debitPoints, enrollPatient, getSettings, is
 import { DISPLAY_NAME_MAX, EARNING_LIMITS, EDITABLE_SETTING_PATHS, LOYALTY_ACCOUNT_STATUSES, LOYALTY_ROLES, LOYALTY_TECHNICAL_LIMITS, RESERVED_SETTING_SECTIONS, TIER_KEYS } from "../config/loyalty";
 import { getTierConfig, memberTierView, recentTierHistory } from "../services/loyaltyTiers";
 import { isUsable, type TierConfig } from "../services/loyaltyTierEngine";
+import { accessiblePatientIds, canAccessPatient, viewerOf } from "../auth/patientAccess";
 
 /**
  * Clinic-facing Loyalty API (Phase 2). Mounted at /api/loyalty behind  protect → (requireActivePlan on writes)
@@ -21,6 +22,10 @@ import { isUsable, type TierConfig } from "../services/loyaltyTierEngine";
  * foreign id behaves exactly like a missing one (404) — there is nothing to enumerate across clinics.
  *
  * This controller never writes a balance. (Phase 2 exposes no endpoint that creates points at all.)
+ *
+ * PATIENT ISOLATION (multi-doctor, Phase 1): a doctor only sees / acts on the Loyalty members that are HIS patients (own + covered, see
+ * auth/patientAccess.ts). Owner and receptionist keep the whole clinic. A member of a patient the caller may not open behaves exactly like
+ * a missing one (404) and never appears in a list, a search, a total or a "recent" feed.
  */
 
 /** Converts LoyaltyError into the project's usual `{ message, code }` JSON; anything else goes to errorHandler. */
@@ -114,6 +119,13 @@ const txDto = (t: Record<string, any>, patient?: Record<string, any>, actor?: Re
   createdBy: t.createdBy ? { id: String(t.createdBy), name: actor?.name ?? null } : null,
   createdAt: t.createdAt,
 });
+
+/** `{}` for an unrestricted viewer (owner / front desk), otherwise `{ patientId: { $in: <his patients> } }`. */
+const patientScope = async (req: Request): Promise<Record<string, unknown>> => {
+  const ids = await accessiblePatientIds(viewerOf(req), "patients");
+  return ids === null ? {} : { patientId: { $in: ids } };
+};
+const memberNotFound = (res: Response) => res.status(404).json({ message: "Loyalty member not found", code: "ACCOUNT_NOT_FOUND" });
 
 const patientsById = async (clinicId: string, ids: unknown[]) => {
   const unique = [...new Set(ids.map(String))];
@@ -290,17 +302,18 @@ export const patchLoyaltySettings = handler(async (req, res) => {
 export const getOverview = handler(async (req, res) => {
   const clinicId = req.clinicId as string;
   const cid = oidOf(clinicId);
+  const pf = await patientScope(req); // a doctor's totals cover only his own members
   const [{ settings }, members, transactions, outstanding, issued, recent] = await Promise.all([
     getSettings(clinicId),
-    LoyaltyAccount.countDocuments({ clinicId: cid }),
-    LoyaltyTransaction.countDocuments({ clinicId: cid }),
-    LoyaltyAccount.aggregate([{ $match: { clinicId: cid } }, { $group: { _id: null, total: { $sum: "$pointsBalance" } } }]),
+    LoyaltyAccount.countDocuments({ clinicId: cid, ...pf }),
+    LoyaltyTransaction.countDocuments({ clinicId: cid, ...pf }),
+    LoyaltyAccount.aggregate([{ $match: { clinicId: cid, ...pf } }, { $group: { _id: null, total: { $sum: "$pointsBalance" } } }]),
     // Points ISSUED, by source (uses the {clinicId, createdAt} index prefix; reversals are not netted here).
     LoyaltyTransaction.aggregate([
-      { $match: { clinicId: cid, type: { $in: ["earn_visit", "earn_spending", "manual_credit"] } } },
+      { $match: { clinicId: cid, ...pf, type: { $in: ["earn_visit", "earn_spending", "manual_credit"] } } },
       { $group: { _id: "$type", total: { $sum: "$pointsDelta" } } },
     ]),
-    LoyaltyTransaction.find({ clinicId: cid }).sort({ createdAt: -1, _id: -1 }).limit(5).lean(),
+    LoyaltyTransaction.find({ clinicId: cid, ...pf }).sort({ createdAt: -1, _id: -1 }).limit(5).lean(),
   ]);
   const by = (t: string) => issued.find((x: { _id: string }) => x._id === t)?.total ?? 0;
   const visitsOn = !!settings.earning?.visits?.enabled && settings.earning.visits.pointsPerVisit != null;
@@ -328,6 +341,8 @@ export const listMembers = handler(async (req, res) => {
   const filter: Record<string, unknown> = { clinicId: oidOf(clinicId) };
   if (q.status) filter.status = q.status;
   if (q.tier) filter["tier.key"] = q.tier === "none" ? null : q.tier;
+  const scope = await accessiblePatientIds(viewerOf(req), "patients"); // null = whole clinic
+  if (scope !== null) filter.patientId = { $in: scope };
 
   if (q.search) {
     // Same safe, escaped matching the patient list uses — resolved to ids first (one query), then members by id.
@@ -336,7 +351,7 @@ export const listMembers = handler(async (req, res) => {
     const digits = q.search.replace(/\D/g, "");
     if (digits.length >= 3) or.push({ phone: new RegExp(digits.split("").join("\\D*")) });
     if (/^\d{1,9}$/.test(q.search)) or.push({ fileNumber: Number(q.search) });
-    const ids = await Patient.find({ clinicId, $or: or }).select("_id").limit(500).lean();
+    const ids = await Patient.find({ clinicId, ...(scope !== null ? { _id: { $in: scope } } : {}), $or: or }).select("_id").limit(500).lean();
     filter.patientId = { $in: ids.map((p) => p._id) };
   }
 
@@ -366,7 +381,7 @@ export const getMember = handler(async (req, res) => {
   const clinicId = req.clinicId as string;
   if (!isOid(req.params.id)) return res.status(404).json({ message: "Loyalty member not found", code: "ACCOUNT_NOT_FOUND" });
   const account = await LoyaltyAccount.findOne({ _id: req.params.id, clinicId }).lean();
-  if (!account) return res.status(404).json({ message: "Loyalty member not found", code: "ACCOUNT_NOT_FOUND" });
+  if (!account || !(await canAccessPatient(viewerOf(req), account.patientId, "patients"))) return memberNotFound(res);
   const [patients, tierCfg] = await Promise.all([patientsById(clinicId, [account.patientId]), getTierConfig(clinicId)]);
   const tier = memberTierView(tierCfg, account);
   return res.json({
@@ -411,8 +426,8 @@ export const listMemberTransactions = handler(async (req, res) => {
   const clinicId = req.clinicId as string;
   const q = pageQuery.parse(req.query);
   if (!isOid(req.params.id)) return res.status(404).json({ message: "Loyalty member not found", code: "ACCOUNT_NOT_FOUND" });
-  const owned = await LoyaltyAccount.exists({ _id: req.params.id, clinicId });
-  if (!owned) return res.status(404).json({ message: "Loyalty member not found", code: "ACCOUNT_NOT_FOUND" });
+  const acct = await LoyaltyAccount.findOne({ _id: req.params.id, clinicId }).select("patientId").lean();
+  if (!acct || !(await canAccessPatient(viewerOf(req), acct.patientId, "patients"))) return memberNotFound(res);
   return res.json(await pageTransactions(req, { clinicId: oidOf(clinicId), accountId: oidOf(req.params.id) }, q.page, q.limit, false));
 });
 
@@ -422,6 +437,7 @@ export const listTransactions = handler(async (req, res) => {
   const filter: Record<string, unknown> = { clinicId: oidOf(clinicId) };
   if (q.accountId) filter.accountId = oidOf(q.accountId);
   if (q.type) filter.type = q.type;
+  Object.assign(filter, await patientScope(req));
   return res.json(await pageTransactions(req, filter, q.page, q.limit, true));
 });
 
@@ -432,6 +448,7 @@ const enrollSchema = z.object({ patientId: z.string().regex(/^[a-fA-F0-9]{24}$/,
 
 export const enrollMember = handler(async (req, res) => {
   const { patientId } = enrollSchema.parse(req.body);
+  if (!(await canAccessPatient(viewerOf(req), patientId, "patients"))) return res.status(404).json({ message: "Patient not found", code: "PATIENT_NOT_FOUND" });
   const account = await enrollPatient({ clinicId: req.clinicId as string, patientId, enrolledBy: req.userId as string });
   const patients = await patientsById(req.clinicId as string, [account.patientId]);
   await audit(req, "loyalty.member_enrolled", { accountId: String(account._id), patientId });
@@ -454,8 +471,8 @@ export const adjustMemberPoints = handler(async (req, res) => {
   const clinicId = req.clinicId as string;
   if (!isOid(req.params.id)) return res.status(404).json({ message: "Loyalty member not found", code: "ACCOUNT_NOT_FOUND" });
   const body = adjustSchema.parse(req.body);
-  const owned = await LoyaltyAccount.exists({ _id: req.params.id, clinicId });
-  if (!owned) return res.status(404).json({ message: "Loyalty member not found", code: "ACCOUNT_NOT_FOUND" });
+  const owned = await LoyaltyAccount.findOne({ _id: req.params.id, clinicId }).select("patientId").lean();
+  if (!owned || !(await canAccessPatient(viewerOf(req), owned.patientId, "patients"))) return memberNotFound(res);
 
   const input = { clinicId, accountId: req.params.id, points: body.points, reason: body.reason, sourceType: "manual" as const, actorId: req.userId as string };
   const r = body.direction === "credit" ? await creditPoints({ ...input, type: "manual_credit" }) : await debitPoints({ ...input, type: "manual_debit" });

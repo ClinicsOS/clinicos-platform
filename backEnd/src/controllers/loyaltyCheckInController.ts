@@ -6,6 +6,7 @@ import { logActivity } from "../services/activityLogger";
 import { LoyaltyError, getSettings } from "../services/loyaltyService";
 import { CheckInError, countPending, listPending, listRecent, resolveCheckIn, type ResolveAction } from "../services/loyaltyCheckIn";
 import { CHECKIN } from "../config/loyalty";
+import { accessiblePatientIds, viewerOf } from "../auth/patientAccess";
 
 /**
  * Clinic-facing check-in API (Phase 5) — /api/loyalty/checkins, behind protect → requireAddon("loyalty") →
@@ -41,7 +42,7 @@ async function audit(req: Request, action: string, details: Record<string, unkno
 /* GET /api/loyalty/checkins/summary — cheap, polled by the sidebar dot and the tab badge */
 export const getCheckInSummary = handler(async (req, res) => {
   const clinicId = req.clinicId as string;
-  const [pending, { settings }] = await Promise.all([countPending(clinicId), getSettings(clinicId)]);
+  const [pending, { settings }] = await Promise.all([countPending(clinicId, await accessiblePatientIds(viewerOf(req), "patients")), getSettings(clinicId)]);
   res.setHeader("Cache-Control", "no-store");
   return res.json({ pending, enabled: !!settings.checkin?.enabled });
 });
@@ -59,11 +60,12 @@ export const listCheckIns = handler(async (req, res) => {
   const { settings } = await getSettings(clinicId);
   res.setHeader("Cache-Control", "no-store");
   const enabled = !!settings.checkin?.enabled;
+  const scope = await accessiblePatientIds(viewerOf(req), "patients"); // doctors: only their patients' requests
   if (q.scope === "pending") {
-    const { rows, total } = await listPending(clinicId);
+    const { rows, total } = await listPending(clinicId, scope);
     return res.json({ scope: "pending", enabled, checkIns: rows, total });
   }
-  const r = await listRecent(clinicId, q.page, q.limit);
+  const r = await listRecent(clinicId, q.page, q.limit, scope);
   return res.json({ scope: "recent", enabled, checkIns: r.rows, total: r.total, page: r.page, pages: r.pages, limit: q.limit });
 });
 
@@ -73,7 +75,7 @@ const rejectSchema = z.object({}).strict();
 const resolve = (action: ResolveAction) =>
   handler(async (req, res) => {
     const body = action === "confirm" ? confirmSchema.parse(req.body ?? {}) : (rejectSchema.parse(req.body ?? {}), {} as { appointmentId?: string | null });
-    const row = await resolveCheckIn({ clinicId: req.clinicId as string, checkInId: req.params.id, action, userId: req.userId as string, appointmentId: body.appointmentId ?? null });
+    const row = await resolveCheckIn({ clinicId: req.clinicId as string, checkInId: req.params.id, action, userId: req.userId as string, appointmentId: body.appointmentId ?? null, scope: await accessiblePatientIds(viewerOf(req), "patients") });
     await audit(req, action === "confirm" ? "loyalty.checkin.confirmed" : "loyalty.checkin.rejected", {
       checkInId: row.id,
       accountId: row.accountId,

@@ -177,7 +177,7 @@ export async function summarize(ctx: ChatCtx, convs: ConvLean[]): Promise<Conver
   const lastIds = convs.map((c) => c.lastMessageId).filter(Boolean) as Types.ObjectId[];
   const [reads, people, lastMsgs, memberCount, peerReads] = await Promise.all([
     readPositions(ctx, ids),
-    peopleById(ctx.clinicId, convs.flatMap((c) => c.participantIds)),
+    peopleById(ctx.clinicId, convs.flatMap((c) => c.participantIds ?? [])), // `?? []`: a team conversation stored without the (empty) array must not turn "undefined" into an ObjectId cast
     lastIds.length ? ConnectMessage.find({ _id: { $in: lastIds }, clinicId: ctx.clinicId }).select("senderId text contentType createdAt").lean() : Promise.resolve([]),
     convs.some((c) => c.type === "clinic_team") ? User.countDocuments({ clinicId: ctx.clinicId, isActive: true }) : Promise.resolve(0),
     peerReadCursors(ctx.clinicId, ctx.userId, convs.filter((c) => c.type === "direct")),

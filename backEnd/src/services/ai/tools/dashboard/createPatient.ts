@@ -3,6 +3,7 @@ import { nextNumber, retryPause, NUMBER_ATTEMPTS } from "../../../numbering";
 import { Patient } from "../../../../models/Patient";
 import type { AIToolDefinition } from "../../AIProvider";
 import type { ToolContext } from "../types";
+import { grantNewPatientAccess } from "../../../patientAccess";
 
 export const createPatientDefinition: AIToolDefinition = {
   name: "createPatient",
@@ -54,6 +55,9 @@ export async function createPatientExecute(
         clinicId: ctx.clinicId,
         fileNumber: next,
       });
+
+      // PHASE 1 — same ownership rule as POST /api/patients (a doctor owns what he registers; otherwise the clinic's only active doctor).
+      await grantNewPatientAccess(ctx.clinicId, patient._id, { userId: ctx.userId, role: ctx.role });
 
       return {
         success: true,

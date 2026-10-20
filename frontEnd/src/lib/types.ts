@@ -141,6 +141,31 @@ export interface Patient {
   insurance?: { provider?: string; policyNumber?: string };
   medicalHistory?: Partial<Record<string, MedicalFlag>>;
   medicalUpdatedAt?: string;
+  /** PHASE 1 — why the signed-in user can open this patient (server-computed; presentation only, never an authorization). */
+  access?: PatientAccessInfo;
+}
+
+/** own = the doctor's patient · delegated = covering another doctor · clinic = owner / front desk (see `doctors`). */
+export interface PatientAccessInfo {
+  kind: "own" | "delegated" | "clinic";
+  covering: { _id: string; name: string }[];
+  until: string | null;
+  doctors: { _id: string; name: string }[];
+}
+
+export type DelegationStatus = "active" | "scheduled" | "expired" | "revoked";
+export interface DoctorDelegationRow {
+  _id: string;
+  fromDoctor: { _id: string; name: string } | null;
+  toDoctor: { _id: string; name: string } | null;
+  scope: "all" | "selected";
+  status: DelegationStatus;
+  startsAt: string | null;
+  expiresAt: string | null;
+  note: string | null;
+  patientCount: number;
+  createdAt: string;
+  revokedAt: string | null;
 }
 
 export interface Appointment {
@@ -165,6 +190,12 @@ export interface Invoice {
   payments: Payment[]; status: string; createdAt: string;
   // PHASE 4 — treating doctor (optional: legacy invoices have none = "unassigned"). Populated {_id,name} by GET /invoices.
   doctorId?: { _id: string; name: string } | string | null;
+  // PHASE 2 — deletion lifecycle. Only GET /invoices/deleted rows carry these (active invoices never do). Deletion is separate from `status`.
+  deletedAt?: string | null;
+  deletedBy?: { _id: string; name: string } | string | null;
+  deleteReason?: string | null;
+  restoredAt?: string | null;
+  restoredBy?: { _id: string; name: string } | string | null;
 }
 
 export interface Stats {

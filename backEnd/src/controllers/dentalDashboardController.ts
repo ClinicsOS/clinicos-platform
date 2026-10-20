@@ -8,9 +8,10 @@ import { DentalTreatmentSession } from "../models/DentalTreatmentSession";
 import { DentalToothEvent } from "../models/DentalToothEvent";
 import { getAmmanTodayRange } from "../utils/timezone";
 import { loadBillingViewsForClinic } from "../services/dentalBilling";
-import { Invoice } from "../models/Invoice";
+import { Invoice, DELETED_INVOICE } from "../models/Invoice";
 import { resolveDataScope, doctorMatch } from "../auth/policy";
 import { resolveTreatingDoctors } from "../services/doctorAttribution";
+import { patientScopeFilter, viewerOf } from "../auth/patientAccess";
 
 /**
  * GET /api/dental/dashboard — one summary read for the Dentistry operational dashboard.
@@ -35,6 +36,10 @@ export const getDentalDashboard = asyncHandler(async (req: Request, res: Respons
   // PHASE 4 — a doctor's "Today" is their own schedule (the shared clinical overview below stays clinic-wide); owner / receptionist see all.
   const apptScope = resolveDataScope(req, "appointments");
   const restrictTo = apptScope.level === "self" ? apptScope.userId : undefined;
+  // PHASE 1 — the "shared clinical overview" is no longer clinic-wide for a doctor: every treatment / diagnosis / activity row below is
+  // limited to the patients he may open (his own + covered). `{}` for the owner and the front desk. (Names are looked up only for ids
+  // that come out of these scoped queries, so another doctor's patient never reaches the response.)
+  const pScope = await patientScopeFilter(viewerOf(req), "patientId", "patientClinical");
 
   // ---------- Today (existing Appointment/Visit source of truth; a "blocked" slot is not a patient visit) ----------
   const todaysAppts = (await Appointment.find({ clinicId, type: "appointment", ...doctorMatch(apptScope), startAt: { $gte: dayStart, $lte: dayEnd } })
@@ -54,14 +59,14 @@ export const getDentalDashboard = asyncHandler(async (req: Request, res: Respons
   }
 
   // ---------- Treatment Overview (COUNT SEMANTICS: plan items, never sessions) ----------
-  const byStatus = (await DentalTreatmentItem.aggregate([{ $match: { clinicId } }, { $group: { _id: "$status", count: { $sum: 1 } } }])) as { _id: string; count: number }[];
+  const byStatus = (await DentalTreatmentItem.aggregate([{ $match: { clinicId, ...pScope } }, { $group: { _id: "$status", count: { $sum: 1 } } }])) as { _id: string; count: number }[];
   const statusCount = (s: string) => byStatus.find((r) => r._id === s)?.count ?? 0;
   const treatmentOverview = { planned: statusCount("planned"), inProgress: statusCount("in_progress"), completed: statusCount("completed"), cancelled: statusCount("cancelled") };
 
   // ---------- Active Treatments: in-progress first (most recently touched), then a few most-recent planned ----------
-  const inProgress = (await DentalTreatmentItem.find({ clinicId, status: "in_progress" }).sort({ updatedAt: -1 }).limit(LIMIT).lean()) as any[];
+  const inProgress = (await DentalTreatmentItem.find({ clinicId, ...pScope, status: "in_progress" }).sort({ updatedAt: -1 }).limit(LIMIT).lean()) as any[];
   const plannedFill = inProgress.length < LIMIT
-    ? ((await DentalTreatmentItem.find({ clinicId, status: "planned" }).sort({ createdAt: -1 }).limit(LIMIT - inProgress.length).lean()) as any[])
+    ? ((await DentalTreatmentItem.find({ clinicId, ...pScope, status: "planned" }).sort({ createdAt: -1 }).limit(LIMIT - inProgress.length).lean()) as any[])
     : [];
   const activeItems = [...inProgress, ...plannedFill];
   const sessionCounts = activeItems.length
@@ -73,7 +78,7 @@ export const getDentalDashboard = asyncHandler(async (req: Request, res: Respons
   const sessionCountOf = new Map(sessionCounts.map((r) => [String(r._id), r.count]));
 
   // ---------- Needs Billing: COMPLETED items, eligibility from the ONE authoritative billing service (not re-derived here) ----------
-  const completedCandidates = (await DentalTreatmentItem.find({ clinicId, status: "completed" }).sort({ updatedAt: -1 }).limit(40).lean()) as any[];
+  const completedCandidates = (await DentalTreatmentItem.find({ clinicId, ...pScope, status: "completed" }).sort({ updatedAt: -1 }).limit(40).lean()) as any[];
   const billingViews = await loadBillingViewsForClinic(clinicId, completedCandidates, restrictTo);
   let needsBillingAll = completedCandidates.filter((i) => billingViews.get(String(i._id))?.state === "none");
   if (restrictTo) {
@@ -84,9 +89,14 @@ export const getDentalDashboard = asyncHandler(async (req: Request, res: Respons
   const needsBillingItems = needsBillingAll.slice(0, LIMIT);
 
   // ---------- Recent Activity: diagnoses, treatment status changes, and invoicing — merged and trimmed ----------
-  const recentDiagnoses = (await DentalToothEvent.find({ clinicId, category: "diagnosis" }).sort({ createdAt: -1 }).limit(LIMIT).lean()) as any[];
-  const recentStatusItems = (await DentalTreatmentItem.find({ clinicId, status: { $in: ["in_progress", "completed", "cancelled"] } }).sort({ updatedAt: -1 }).limit(LIMIT).lean()) as any[];
-  const recentBilled = (await DentalTreatmentItem.find({ clinicId, "billing.state": "invoiced" }).sort({ "billing.at": -1 }).limit(LIMIT).lean()) as any[];
+  const recentDiagnoses = (await DentalToothEvent.find({ clinicId, ...pScope, category: "diagnosis" }).sort({ createdAt: -1 }).limit(LIMIT).lean()) as any[];
+  const recentStatusItems = (await DentalTreatmentItem.find({ clinicId, ...pScope, status: { $in: ["in_progress", "completed", "cancelled"] } }).sort({ updatedAt: -1 }).limit(LIMIT).lean()) as any[];
+  const recentBilledAll = (await DentalTreatmentItem.find({ clinicId, ...pScope, "billing.state": "invoiced" }).sort({ "billing.at": -1 }).limit(LIMIT).lean()) as any[];
+  // PHASE 2 — an "invoiced" event whose invoice has since been moved to Deleted Invoices is not shown (one batched lookup; the treatment link itself is untouched).
+  const deletedBilled = recentBilledAll.length
+    ? new Set(((await Invoice.find({ _id: { $in: recentBilledAll.map((i) => i.billing.invoiceId) }, clinicId, ...DELETED_INVOICE }).select("_id").lean()) as any[]).map((v) => String(v._id)))
+    : new Set<string>();
+  const recentBilled = recentBilledAll.filter((i) => !deletedBilled.has(String(i.billing.invoiceId)));
 
   type Feed = { at: Date; kind: string; patientId: string; procedureCode?: string; customName?: string; targetType?: string; toothNumbers?: string[]; invoiceNumber?: number; amount?: number };
   // PHASE 4 — a doctor sees the invoiced AMOUNT only of invoices attributed to them (one batched lookup, only for that role).

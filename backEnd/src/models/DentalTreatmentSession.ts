@@ -58,5 +58,7 @@ const sessionSchema = new Schema<IDentalTreatmentSession>(
 sessionSchema.index({ itemId: 1, appointmentId: 1 }, { unique: true });
 sessionSchema.index({ itemId: 1, sessionNumber: 1 }, { unique: true });
 sessionSchema.index({ clinicId: 1, patientId: 1, appointmentId: 1 });
+// PHASE 3 — unified clinical History reads this patient's records newest-first (keyset on the date field).
+sessionSchema.index({ clinicId: 1, patientId: 1, startedAt: -1 });
 
 export const DentalTreatmentSession = mongoose.model<IDentalTreatmentSession>("DentalTreatmentSession", sessionSchema);

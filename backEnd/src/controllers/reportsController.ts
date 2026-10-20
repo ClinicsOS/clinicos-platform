@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import mongoose from "mongoose";
 import { Appointment } from "../models/Appointment";
-import { Invoice } from "../models/Invoice";
+import { Invoice, ACTIVE_INVOICE } from "../models/Invoice";
 import { Patient } from "../models/Patient";
 import { User } from "../models/User";
 import { asyncHandler } from "../middleware/errorHandler";
@@ -47,7 +47,7 @@ export const monthlyReport = asyncHandler(async (req: Request, res: Response) =>
   // ==== Revenue (from paid invoice payments during the month) ====
   const revenueOf = async (match: Record<string, unknown>) => {
     const rows = await Invoice.aggregate([
-      { $match: { clinicId, ...match } },
+      { $match: { clinicId, ...match, ...ACTIVE_INVOICE } }, // PHASE 2 — soft-deleted invoices never count
       { $unwind: "$payments" },
       { $match: { "payments.paidAt": { $gte: start, $lt: end } } },
       { $group: { _id: null, total: { $sum: "$payments.amount" } } },
@@ -144,7 +144,7 @@ export const monthlyReport = asyncHandler(async (req: Request, res: Response) =>
   // ==== Daily series (revenue + appointments per day) ====
   const [revSeries, apptSeries] = await Promise.all([
     Invoice.aggregate([
-      { $match: { clinicId, ...invMatch } },
+      { $match: { clinicId, ...invMatch, ...ACTIVE_INVOICE } }, // PHASE 2
       { $unwind: "$payments" },
       { $match: { "payments.paidAt": { $gte: start, $lt: end } } },
       {

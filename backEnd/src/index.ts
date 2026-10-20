@@ -34,6 +34,13 @@ import connectRoutes from "./routes/connectRoutes"; // NEW — ClinicOS Connect 
 import { ConnectConversation } from "./models/ConnectConversation";
 import { ConnectMessage } from "./models/ConnectMessage";
 import { ConnectReadState } from "./models/ConnectReadState";
+import patientAccessRoutes from "./routes/patientAccessRoutes"; // NEW — multi-doctor patient isolation: doctor coverage (delegation) + owner assignment
+import { PatientDoctorAccess } from "./models/PatientDoctorAccess";
+import { DoctorDelegation } from "./models/DoctorDelegation";
+import { backfillAllClinics } from "./services/patientAccessBackfill";
+import { bootstrapInvoiceCounters } from "./services/invoiceNumbering";
+import { InvoiceCounter } from "./models/InvoiceCounter";
+import { Invoice } from "./models/Invoice";
 
 /** Phase 10 — Loyalty staff responses hold members' balances and activity: never let a browser / proxy keep them. */
 const noStore = (_req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -85,6 +92,7 @@ app.use("/api/expenses", expenseRoutes); // NEW — clinic & owner expenses
 app.use("/api/dental", dentalRoutes); // NEW — Dentistry module (specialty-gated server-side)
 app.use("/api/derm", dermRoutes); // NEW — Dermatology & Aesthetics module (specialty-gated server-side)
 app.use("/api/loyalty", noStore, loyaltyRoutes); // NEW — ClinicOS Loyalty (requires the active paid add-on)
+app.use("/api/patient-access", noStore, patientAccessRoutes); // NEW — doctor coverage / patient assignment (never cached)
 app.use("/api/connect", noStore, connectRoutes); // NEW — ClinicOS Connect C1 (Pro plan; staff messages are never cached)
 
 app.use(errorHandler);
@@ -102,6 +110,28 @@ const start = async () => {
   await Promise.all([ConnectConversation.init(), ConnectMessage.init(), ConnectReadState.init()]).catch((e) =>
     console.error("[connect] index build failed:", e instanceof Error ? e.message : e),
   );
+  // PHASE 1 (patient isolation): build the access indexes, then link every EXISTING patient to the doctor(s) it provably belongs to
+  // BEFORE serving traffic (insert-only, idempotent, never guesses — see services/patientAccessBackfill.ts). PATIENT_ACCESS_BACKFILL=off skips it
+  // (the operator script `dist/scripts/patientAccessBackfill.js` does the same on demand). A failure is logged and never blocks the API.
+  await Promise.all([PatientDoctorAccess.init(), DoctorDelegation.init()]).catch((e) =>
+    console.error("[patient-access] index build failed:", e instanceof Error ? e.message : e),
+  );
+  if (String(process.env.PATIENT_ACCESS_BACKFILL || "").toLowerCase() !== "off") {
+    await backfillAllClinics()
+      .then((s) => s.created && console.log(`[patient-access] backfill linked ${s.created} patient(s) across ${s.clinics} clinic(s); ${s.unassigned} left unassigned (owner / front desk only)`))
+      .catch((e) => console.error("[patient-access] backfill skipped:", e instanceof Error ? e.message : e));
+  }
+  // PHASE 3 (invoice safety): build the counter + invoice-number indexes, then give every clinic that already has invoices a counter ABOVE its highest
+  // existing number (idempotent, only ever raises, edits nothing — see services/invoiceNumbering.ts). INVOICE_COUNTER_BOOTSTRAP=off skips it;
+  // `dist/scripts/invoiceCounterBootstrap.js` does the same on demand. A failure is logged and never blocks the API (the first invoice bootstraps lazily).
+  await Promise.all([InvoiceCounter.init(), Invoice.init()]).catch((e) =>
+    console.error("[invoice-counter] index build failed:", e instanceof Error ? e.message : e),
+  );
+  if (String(process.env.INVOICE_COUNTER_BOOTSTRAP || "").toLowerCase() !== "off") {
+    await bootstrapInvoiceCounters()
+      .then((r) => (r.created || r.raised) && console.log(`[invoice-counter] bootstrap: ${r.created} counter(s) created, ${r.raised} raised, ${r.unchanged} already correct (${r.clinics} clinic(s) with invoices)`))
+      .catch((e) => console.error("[invoice-counter] bootstrap skipped:", e instanceof Error ? e.message : e));
+  }
   // C3: Connect realtime shares this HTTP server (and its port); it only DELIVERS what the C1 HTTP services have already persisted.
   const server = http.createServer(app);
   const realtime = attachConnectRealtime(server);

@@ -9,6 +9,7 @@ import { sessionGroups, sessionProcedureName } from "@/lib/derm/reportModel";
 import { useEditFollowUp, useVoidFollowUp } from "@/lib/derm/treatmentHooks";
 import { RecordTypeBadge, RegionChip, fmtDate, fmtDateTime } from "../dermUi";
 import { treatmentErrorKey, useProcLabel } from "./shared";
+import { useFocusTarget } from "@/lib/history/focus";
 
 const FIELDS = [["clinicianAssessment", "dt.fu.assessment"], ["progress", "dt.fu.progress"], ["complications", "dt.fu.complications"], ["notes", "dt.fu.notes"], ["nextStep", "dt.fu.nextStep"]] as const;
 
@@ -37,8 +38,9 @@ export default function FollowUpCard({ f, patientId, canWrite, procedureCode, se
     try { await voidMut.mutateAsync({ followUpId: f._id, note: note.trim() }); toast.success(t("dt.fu.voidedToast")); setMode("view"); } catch (e) { setError(t(treatmentErrorKey(e))); }
   };
 
+  const focus = useFocusTarget("followUp", f._id); // Phase 3 deep link
   return (
-    <article className={`rounded-xl border border-edge bg-card2 p-3 ${voided ? "opacity-70" : ""}`}>
+    <article ref={focus.ref} {...focus.attrs} className={`rounded-xl border border-edge bg-card2 p-3 ${voided ? "opacity-70" : ""} ${focus.className}`}>
       <div className="flex flex-wrap items-center gap-1.5">
         <RecordTypeBadge type={f.recordType} />
         <span className="rounded-full border border-edge bg-soft px-2 py-0.5 text-[10px] font-medium text-ink">{t("dt.fu.badge")}</span>
